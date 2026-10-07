@@ -486,7 +486,10 @@ final class PlayerModel: NSObject, ObservableObject {
 
     func retryPlayback() {
         playbackError = nil
-        player.currentItem?.seek(to: .zero)
+        player.currentItem?.seek(
+            to: .zero,
+            completionHandler: nil
+        )
         player.play()
     }
 
