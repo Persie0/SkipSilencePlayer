@@ -12,6 +12,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -497,6 +498,7 @@ private fun formatTime(ms: Long): String {
 }
 
 
+@OptIn(UnstableApi::class)
 private fun buildPlayer(context: Context, silenceThresholdDb: Float): ExoPlayer {
     val silenceProcessor = SilenceSkippingAudioProcessor(
         SilenceSkippingAudioProcessor.DEFAULT_MINIMUM_SILENCE_DURATION_US,
