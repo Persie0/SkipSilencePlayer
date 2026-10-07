@@ -348,6 +348,8 @@ final class PlayerModel: NSObject, ObservableObject {
     func requestLoad(entries: [PlaylistEntry], startIndex: Int = 0) {
         guard !entries.isEmpty else { return }
 
+        releaseFolderScopeIfNeeded(for: entries.map(\.url))
+
         let index = min(max(startIndex, 0), entries.count - 1)
         let key = Self.videoKey(entries[index].url)
         let saved = defaults.double(forKey: "\(key).position")
@@ -719,11 +721,7 @@ final class PlayerModel: NSObject, ObservableObject {
     }
 
     func clearExternalSubtitle() {
-        externalSubtitleCues = []
-        externalSubtitleCueCount = 0
-        externalSubtitleName = nil
-        externalSubtitleText = ""
-        subtitleSearchStatus = nil
+        resetExternalSubtitleState()
 
         if let selectedURL {
             let key = Self.videoKey(selectedURL)
@@ -946,7 +944,10 @@ final class PlayerModel: NSObject, ObservableObject {
 
         configureMediaSelection(for: item)
         applyAudioOnlyToCurrentItem()
-        restoreExternalSubtitle(for: videoKey)
+        let restoredSubtitle = restoreExternalSubtitle(for: videoKey)
+        if !restoredSubtitle {
+            autoDiscoverExternalSubtitle(for: url)
+        }
         loadBookmarks(for: url)
         addRecentVideo(url)
         refreshFileInfo(url: url)
@@ -1375,15 +1376,73 @@ final class PlayerModel: NSObject, ObservableObject {
         }
     }
 
-    private func restoreExternalSubtitle(for videoKey: String) {
-        clearExternalSubtitle()
+    @discardableResult
+    private func restoreExternalSubtitle(for videoKey: String) -> Bool {
+        resetExternalSubtitleState()
 
         guard
             let encoded = defaults.string(forKey: "\(videoKey).externalSubtitle"),
             let url = Self.resolveBookmark(encoded)
-        else { return }
+        else { return false }
 
         loadExternalSubtitle(url: url)
+        return externalSubtitleName != nil
+    }
+
+    private func resetExternalSubtitleState() {
+        externalSubtitleCues = []
+        externalSubtitleCueCount = 0
+        externalSubtitleName = nil
+        externalSubtitleText = ""
+        subtitleSearchStatus = nil
+    }
+
+    private func autoDiscoverExternalSubtitle(for videoURL: URL) {
+        let baseName =
+            videoURL.deletingPathExtension().lastPathComponent.lowercased()
+        let directory = videoURL.deletingLastPathComponent()
+        let supported = Set(["srt", "vtt", "ass", "ssa"])
+
+        guard
+            let candidates = try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )
+        else { return }
+
+        guard let match = candidates.first(where: { candidate in
+            guard supported.contains(candidate.pathExtension.lowercased()) else {
+                return false
+            }
+            return candidate.deletingPathExtension()
+                .lastPathComponent
+                .lowercased() == baseName
+        }) else { return }
+
+        loadExternalSubtitle(url: match)
+    }
+
+    private func releaseFolderScopeIfNeeded(for urls: [URL]) {
+        guard
+            hasFolderSecurityScope,
+            let root = folderSecurityURL
+        else { return }
+
+        var rootPath = root.standardizedFileURL.path
+        if !rootPath.hasSuffix("/") {
+            rootPath += "/"
+        }
+
+        let allInsideRoot = urls.allSatisfy {
+            $0.standardizedFileURL.path.hasPrefix(rootPath)
+        }
+
+        if !allInsideRoot {
+            root.stopAccessingSecurityScopedResource()
+            folderSecurityURL = nil
+            hasFolderSecurityScope = false
+        }
     }
 
     private func loadBookmarks(for url: URL) {
