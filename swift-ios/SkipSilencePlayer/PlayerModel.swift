@@ -192,6 +192,8 @@ final class PlayerModel: NSObject, ObservableObject {
     private var analysisTask: Task<Void, Never>?
     private var securityURL: URL?
     private var hasSecurityScope = false
+    private var playlistSecurityURL: URL?
+    private var hasPlaylistSecurityScope = false
     private var selectedURL: URL?
     private var jumpingOverSilence = false
     private var persistTick = 0
@@ -274,6 +276,9 @@ final class PlayerModel: NSObject, ObservableObject {
         if hasSecurityScope {
             securityURL?.stopAccessingSecurityScopedResource()
         }
+        if hasPlaylistSecurityScope {
+            playlistSecurityURL?.stopAccessingSecurityScopedResource()
+        }
 
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
@@ -329,6 +334,7 @@ final class PlayerModel: NSObject, ObservableObject {
     }
 
     func requestLoad(urls: [URL], startIndex: Int = 0) {
+        releasePlaylistSecurityScope()
         let entries = urls.map {
             PlaylistEntry(
                 id: Self.stableID($0.absoluteString),
@@ -382,12 +388,9 @@ final class PlayerModel: NSObject, ObservableObject {
     }
 
     func requestFolder(url: URL) {
-        let accessed = url.startAccessingSecurityScopedResource()
-        defer {
-            if accessed {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
+        releasePlaylistSecurityScope()
+        playlistSecurityURL = url
+        hasPlaylistSecurityScope = url.startAccessingSecurityScopedResource()
 
         let videoExtensions = Set([
             "mp4", "m4v", "mov", "mkv", "webm", "avi",
@@ -433,8 +436,16 @@ final class PlayerModel: NSObject, ObservableObject {
 
         if urls.isEmpty {
             playbackError = "No supported video files were found in that folder."
+            releasePlaylistSecurityScope()
         } else {
-            requestLoad(urls: urls)
+            let entries = urls.map {
+                PlaylistEntry(
+                    id: Self.stableID($0.absoluteString),
+                    url: $0,
+                    name: $0.lastPathComponent
+                )
+            }
+            requestLoad(entries: entries)
         }
     }
 
@@ -996,6 +1007,7 @@ final class PlayerModel: NSObject, ObservableObject {
                         note.object as? AVPlayerItem === self.player.currentItem
                     else { return }
 
+                    self.markCurrentCompleted()
                     if self.sleepAtEnd {
                         self.cancelSleepTimer()
                         self.pause()
@@ -1391,6 +1403,19 @@ final class PlayerModel: NSObject, ObservableObject {
         if let data = try? JSONEncoder().encode(bookmarks) {
             defaults.set(data, forKey: "\(key).bookmarks")
         }
+    }
+
+    private func releasePlaylistSecurityScope() {
+        if hasPlaylistSecurityScope {
+            playlistSecurityURL?.stopAccessingSecurityScopedResource()
+        }
+        playlistSecurityURL = nil
+        hasPlaylistSecurityScope = false
+    }
+
+    private func markCurrentCompleted() {
+        guard let selectedURL else { return }
+        defaults.set(0.0, forKey: "\(Self.videoKey(selectedURL)).position")
     }
 
     private func saveCurrentVideoState() {
