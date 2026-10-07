@@ -521,7 +521,7 @@ private fun SkipSilencePlayerScreen(
             SilenceConfig(newThreshold, newMinimum, newPadding)
         )
         player.setPlaybackSpeed(playbackSpeed)
-        player.skipSilenceEnabled = skipSilence
+        PlaybackRuntime.setSkipSilenceEnabled(skipSilence)
 
         val subtitle = preferences.getString("${key}_subtitle", null)
             ?.let(Uri::parse)
@@ -664,7 +664,7 @@ private fun SkipSilencePlayerScreen(
     }
 
     LaunchedEffect(player, PlaybackRuntime.generation) {
-        player.skipSilenceEnabled = skipSilence
+        PlaybackRuntime.setSkipSilenceEnabled(skipSilence)
         player.setPlaybackSpeed(playbackSpeed)
     }
 
@@ -954,6 +954,7 @@ private fun SkipSilencePlayerScreen(
                     )
                 }
                 .transformable(transformState)
+        }
 
     Box(
         modifier = Modifier
@@ -1337,7 +1338,7 @@ private fun SkipSilencePlayerScreen(
                         checked = skipSilence,
                         onCheckedChange = {
                             skipSilence = it
-                            player.skipSilenceEnabled = it
+                            PlaybackRuntime.setSkipSilenceEnabled(it)
                             preferences.edit().putBoolean("skip_silence", it).apply()
                             saveCurrentState()
                         }
@@ -1847,7 +1848,7 @@ private fun SkipSilencePlayerScreen(
                                     .putBoolean("audio_only", false)
                                     .apply()
                                 player.setPlaybackSpeed(1f)
-                                player.skipSilenceEnabled = true
+                                PlaybackRuntime.setSkipSilenceEnabled(true)
                                 applySilenceSettings()
                                 gestureText = "Defaults restored"
                             }

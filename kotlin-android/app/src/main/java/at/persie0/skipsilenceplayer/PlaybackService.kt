@@ -74,6 +74,10 @@ object PlaybackRuntime {
         service?.reconfigureSilence(config)
     }
 
+    fun setSkipSilenceEnabled(enabled: Boolean) {
+        service?.setSkipSilenceEnabled(enabled)
+    }
+
     fun skippedSeconds(): Float = service?.skippedSeconds() ?: 0f
 }
 
@@ -135,6 +139,10 @@ class PlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 
+    fun setSkipSilenceEnabled(enabled: Boolean) {
+        bundle?.player?.skipSilenceEnabled = enabled
+    }
+
     fun skippedSeconds(): Float {
         val current = bundle ?: return carriedSkippedSeconds
         val sampleRate = current.player.audioFormat?.sampleRate?.takeIf { it > 0 } ?: 48_000
@@ -157,16 +165,16 @@ class PlaybackService : MediaSessionService() {
         val position = old.currentPosition.coerceAtLeast(0L)
         val playWhenReady = old.playWhenReady
         val playbackSpeed = old.playbackParameters.speed
-        val repeatMode = old.repeatMode
-        val shuffle = old.shuffleModeEnabled
+        val oldRepeatMode = old.repeatMode
+        val oldShuffle = old.shuffleModeEnabled
         val trackSelectionParameters = old.trackSelectionParameters
         val volume = old.volume
         val skipSilence = old.skipSilenceEnabled
 
         val replacement = createPlayer(config)
         replacement.player.apply {
-            repeatMode = repeatMode
-            shuffleModeEnabled = shuffle
+            repeatMode = oldRepeatMode
+            shuffleModeEnabled = oldShuffle
             this.trackSelectionParameters = trackSelectionParameters
             this.volume = volume
             skipSilenceEnabled = skipSilence
