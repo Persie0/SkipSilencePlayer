@@ -44,16 +44,20 @@ final class PictureInPictureManager: NSObject, ObservableObject, AVPictureInPict
         }
     }
 
-    func pictureInPictureControllerDidStartPictureInPicture(
+    nonisolated func pictureInPictureControllerDidStartPictureInPicture(
         _ pictureInPictureController: AVPictureInPictureController
     ) {
-        isActive = true
+        Task { @MainActor [weak self] in
+            self?.isActive = true
+        }
     }
 
-    func pictureInPictureControllerDidStopPictureInPicture(
+    nonisolated func pictureInPictureControllerDidStopPictureInPicture(
         _ pictureInPictureController: AVPictureInPictureController
     ) {
-        isActive = false
+        Task { @MainActor [weak self] in
+            self?.isActive = false
+        }
     }
 }
 
