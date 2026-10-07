@@ -471,7 +471,6 @@ final class PlayerModel: NSObject, ObservableObject {
 
     func next() {
         guard hasNext else { return }
-        saveCurrentVideoState()
         performLoad(entries: playlist, index: playlistIndex + 1, position: 0)
     }
 
@@ -865,9 +864,12 @@ final class PlayerModel: NSObject, ObservableObject {
     private func performLoad(
         entries: [PlaylistEntry],
         index: Int,
-        position: Double
+        position: Double,
+        savePrevious: Bool = true
     ) {
-        saveCurrentVideoState()
+        if savePrevious {
+            saveCurrentVideoState()
+        }
         analysisTask?.cancel()
 
         playlist = entries
@@ -1013,7 +1015,12 @@ final class PlayerModel: NSObject, ObservableObject {
                         self.cancelSleepTimer()
                         self.pause()
                     } else if self.hasNext {
-                        self.next()
+                        self.performLoad(
+                            entries: self.playlist,
+                            index: self.playlistIndex + 1,
+                            position: 0,
+                            savePrevious: false
+                        )
                     } else {
                         self.pause()
                     }
