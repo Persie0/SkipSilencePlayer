@@ -1275,7 +1275,6 @@ final class PlayerModel: NSObject, ObservableObject {
                 var title = "Chapter \(index + 1)"
                 if let item = group.items.first,
                    let value = try? await item.load(.stringValue),
-                   let value,
                    !value.isEmpty {
                     title = value
                 }
