@@ -33,9 +33,7 @@ final class PictureInPictureManager: NSObject, ObservableObject, AVPictureInPict
     }
 
     func toggle() {
-        guard let controller else {
-            return
-        }
+        guard let controller else { return }
 
         if controller.isPictureInPictureActive {
             controller.stopPictureInPicture()
@@ -70,18 +68,29 @@ final class PlayerLayerView: UIView {
 struct VideoSurface: UIViewRepresentable {
     let player: AVPlayer
     let pictureInPictureManager: PictureInPictureManager
+    let videoGravity: AVLayerVideoGravity
+    let zoomScale: Double
 
     func makeUIView(context: Context) -> PlayerLayerView {
         let view = PlayerLayerView()
         view.backgroundColor = .black
-        view.playerLayer.videoGravity = .resizeAspect
-        view.playerLayer.player = player
-        pictureInPictureManager.attach(to: view.playerLayer)
+        configure(view)
         return view
     }
 
     func updateUIView(_ uiView: PlayerLayerView, context: Context) {
-        uiView.playerLayer.player = player
-        pictureInPictureManager.attach(to: uiView.playerLayer)
+        configure(uiView)
+    }
+
+    private func configure(_ view: PlayerLayerView) {
+        view.playerLayer.player = player
+        view.playerLayer.videoGravity = videoGravity
+        view.playerLayer.setAffineTransform(
+            CGAffineTransform(
+                scaleX: CGFloat(zoomScale),
+                y: CGFloat(zoomScale)
+            )
+        )
+        pictureInPictureManager.attach(to: view.playerLayer)
     }
 }
