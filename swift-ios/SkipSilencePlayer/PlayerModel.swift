@@ -996,9 +996,9 @@ final class PlayerModel: ObservableObject {
         remote.playCommand.addTarget { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                player.play()
-                isPlaying = true
-                updateNowPlaying()
+                self.player.play()
+                self.isPlaying = true
+                self.updateNowPlaying()
             }
             return .success
         }
@@ -1006,9 +1006,9 @@ final class PlayerModel: ObservableObject {
         remote.pauseCommand.addTarget { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                player.pause()
-                isPlaying = false
-                updateNowPlaying()
+                self.player.pause()
+                self.isPlaying = false
+                self.updateNowPlaying()
             }
             return .success
         }
@@ -1023,7 +1023,7 @@ final class PlayerModel: ObservableObject {
         remote.skipForwardCommand.addTarget { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                seek(by: Double(doubleTapSeconds))
+                self.seek(by: Double(self.doubleTapSeconds))
             }
             return .success
         }
@@ -1031,7 +1031,7 @@ final class PlayerModel: ObservableObject {
         remote.skipBackwardCommand.addTarget { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                seek(by: -Double(doubleTapSeconds))
+                self.seek(by: -Double(self.doubleTapSeconds))
             }
             return .success
         }
@@ -1109,13 +1109,13 @@ final class PlayerModel: ObservableObject {
                 guard
                     let self,
                     let item = note.object as? AVPlayerItem,
-                    item === player.currentItem
+                    item === self.player.currentItem
                 else {
                     return
                 }
 
-                if playlistIndex + 1 < playlistURLs.count {
-                    nextVideo()
+                if self.playlistIndex + 1 < self.playlistURLs.count {
+                    self.nextVideo()
                 }
             }
         }
