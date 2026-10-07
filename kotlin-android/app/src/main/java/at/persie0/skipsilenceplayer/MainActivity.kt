@@ -2094,8 +2094,7 @@ private fun SkipSilencePlayerScreen(
                         checked = skipSilence,
                         onCheckedChange = {
                             skipSilence = it
-                            player.skipSilenceEnabled =
-                                it
+                            PlaybackService.setSkipSilence(it)
                             saveCurrentVideoState()
                         }
                     )
@@ -2511,8 +2510,7 @@ private fun SkipSilencePlayerScreen(
                                 0.45f,
                                 0.08f
                             )
-                            player.skipSilenceEnabled =
-                                true
+                            PlaybackService.setSkipSilence(true)
                             player.setPlaybackSpeed(
                                 1f
                             )
