@@ -452,6 +452,10 @@ final class PlayerModel: NSObject, ObservableObject {
         }
     }
 
+    func dismissPlaybackError() {
+        playbackError = nil
+    }
+
     func openRecent(_ recent: RecentVideo) {
         guard let url = Self.resolveBookmark(recent.bookmarkBase64) else {
             playbackError = "Could not reopen \(recent.name). The file may have moved or access expired."
