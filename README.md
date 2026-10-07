@@ -1,78 +1,142 @@
 # Skip Silence Player
 
-Two native mobile video players that automatically skip silent parts of local videos.
+Native Android and iOS video players focused on shortening long videos by automatically skipping silent sections while keeping normal media-player features.
 
-- `kotlin-android/` — Kotlin + Jetpack Compose + Media3/ExoPlayer.
-- `swift-ios/` — SwiftUI + AVFoundation.
+- `kotlin-android/` — Kotlin, Jetpack Compose, Media3/ExoPlayer.
+- `swift-ios/` — SwiftUI, AVFoundation, AVKit and MediaPlayer.
 
-## Features
+## Playback
 
-### Playback
+- Open local videos.
+- Open multiple videos as a playlist.
+- Open a folder and play its videos in natural filename order.
+- Previous/next playlist controls with automatic next-item playback.
+- Open videos directly with **Open with / Share to Skip Silence Player**.
+- Playback speed: **0.5×–3×** in 0.25× steps.
+- Timeline scrubbing.
+- Configurable double-tap seek: **5 / 10 / 15 / 30 seconds**.
+- Horizontal swipe seeking up to ±120 seconds.
+- Left-side vertical swipe for brightness.
+- Right-side vertical swipe for volume.
+- Gesture lock.
+- Fullscreen/landscape playback.
+- Auto-hiding controls.
+- Picture-in-Picture.
+- Fit, stretch, crop and fit-width video modes.
+- Additional **1×–3× zoom**.
+- Audio-only/background playback.
+- File size, resolution, duration and playlist position display.
 
-- Open local video files with the platform document picker.
-- Playback speed from 0.5× to 3× in 0.25× steps.
-- Play/pause and timeline scrubbing.
-- Configurable double-tap seek: 5, 10, 15, or 30 seconds.
-- Vertical swipe on the left side controls brightness.
-- Vertical swipe on the right side controls volume.
-- Fullscreen/landscape mode and auto-hiding playback controls.
-- Picture-in-Picture on supported Android and iOS devices.
-- File information including duration, file size, and resolution when available.
+## System media integration
 
-### Silence skipping
+### Android
 
-- Toggle automatic silence skipping.
-- Silence threshold from -60 dB to -20 dB.
-- Minimum silence duration from 0.2 s to 2.0 s.
-- Adjustable edge padding to protect speech transitions.
+Playback is hosted in a Media3 `MediaSessionService`:
+
+- media notification,
+- lock-screen controls,
+- Bluetooth/headset media buttons,
+- background playback,
+- Android audio focus handling,
+- automatic pause when an audio route becomes noisy/disconnected.
+
+### iOS
+
+The app integrates with:
+
+- `MPNowPlayingInfoCenter`,
+- `MPRemoteCommandCenter`,
+- lock-screen / Control Center playback controls,
+- Bluetooth/headset media buttons,
+- background audio mode,
+- AVAudioSession interruption handling,
+- automatic pause when the previous audio route becomes unavailable.
+
+## Silence skipping
+
+- Enable/disable silence skipping.
+- Threshold: **−60 dB to −20 dB**.
+- Minimum silence duration: **0.2–2.0 seconds**.
+- Edge padding: **20–200 ms**.
 - Presets:
   - Conservative
   - Balanced
   - Aggressive
   - Custom
-- Live counter showing how much silence has been skipped.
-- Reset all player tuning to defaults.
+- Live skipped-time counter.
+- Pre-playback/local analysis showing:
+  - detected skippable silence,
+  - estimated viewing time,
+  - estimated time saved at the selected playback speed.
 
 Balanced defaults:
 
-| Setting | Value |
+| Setting | Default |
 | --- | ---: |
-| Silence threshold | -42 dB |
+| Silence threshold | −42 dB |
 | Minimum silence | 0.45 s |
 | Edge padding | 80 ms |
 | Playback speed | 1.0× |
 | Double-tap seek | 10 s |
 
-Android uses a configurable Media3 `SilenceSkippingAudioProcessor`.
+Android uses Media3's configurable `SilenceSkippingAudioProcessor` during playback plus a local MediaCodec analysis pass for the preview estimate.
 
-iOS analyzes the selected video's audio locally with `AVAssetReader`, detects sustained low-RMS PCM regions, and seeks over those regions during `AVPlayer` playback. Analysis stays on-device.
+iOS analyzes decoded PCM locally with `AVAssetReader`, detects sustained low-RMS regions, then seeks across those regions during `AVPlayer` playback.
 
-### Resume and history
+## Resume, history and navigation
 
-- Remembers playback position per video.
-- Recent-video menu.
-- Remembers per-video playback speed and silence settings.
-- Remembers whether silence skipping is enabled.
-- Persists external subtitle selection where the platform grants continuing document access.
+- Remember playback position per video.
+- Resume policy:
+  - Always resume
+  - Ask
+  - Always restart
+- Recent-video history.
+- Clear history.
+- Per-video playback speed and silence settings.
+- User bookmarks/custom chapter markers.
+- Embedded chapter discovery on iOS when chapter metadata is available.
 
-### Audio and subtitles
+## Audio and subtitles
 
 - Embedded audio-track selector.
 - Embedded subtitle-track selector.
-- External subtitle files.
-- Android uses Media3 subtitle support for SRT, WebVTT, SSA/ASS, and TTML when supported by the selected media pipeline.
-- iOS includes local SRT, WebVTT, SSA, and ASS parsing with an in-player subtitle overlay.
+- External subtitle import.
+- Automatic local subtitle discovery when a matching subtitle file sits beside a video and the document provider grants folder access.
+- Subtitle timing offset: **−10 s to +10 s** in 100 ms steps.
+- Adjustable subtitle:
+  - size,
+  - vertical position,
+  - background opacity,
+  - text color.
+
+External subtitle formats:
+
+- SRT
+- WebVTT
+- SSA
+- ASS
+- Android additionally parses TTML/XML for its local subtitle overlay.
+
+## Utility features
+
+- Sleep timer: 15 / 30 / 60 / 90 minutes.
+- A–B repeat.
+- Clear playback errors with retry handling for unsupported, corrupt or inaccessible media.
+- Reset player tuning to defaults.
 
 ## Requirements
 
 Android:
+
 - Android 7.0 / API 24+
+- target / compile SDK 37
 - JDK 17
-- Android SDK 37
 
 iOS:
+
 - iOS 17+
-- Current Xcode (Swift 5 language mode, iOS 17+)
+- Swift 5 language mode
+- current Xcode
 
 ## Build
 
@@ -85,4 +149,16 @@ cd kotlin-android
 
 iOS:
 
-Open `swift-ios/SkipSilencePlayer.xcodeproj`, or build the `SkipSilencePlayer` scheme for an iOS Simulator.
+```bash
+cd swift-ios
+xcodebuild \
+  -project SkipSilencePlayer.xcodeproj \
+  -scheme SkipSilencePlayer \
+  -configuration Debug \
+  -sdk iphonesimulator \
+  -destination 'generic/platform=iOS Simulator' \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+```
+
+All silence analysis and subtitle parsing are performed locally on the device.
