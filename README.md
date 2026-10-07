@@ -30,7 +30,7 @@ Android:
 
 iOS:
 - iOS 17+
-- Swift 6 / current Xcode
+- Current Xcode (Swift 5 language mode, iOS 17+)
 
 ## Build
 
