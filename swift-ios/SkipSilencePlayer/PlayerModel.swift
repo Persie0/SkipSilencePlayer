@@ -381,6 +381,63 @@ final class PlayerModel: NSObject, ObservableObject {
         )
     }
 
+    func requestFolder(url: URL) {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessed {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let videoExtensions = Set([
+            "mp4", "m4v", "mov", "mkv", "webm", "avi",
+            "ts", "mts", "m2ts", "mpg", "mpeg"
+        ])
+
+        let keys: [URLResourceKey] = [
+            .isRegularFileKey,
+            .contentTypeKey,
+            .nameKey
+        ]
+
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            playbackError = "Could not read the selected folder."
+            return
+        }
+
+        var urls: [URL] = []
+        for case let child as URL in enumerator {
+            let values = try? child.resourceValues(forKeys: Set(keys))
+            guard values?.isRegularFile == true else { continue }
+
+            let isVideoType =
+                values?.contentType?.conforms(to: .movie) == true ||
+                values?.contentType?.conforms(to: .video) == true
+            let isKnownExtension =
+                videoExtensions.contains(child.pathExtension.lowercased())
+
+            if isVideoType || isKnownExtension {
+                urls.append(child)
+            }
+        }
+
+        urls.sort {
+            $0.lastPathComponent.localizedStandardCompare(
+                $1.lastPathComponent
+            ) == .orderedAscending
+        }
+
+        if urls.isEmpty {
+            playbackError = "No supported video files were found in that folder."
+        } else {
+            requestLoad(urls: urls)
+        }
+    }
+
     func openRecent(_ recent: RecentVideo) {
         guard let url = Self.resolveBookmark(recent.bookmarkBase64) else {
             playbackError = "Could not reopen \(recent.name). The file may have moved or access expired."
@@ -1045,17 +1102,14 @@ final class PlayerModel: NSObject, ObservableObject {
         handler: @escaping @MainActor (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus
     ) {
         let token = command.addTarget { event in
-            var result = MPRemoteCommandHandlerStatus.commandFailed
-            let semaphore = DispatchSemaphore(value: 0)
-            DispatchQueue.main.async {
-                result = MainActor.assumeIsolated {
+            if Thread.isMainThread {
+                return MainActor.assumeIsolated {
                     handler(event)
                 }
-                semaphore.signal()
             }
-            if !Thread.isMainThread {
-                _ = semaphore.wait(timeout: .now() + 0.5)
-            } else {
+
+            var result = MPRemoteCommandHandlerStatus.commandFailed
+            DispatchQueue.main.sync {
                 result = MainActor.assumeIsolated {
                     handler(event)
                 }
