@@ -46,7 +46,7 @@ internal object AndroidSilencePreviewAnalyzer {
         val extractor = MediaExtractor()
         var decoder: MediaCodec? = null
 
-        try {
+        return try {
             context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
                 if (afd.length >= 0) {
                     extractor.setDataSource(
@@ -86,11 +86,12 @@ internal object AndroidSilencePreviewAnalyzer {
                 0L
             }
 
+            val selectedFormat = inputFormat ?: return null
             decoder = MediaCodec.createDecoderByType(mime)
-            decoder.configure(inputFormat, null, null, 0)
+            decoder.configure(selectedFormat, null, null, 0)
             decoder.start()
 
-            var outputFormat = inputFormat
+            var outputFormat: MediaFormat = selectedFormat
             var inputEnded = false
             var outputEnded = false
 

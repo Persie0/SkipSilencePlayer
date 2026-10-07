@@ -24,7 +24,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clipToBounds
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -598,7 +598,7 @@ private fun SkipSilencePlayerScreen(
             minimumSilence,
             edgePadding
         )
-        player.skipSilenceEnabled = skipSilence
+        PlaybackService.setSkipSilence(skipSilence)
         player.setPlaybackSpeed(playbackSpeed)
     }
 
@@ -626,7 +626,7 @@ private fun SkipSilencePlayerScreen(
             resumePositionMs.coerceAtLeast(0L)
         )
         player.prepare()
-        player.skipSilenceEnabled = skipSilence
+        PlaybackService.setSkipSilence(skipSilence)
         player.setPlaybackSpeed(playbackSpeed)
         player.play()
 
@@ -761,7 +761,7 @@ private fun SkipSilencePlayerScreen(
                 if (uri != null) {
                     currentUri = uri
                     fileName =
-                        mediaItem.mediaMetadata.title?.toString()
+                        mediaItem?.mediaMetadata?.title?.toString()
                             ?: queryDisplayName(context, uri)
                 }
             }
@@ -773,7 +773,7 @@ private fun SkipSilencePlayerScreen(
     }
 
     LaunchedEffect(skipSilence) {
-        player.skipSilenceEnabled = skipSilence
+        PlaybackService.setSkipSilence(skipSilence)
         preferences.edit()
             .putBoolean("skip_silence", skipSilence)
             .apply()

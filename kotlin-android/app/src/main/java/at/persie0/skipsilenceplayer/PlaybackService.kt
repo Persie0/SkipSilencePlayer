@@ -144,6 +144,10 @@ class PlaybackService : MediaSessionService() {
             )
         }
 
+        fun setSkipSilence(enabled: Boolean) {
+            activeInstance?.mediaSession?.player?.skipSilenceEnabled = enabled
+        }
+
         fun currentSkippedSeconds(): Float =
             activeInstance?.skippedSeconds() ?: 0f
     }

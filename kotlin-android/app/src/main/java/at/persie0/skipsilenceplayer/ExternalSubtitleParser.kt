@@ -49,7 +49,7 @@ internal object ExternalSubtitleParser {
             .replace("\r", "\n")
 
         return normalized
-            .split(Regex("\n\s*\n"))
+            .split(Regex("\\n\\s*\\n"))
             .mapNotNull { block ->
                 val lines = block.lines()
                     .map { it.trimEnd() }
@@ -132,7 +132,7 @@ internal object ExternalSubtitleParser {
 
                     if (endMs != null && endMs > startMs) {
                         val body = parser.nextText()
-                            .replace(Regex("\s+"), " ")
+                            .replace(Regex("\\s+"), " ")
                             .trim()
 
                         if (body.isNotBlank()) {
