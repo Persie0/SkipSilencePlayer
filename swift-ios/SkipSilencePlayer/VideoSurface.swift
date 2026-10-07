@@ -5,7 +5,7 @@ import SwiftUI
 import UIKit
 
 @MainActor
-final class PictureInPictureManager: NSObject, ObservableObject, AVPictureInPictureControllerDelegate {
+final class PictureInPictureManager: NSObject, ObservableObject, @preconcurrency AVPictureInPictureControllerDelegate {
     static var isSupported: Bool {
         AVPictureInPictureController.isPictureInPictureSupported()
     }

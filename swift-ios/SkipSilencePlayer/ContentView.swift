@@ -1160,8 +1160,7 @@ struct ContentView: View {
 
             HStack {
                 Button("Dismiss") {
-                    // Loading/seek actions clear or replace the error.
-                    showingVideoImporter = false
+                    model.dismissPlaybackError()
                 }
                 .buttonStyle(.bordered)
 

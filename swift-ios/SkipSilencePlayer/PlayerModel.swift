@@ -457,9 +457,17 @@ final class PlayerModel: ObservableObject {
         loadPlaylistItem(at: playlistIndex, resume: savedResume(for: playlistURLs[playlistIndex]))
     }
 
+    func dismissPlaybackError() {
+        playbackError = nil
+    }
+
     func retryPlayback() {
         playbackError = nil
-        player.currentItem?.seek(to: CMTime(seconds: currentTime, preferredTimescale: 600))
+        player.seek(
+            to: CMTime(seconds: currentTime, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        )
         player.play()
     }
 
@@ -1202,32 +1210,60 @@ final class PlayerModel: ObservableObject {
     }
 
     private func configureMediaSelection(for item: AVPlayerItem) {
-        let asset = item.asset
+        audioGroup = nil
+        subtitleGroup = nil
+        audioOptions = []
+        subtitleOptions = []
+        audioTrackNames = []
+        subtitleTrackNames = []
+        selectedAudioIndex = nil
+        selectedSubtitleIndex = nil
 
-        audioGroup = asset.mediaSelectionGroup(forMediaCharacteristic: .audible)
-        audioOptions = audioGroup?.options ?? []
-        audioTrackNames = audioOptions.map(\.displayName)
+        Task { [weak self, weak item] in
+            guard let self, let item else { return }
 
-        if
-            let audioGroup,
-            let selected = item.currentMediaSelection.selectedMediaOption(in: audioGroup)
-        {
-            selectedAudioIndex = audioOptions.firstIndex(of: selected)
-        } else {
-            selectedAudioIndex = audioOptions.isEmpty ? nil : 0
-        }
+            let asset = item.asset
+            let loadedAudioGroup = try? await asset.loadMediaSelectionGroup(
+                for: .audible
+            )
+            let loadedSubtitleGroup = try? await asset.loadMediaSelectionGroup(
+                for: .legible
+            )
 
-        subtitleGroup = asset.mediaSelectionGroup(forMediaCharacteristic: .legible)
-        subtitleOptions = subtitleGroup?.options ?? []
-        subtitleTrackNames = subtitleOptions.map(\.displayName)
+            guard self.player.currentItem === item else {
+                return
+            }
 
-        if
-            let subtitleGroup,
-            let selected = item.currentMediaSelection.selectedMediaOption(in: subtitleGroup)
-        {
-            selectedSubtitleIndex = subtitleOptions.firstIndex(of: selected)
-        } else {
-            selectedSubtitleIndex = nil
+            self.audioGroup = loadedAudioGroup
+            self.audioOptions = loadedAudioGroup?.options ?? []
+            self.audioTrackNames = self.audioOptions.map(\.displayName)
+
+            if
+                let loadedAudioGroup,
+                let selected = item.currentMediaSelection.selectedMediaOption(
+                    in: loadedAudioGroup
+                )
+            {
+                self.selectedAudioIndex = self.audioOptions.firstIndex(of: selected)
+            } else {
+                self.selectedAudioIndex = self.audioOptions.isEmpty ? nil : 0
+            }
+
+            self.subtitleGroup = loadedSubtitleGroup
+            self.subtitleOptions = loadedSubtitleGroup?.options ?? []
+            self.subtitleTrackNames = self.subtitleOptions.map(\.displayName)
+
+            if
+                let loadedSubtitleGroup,
+                let selected = item.currentMediaSelection.selectedMediaOption(
+                    in: loadedSubtitleGroup
+                )
+            {
+                self.selectedSubtitleIndex =
+                    self.subtitleOptions.firstIndex(of: selected)
+            } else {
+                self.selectedSubtitleIndex = nil
+            }
         }
     }
 
@@ -1301,11 +1337,18 @@ final class PlayerModel: ObservableObject {
                     let position = CMTimeGetSeconds(group.timeRange.start)
                     guard position.isFinite && position >= 0 else { continue }
 
-                    let title =
-                        group.items.first(where: {
-                            $0.commonKey?.rawValue == AVMetadataKey.commonKeyTitle.rawValue
-                        })?.stringValue
-                        ?? "Chapter \(index + 1)"
+                    var title = "Chapter \(index + 1)"
+                    if
+                        let titleItem = group.items.first(where: {
+                            $0.commonKey?.rawValue ==
+                                AVMetadataKey.commonKeyTitle.rawValue
+                        }),
+                        let loadedTitle = try? await titleItem.load(.stringValue),
+                        let loadedTitle,
+                        !loadedTitle.isEmpty
+                    {
+                        title = loadedTitle
+                    }
 
                     loaded.append(
                         ChapterMarker(position: position, name: title)
