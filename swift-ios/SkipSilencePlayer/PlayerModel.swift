@@ -258,7 +258,7 @@ final class PlayerModel: ObservableObject {
         do {
             let url = try URL(
                 resolvingBookmarkData: data,
-                options: .withSecurityScope,
+                options: [],
                 relativeTo: nil,
                 bookmarkDataIsStale: &stale
             )
@@ -424,7 +424,7 @@ final class PlayerModel: ObservableObject {
             if let selectedURL {
                 let key = Self.videoKey(selectedURL)
                 if let bookmark = try? url.bookmarkData(
-                    options: .withSecurityScope,
+                    options: [],
                     includingResourceValuesForKeys: nil,
                     relativeTo: nil
                 ) {
@@ -625,7 +625,7 @@ final class PlayerModel: ObservableObject {
     private func addRecentVideo(_ url: URL) {
         guard
             let bookmark = try? url.bookmarkData(
-                options: .withSecurityScope,
+                options: [],
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
@@ -664,7 +664,7 @@ final class PlayerModel: ObservableObject {
         guard
             let url = try? URL(
                 resolvingBookmarkData: data,
-                options: .withSecurityScope,
+                options: [],
                 relativeTo: nil,
                 bookmarkDataIsStale: &stale
             )

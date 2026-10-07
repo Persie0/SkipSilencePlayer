@@ -1,5 +1,5 @@
 import AVFoundation
-import AVKit
+@preconcurrency import AVKit
 import Combine
 import SwiftUI
 import UIKit
