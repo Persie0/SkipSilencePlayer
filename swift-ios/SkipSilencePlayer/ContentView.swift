@@ -57,10 +57,17 @@ struct ContentView: View {
                     Text(error)
                         .font(.caption)
                         .multilineTextAlignment(.center)
-                    Button("Retry") {
-                        model.retryPlayback()
+                    HStack {
+                        Button("Dismiss") {
+                            model.dismissPlaybackError()
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button("Retry") {
+                            model.retryPlayback()
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.borderedProminent)
                 }
                 .padding(18)
                 .background(.black.opacity(0.9), in: RoundedRectangle(cornerRadius: 14))
@@ -105,7 +112,7 @@ struct ContentView: View {
         }
         .fileImporter(
             isPresented: $showingSubtitleImporter,
-            allowedContentTypes: [.plainText, .text],
+            allowedContentTypes: [.plainText, .text, .data],
             allowsMultipleSelection: false
         ) { result in
             switch result {
