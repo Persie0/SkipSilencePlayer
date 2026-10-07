@@ -118,9 +118,9 @@ private fun SkipSilencePlayerScreen(activity: Activity) {
     var isPlaying by remember { mutableStateOf(false) }
     var gestureText by remember { mutableStateOf<String?>(null) }
 
-    val player = remember {
-        ExoPlayer.Builder(context).build().apply {
-            skipSilenceEnabled = true
+    val player = remember(appliedSilenceThresholdDb) {
+        buildPlayer(context, appliedSilenceThresholdDb).apply {
+            skipSilenceEnabled = skipSilence
         }
     }
 
@@ -156,8 +156,17 @@ private fun SkipSilencePlayerScreen(activity: Activity) {
         onDispose { player.release() }
     }
 
-    LaunchedEffect(skipSilence) {
+    LaunchedEffect(skipSilence, player) {
         player.skipSilenceEnabled = skipSilence
+    }
+
+    LaunchedEffect(player, selectedUri) {
+        selectedUri?.let { uri ->
+            player.setMediaItem(MediaItem.fromUri(uri))
+            player.prepare()
+            if (restorePositionMs > 0L) player.seekTo(restorePositionMs)
+            if (restorePlaying) player.play()
+        }
     }
 
     LaunchedEffect(player) {
@@ -189,10 +198,9 @@ private fun SkipSilencePlayerScreen(activity: Activity) {
             }
 
             fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "Video"
-            player.setMediaItem(MediaItem.fromUri(uri))
-            player.prepare()
-            player.play()
-            mediaLoaded = true
+            restorePositionMs = 0L
+            restorePlaying = true
+            selectedUri = uri
         }
     }
 
@@ -410,6 +418,37 @@ private fun SkipSilencePlayerScreen(activity: Activity) {
                 }
             }
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Silence ${silenceThresholdDb.roundToInt()} dB",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.width(110.dp)
+                )
+                Slider(
+                    value = silenceThresholdDb,
+                    onValueChange = { silenceThresholdDb = it },
+                    onValueChangeFinished = {
+                        val rounded = silenceThresholdDb.roundToInt().toFloat()
+                        silenceThresholdDb = rounded
+                        preferences.edit().putFloat("silence_threshold_db", rounded).apply()
+                        if (rounded != appliedSilenceThresholdDb) {
+                            restorePositionMs = player.currentPosition
+                            restorePlaying = player.isPlaying
+                            appliedSilenceThresholdDb = rounded
+                            gestureText = "Silence threshold ${rounded.roundToInt()} dB"
+                        }
+                    },
+                    valueRange = -60f..-20f,
+                    steps = 39,
+                    enabled = skipSilence,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Default.Brightness6,
@@ -455,4 +494,39 @@ private fun formatTime(ms: Long): String {
     } else {
         String.format("%d:%02d", minutes, seconds)
     }
+}
+
+
+private fun buildPlayer(context: Context, silenceThresholdDb: Float): ExoPlayer {
+    val silenceProcessor = SilenceSkippingAudioProcessor(
+        SilenceSkippingAudioProcessor.DEFAULT_MINIMUM_SILENCE_DURATION_US,
+        SilenceSkippingAudioProcessor.DEFAULT_SILENCE_RETENTION_RATIO,
+        SilenceSkippingAudioProcessor.DEFAULT_MAX_SILENCE_TO_KEEP_DURATION_US,
+        SilenceSkippingAudioProcessor.DEFAULT_MIN_VOLUME_TO_KEEP_PERCENTAGE,
+        dbToPcmThreshold(silenceThresholdDb)
+    )
+    val chain = DefaultAudioSink.DefaultAudioProcessorChain(
+        emptyArray<AudioProcessor>(),
+        silenceProcessor,
+        SonicAudioProcessor()
+    )
+    val renderersFactory = object : DefaultRenderersFactory(context) {
+        override fun buildAudioSink(
+            context: Context,
+            enableFloatOutput: Boolean,
+            enableAudioOutputPlaybackParams: Boolean
+        ): AudioSink {
+            return DefaultAudioSink.Builder(context)
+                .setEnableFloatOutput(enableFloatOutput)
+                .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams)
+                .setAudioProcessorChain(chain)
+                .build()
+        }
+    }
+    return ExoPlayer.Builder(context, renderersFactory).build()
+}
+
+private fun dbToPcmThreshold(db: Float): Short {
+    val amplitude = 32767.0 * 10.0.pow(db.toDouble() / 20.0)
+    return amplitude.roundToInt().coerceIn(1, Short.MAX_VALUE.toInt()).toShort()
 }
