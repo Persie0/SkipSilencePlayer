@@ -63,12 +63,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.audio.SonicAudioProcessor
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlin.math.max
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
@@ -111,8 +119,18 @@ private fun SkipSilencePlayerScreen(activity: Activity) {
             audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxVolume
         )
     }
+    val preferences = remember {
+        context.getSharedPreferences("skip_silence_player", Context.MODE_PRIVATE)
+    }
     var skipSilence by remember { mutableStateOf(true) }
-    var mediaLoaded by remember { mutableStateOf(false) }
+    var silenceThresholdDb by remember {
+        mutableFloatStateOf(preferences.getFloat("silence_threshold_db", -42f))
+    }
+    var appliedSilenceThresholdDb by remember { mutableFloatStateOf(silenceThresholdDb) }
+    var selectedUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var restorePositionMs by remember { mutableLongStateOf(0L) }
+    var restorePlaying by remember { mutableStateOf(true) }
+    val mediaLoaded = selectedUri != null
     var fileName by remember { mutableStateOf("No video selected") }
     var currentMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
