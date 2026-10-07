@@ -4,6 +4,7 @@ package at.persie0.skipsilenceplayer
 
 import android.app.Activity
 import android.app.PictureInPictureParams
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
@@ -12,6 +13,8 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Rational
@@ -22,8 +25,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +52,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -55,6 +61,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -68,53 +75,114 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
-import androidx.media3.common.audio.AudioProcessor
-import androidx.media3.common.audio.SonicAudioProcessor
-import androidx.media3.exoplayer.DefaultRenderersFactory
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.audio.AudioSink
-import androidx.media3.exoplayer.audio.DefaultAudioSink
-import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.SubtitleView
+import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.pow
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     var pipMode by mutableStateOf(false)
         private set
+    var controller by mutableStateOf<MediaController?>(null)
+        private set
+    var incomingUri by mutableStateOf<Uri?>(null)
+        private set
+
+    private var controllerFuture: ListenableFuture<MediaController>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        handleOpenIntent(intent)
+
+        val sessionToken = SessionToken(
+            this,
+            ComponentName(this, PlaybackService::class.java)
+        )
+        val future = MediaController.Builder(this, sessionToken).buildAsync()
+        controllerFuture = future
+        future.addListener(
+            {
+                runCatching { future.get() }
+                    .onSuccess { controller = it }
+            },
+            ContextCompat.getMainExecutor(this)
+        )
 
         setContent {
             MaterialTheme {
-                SkipSilencePlayerScreen(this)
+                val player = controller
+                if (player == null) {
+                    Box(
+                        Modifier.fillMaxSize().background(Color.Black),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Starting player…", color = Color.White)
+                    }
+                } else {
+                    SkipSilencePlayerScreen(this, player)
+                }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleOpenIntent(intent)
+    }
+
+    private fun handleOpenIntent(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_VIEW) {
+            incomingUri = intent.data
+        }
+    }
+
+    fun consumeIncomingUri() {
+        incomingUri = null
+    }
+
+    override fun onDestroy() {
+        controllerFuture?.let(MediaController::releaseFuture)
+        controllerFuture = null
+        controller = null
+        super.onDestroy()
     }
 
     override fun onPictureInPictureModeChanged(
@@ -127,10 +195,13 @@ class MainActivity : ComponentActivity() {
 
     fun enterPlayerPip(width: Int, height: Int) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val safeWidth = width.coerceAtLeast(16)
-        val safeHeight = height.coerceAtLeast(9)
         val params = PictureInPictureParams.Builder()
-            .setAspectRatio(Rational(safeWidth, safeHeight))
+            .setAspectRatio(
+                Rational(
+                    width.coerceAtLeast(16),
+                    height.coerceAtLeast(9)
+                )
+            )
             .build()
         enterPictureInPictureMode(params)
     }
@@ -147,15 +218,45 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private data class PlayerBundle(
-    val player: ExoPlayer,
-    val silenceProcessor: SilenceSkippingAudioProcessor
+private data class VideoEntry(
+    val uri: Uri,
+    val name: String
 )
 
 private data class RecentVideo(
     val uri: String,
     val name: String
 )
+
+private data class BookmarkPoint(
+    val positionMs: Long,
+    val label: String
+)
+
+private data class PendingResume(
+    val entries: List<VideoEntry>,
+    val startIndex: Int,
+    val positionMs: Long
+)
+
+private enum class ResumeMode(val label: String) {
+    ASK("Ask"),
+    ALWAYS("Always"),
+    NEVER("Never")
+}
+
+private enum class AspectMode(val label: String, val resizeMode: Int) {
+    FIT("Fit", AspectRatioFrameLayout.RESIZE_MODE_FIT),
+    FILL("Fill", AspectRatioFrameLayout.RESIZE_MODE_FILL),
+    CROP("Crop", AspectRatioFrameLayout.RESIZE_MODE_ZOOM),
+    ORIGINAL("Original", AspectRatioFrameLayout.RESIZE_MODE_FIT)
+}
+
+private enum class SubtitlePosition(val label: String) {
+    TOP("Top"),
+    CENTER("Center"),
+    BOTTOM("Bottom")
+}
 
 private enum class SilencePreset(
     val label: String,
@@ -170,17 +271,21 @@ private enum class SilencePreset(
     companion object {
         fun matching(threshold: Float, minimum: Float, padding: Float): SilencePreset? {
             return entries.firstOrNull {
-                kotlin.math.abs(it.thresholdDb - threshold) < 0.01f &&
-                    kotlin.math.abs(it.minimumSilence - minimum) < 0.01f &&
-                    kotlin.math.abs(it.edgePadding - padding) < 0.01f
+                abs(it.thresholdDb - threshold) < 0.01f &&
+                    abs(it.minimumSilence - minimum) < 0.01f &&
+                    abs(it.edgePadding - padding) < 0.01f
             }
         }
     }
 }
 
 @Composable
-private fun SkipSilencePlayerScreen(activity: MainActivity) {
+private fun SkipSilencePlayerScreen(
+    activity: MainActivity,
+    player: MediaController
+) {
     val context = activity.applicationContext
+    val scope = rememberCoroutineScope()
     val preferences = remember {
         context.getSharedPreferences("skip_silence_player", Context.MODE_PRIVATE)
     }
@@ -222,10 +327,6 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
     var edgePadding by remember {
         mutableFloatStateOf(preferences.getFloat("edge_padding", 0.08f))
     }
-    var appliedThresholdDb by remember { mutableFloatStateOf(silenceThresholdDb) }
-    var appliedMinimumSilence by remember { mutableFloatStateOf(minimumSilence) }
-    var appliedEdgePadding by remember { mutableFloatStateOf(edgePadding) }
-
     var playbackSpeed by remember {
         mutableFloatStateOf(preferences.getFloat("playback_speed", 1f))
     }
@@ -233,21 +334,27 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
         mutableIntStateOf(preferences.getInt("double_tap_seconds", 10))
     }
 
-    var selectedUri by remember { mutableStateOf<Uri?>(null) }
-    var selectedSubtitleUri by remember { mutableStateOf<Uri?>(null) }
-    var subtitleName by remember { mutableStateOf<String?>(null) }
-    var mediaRevision by remember { mutableIntStateOf(0) }
-    var restorePositionMs by remember { mutableLongStateOf(0L) }
-    var restorePlaying by remember { mutableStateOf(true) }
+    var resumeMode by remember {
+        mutableStateOf(
+            runCatching {
+                ResumeMode.valueOf(
+                    preferences.getString("resume_mode", ResumeMode.ASK.name)
+                        ?: ResumeMode.ASK.name
+                )
+            }.getOrDefault(ResumeMode.ASK)
+        )
+    }
+    var pendingResume by remember { mutableStateOf<PendingResume?>(null) }
 
     var fileName by remember { mutableStateOf("No video selected") }
-    var fileSizeText by remember { mutableStateOf("") }
     var fileInfo by remember { mutableStateOf("") }
     var currentMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var isPlaying by remember { mutableStateOf(false) }
-    var gestureText by remember { mutableStateOf<String?>(null) }
     var currentTracks by remember { mutableStateOf<Tracks?>(null) }
+    var playerError by remember { mutableStateOf<String?>(null) }
+    var activeUri by remember { mutableStateOf<Uri?>(null) }
+    var activeMediaId by remember { mutableStateOf("") }
 
     var recentVideos by remember {
         mutableStateOf(loadRecentVideos(preferences))
@@ -256,28 +363,78 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
     var controlsVisible by remember { mutableStateOf(true) }
     var advancedExpanded by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
+    var gestureLocked by remember { mutableStateOf(false) }
+    var gestureText by remember { mutableStateOf<String?>(null) }
 
-    var skippedCarrySeconds by remember { mutableFloatStateOf(0f) }
-    var previousSegmentSkippedSeconds by remember { mutableFloatStateOf(0f) }
-    var skippedSeconds by remember { mutableFloatStateOf(0f) }
-
-    val playerBundle = remember(
-        appliedThresholdDb,
-        appliedMinimumSilence,
-        appliedEdgePadding
-    ) {
-        buildPlayer(
-            context = context,
-            silenceThresholdDb = appliedThresholdDb,
-            minimumSilenceSeconds = appliedMinimumSilence,
-            edgePaddingSeconds = appliedEdgePadding
+    var aspectMode by remember {
+        mutableStateOf(
+            runCatching {
+                AspectMode.valueOf(
+                    preferences.getString("aspect_mode", AspectMode.FIT.name)
+                        ?: AspectMode.FIT.name
+                )
+            }.getOrDefault(AspectMode.FIT)
         )
     }
-    val player = playerBundle.player
+    var videoZoom by remember {
+        mutableFloatStateOf(preferences.getFloat("video_zoom", 1f).coerceIn(1f, 3f))
+    }
+
+    var audioOnly by remember {
+        mutableStateOf(preferences.getBoolean("audio_only", false))
+    }
+
+    var selectedSubtitleUri by remember { mutableStateOf<Uri?>(null) }
+    var subtitleName by remember { mutableStateOf<String?>(null) }
+    var externalSubtitleCues by remember { mutableStateOf<List<SubtitleCue>>(emptyList()) }
+    var externalSubtitleText by remember { mutableStateOf("") }
+    var subtitleOffsetMs by remember {
+        mutableLongStateOf(preferences.getLong("subtitle_offset_ms", 0L))
+    }
+    var subtitleFontScale by remember {
+        mutableFloatStateOf(preferences.getFloat("subtitle_font_scale", 1f).coerceIn(0.7f, 2f))
+    }
+    var subtitleBackgroundOpacity by remember {
+        mutableFloatStateOf(
+            preferences.getFloat("subtitle_background_opacity", 0.72f)
+                .coerceIn(0f, 1f)
+        )
+    }
+    var subtitlePosition by remember {
+        mutableStateOf(
+            runCatching {
+                SubtitlePosition.valueOf(
+                    preferences.getString(
+                        "subtitle_position",
+                        SubtitlePosition.BOTTOM.name
+                    ) ?: SubtitlePosition.BOTTOM.name
+                )
+            }.getOrDefault(SubtitlePosition.BOTTOM)
+        )
+    }
+    var subtitleSearch by remember { mutableStateOf("") }
+
+    var bookmarks by remember { mutableStateOf<List<BookmarkPoint>>(emptyList()) }
+    var abStartMs by remember { mutableStateOf<Long?>(null) }
+    var abEndMs by remember { mutableStateOf<Long?>(null) }
+
+    var sleepDeadline by remember { mutableStateOf<Long?>(null) }
+    var sleepAtEnd by remember { mutableStateOf(false) }
+
+    var skippedSeconds by remember { mutableFloatStateOf(0f) }
+    var estimatedSkippedSeconds by remember { mutableFloatStateOf(0f) }
+    var estimatedWatchSeconds by remember { mutableFloatStateOf(0f) }
 
     val latestBrightness = rememberUpdatedState(brightness)
     val latestVolume = rememberUpdatedState(volume)
-    val latestDoubleTapSeconds = rememberUpdatedState(doubleTapSeconds)
+    val latestDoubleTap = rememberUpdatedState(doubleTapSeconds)
+    val latestGestureLocked = rememberUpdatedState(gestureLocked)
+
+    val transformState = rememberTransformableState { zoomChange, _, _ ->
+        if (!latestGestureLocked.value) {
+            videoZoom = (videoZoom * zoomChange).coerceIn(1f, 3f)
+        }
+    }
 
     fun setBrightness(value: Float) {
         val clamped = value.coerceIn(0.02f, 1f)
@@ -297,8 +454,8 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
         )
     }
 
-    fun saveCurrentVideoState() {
-        val uri = selectedUri ?: return
+    fun saveCurrentState() {
+        val uri = activeUri ?: return
         val key = mediaKey(uri)
         preferences.edit()
             .putLong("${key}_position", player.currentPosition.coerceAtLeast(0L))
@@ -311,166 +468,324 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
             .apply()
     }
 
-    fun applySilenceSettings(
-        threshold: Float = silenceThresholdDb,
-        minimum: Float = minimumSilence,
-        padding: Float = edgePadding
+    fun loadExternalSubtitle(uri: Uri?) {
+        selectedSubtitleUri = uri
+        subtitleName = uri?.let { queryDisplayName(context, it) }
+
+        if (uri == null) {
+            externalSubtitleCues = emptyList()
+            externalSubtitleText = ""
+            return
+        }
+
+        scope.launch {
+            externalSubtitleCues = withContext(Dispatchers.IO) {
+                SubtitleParser.parse(context, uri)
+            }
+            gestureText = if (externalSubtitleCues.isEmpty()) {
+                "No subtitle cues found"
+            } else {
+                "${externalSubtitleCues.size} subtitle cues loaded"
+            }
+        }
+    }
+
+    fun applyVideoPreferences(uri: Uri) {
+        val key = mediaKey(uri)
+        val newThreshold = preferences.getFloat(
+            "${key}_threshold",
+            preferences.getFloat("silence_threshold_db", -42f)
+        )
+        val newMinimum = preferences.getFloat(
+            "${key}_minimum",
+            preferences.getFloat("minimum_silence", 0.45f)
+        )
+        val newPadding = preferences.getFloat(
+            "${key}_padding",
+            preferences.getFloat("edge_padding", 0.08f)
+        )
+
+        silenceThresholdDb = newThreshold
+        minimumSilence = newMinimum
+        edgePadding = newPadding
+        playbackSpeed = preferences.getFloat(
+            "${key}_speed",
+            preferences.getFloat("playback_speed", 1f)
+        )
+        skipSilence = preferences.getBoolean(
+            "${key}_skip",
+            preferences.getBoolean("skip_silence", true)
+        )
+
+        PlaybackRuntime.reconfigureSilence(
+            SilenceConfig(newThreshold, newMinimum, newPadding)
+        )
+        player.setPlaybackSpeed(playbackSpeed)
+        player.skipSilenceEnabled = skipSilence
+
+        val subtitle = preferences.getString("${key}_subtitle", null)
+            ?.let(Uri::parse)
+        loadExternalSubtitle(subtitle)
+        bookmarks = loadBookmarks(preferences, uri)
+    }
+
+    fun commitOpen(
+        entries: List<VideoEntry>,
+        startIndex: Int,
+        positionMs: Long
     ) {
-        restorePositionMs = player.currentPosition
-        restorePlaying = player.isPlaying
-        skippedCarrySeconds += previousSegmentSkippedSeconds
-        previousSegmentSkippedSeconds = 0f
+        if (entries.isEmpty()) return
+        saveCurrentState()
 
-        silenceThresholdDb = threshold.coerceIn(-60f, -20f)
-        minimumSilence = minimum.coerceIn(0.2f, 2f)
-        edgePadding = padding.coerceIn(0.02f, 0.20f)
+        val index = startIndex.coerceIn(0, entries.lastIndex)
+        val selected = entries[index]
+        applyVideoPreferences(selected.uri)
 
-        appliedThresholdDb = silenceThresholdDb
-        appliedMinimumSilence = minimumSilence
-        appliedEdgePadding = edgePadding
+        val mediaItems = entries.map {
+            MediaItem.Builder()
+                .setMediaId(it.uri.toString())
+                .setUri(it.uri)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(it.name)
+                        .setMediaType(MediaMetadata.MEDIA_TYPE_VIDEO)
+                        .build()
+                )
+                .build()
+        }
+
+        player.setMediaItems(mediaItems, index, positionMs.coerceAtLeast(0L))
+        player.prepare()
+        player.play()
+        controlsVisible = true
+
+        val updated = entries.map {
+            RecentVideo(it.uri.toString(), it.name)
+        } + recentVideos
+        recentVideos = updated.distinctBy { it.uri }.take(12)
+        saveRecentVideos(preferences, recentVideos)
+    }
+
+    fun requestOpen(entries: List<VideoEntry>, startIndex: Int = 0) {
+        if (entries.isEmpty()) return
+        val index = startIndex.coerceIn(0, entries.lastIndex)
+        val saved = preferences.getLong(
+            "${mediaKey(entries[index].uri)}_position",
+            0L
+        )
+
+        when {
+            saved < 5_000L -> commitOpen(entries, index, 0L)
+            resumeMode == ResumeMode.ALWAYS -> commitOpen(entries, index, saved)
+            resumeMode == ResumeMode.NEVER -> commitOpen(entries, index, 0L)
+            else -> pendingResume = PendingResume(entries, index, saved)
+        }
+    }
+
+    fun applySilenceSettings() {
+        silenceThresholdDb = silenceThresholdDb.roundToInt().toFloat()
+        minimumSilence = ((minimumSilence * 20f).roundToInt() / 20f)
+            .coerceIn(0.2f, 2f)
+        edgePadding = ((edgePadding * 100f).roundToInt() / 100f)
+            .coerceIn(0.02f, 0.20f)
 
         preferences.edit()
             .putFloat("silence_threshold_db", silenceThresholdDb)
             .putFloat("minimum_silence", minimumSilence)
             .putFloat("edge_padding", edgePadding)
             .apply()
-        saveCurrentVideoState()
-    }
-
-    fun openVideo(uri: Uri, name: String) {
-        saveCurrentVideoState()
-
-        val key = mediaKey(uri)
-        val threshold = preferences.getFloat("${key}_threshold", preferences.getFloat("silence_threshold_db", -42f))
-        val minimum = preferences.getFloat("${key}_minimum", preferences.getFloat("minimum_silence", 0.45f))
-        val padding = preferences.getFloat("${key}_padding", preferences.getFloat("edge_padding", 0.08f))
-
-        silenceThresholdDb = threshold
-        minimumSilence = minimum
-        edgePadding = padding
-        appliedThresholdDb = threshold
-        appliedMinimumSilence = minimum
-        appliedEdgePadding = padding
-        playbackSpeed = preferences.getFloat("${key}_speed", preferences.getFloat("playback_speed", 1f))
-        skipSilence = preferences.getBoolean("${key}_skip", preferences.getBoolean("skip_silence", true))
-
-        val storedSubtitle = preferences.getString("${key}_subtitle", null)
-        selectedSubtitleUri = storedSubtitle?.let(Uri::parse)
-        subtitleName = selectedSubtitleUri?.lastPathSegment?.substringAfterLast('/')
-
-        restorePositionMs = preferences.getLong("${key}_position", 0L)
-        restorePlaying = true
-        fileName = name
-        fileSizeText = queryFileSize(context, uri)
-        selectedUri = uri
-        mediaRevision++
-
-        skippedCarrySeconds = 0f
-        previousSegmentSkippedSeconds = 0f
-        skippedSeconds = 0f
-
-        val updated = listOf(RecentVideo(uri.toString(), name)) +
-            recentVideos.filterNot { it.uri == uri.toString() }
-        recentVideos = updated.take(8)
-        saveRecentVideos(preferences, recentVideos)
-        controlsVisible = true
+        saveCurrentState()
+        PlaybackRuntime.reconfigureSilence(
+            SilenceConfig(
+                silenceThresholdDb,
+                minimumSilence,
+                edgePadding
+            )
+        )
     }
 
     fun seekBy(deltaMs: Long) {
-        if (selectedUri == null) return
-        val end = if (durationMs > 0) durationMs else Long.MAX_VALUE
-        player.seekTo((player.currentPosition + deltaMs).coerceIn(0L, end))
+        if (player.mediaItemCount == 0) return
+        val maxPosition = if (durationMs > 0) durationMs else Long.MAX_VALUE
+        player.seekTo(
+            (player.currentPosition + deltaMs).coerceIn(0L, maxPosition)
+        )
         gestureText = if (deltaMs < 0) {
-            "−${latestDoubleTapSeconds.value} s"
+            "−${abs(deltaMs) / 1000} s"
         } else {
-            "+${latestDoubleTapSeconds.value} s"
+            "+${deltaMs / 1000} s"
         }
         controlsVisible = true
     }
 
-    DisposableEffect(player) {
-        onDispose {
-            player.release()
+    fun searchSubtitle() {
+        val query = subtitleSearch.trim()
+        if (query.isEmpty() || externalSubtitleCues.isEmpty()) return
+
+        val after = currentMs - subtitleOffsetMs + 1
+        val match = externalSubtitleCues.firstOrNull {
+            it.startMs >= after && it.text.contains(query, ignoreCase = true)
+        } ?: externalSubtitleCues.firstOrNull {
+            it.text.contains(query, ignoreCase = true)
+        }
+
+        if (match != null) {
+            player.seekTo((match.startMs + subtitleOffsetMs).coerceAtLeast(0L))
+            gestureText = "Subtitle match"
+        } else {
+            gestureText = "No subtitle match"
         }
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
-            activity.setPlayerFullscreen(false)
+    fun addBookmark() {
+        val uri = activeUri ?: return
+        val position = player.currentPosition.coerceAtLeast(0L)
+        val item = BookmarkPoint(
+            positionMs = position,
+            label = formatTime(position)
+        )
+        bookmarks = (bookmarks + item)
+            .distinctBy { it.positionMs / 1000L }
+            .sortedBy { it.positionMs }
+        saveBookmarks(preferences, uri, bookmarks)
+        gestureText = "Bookmark ${item.label}"
+    }
+
+    LaunchedEffect(activity.incomingUri) {
+        val uri = activity.incomingUri
+        if (uri != null) {
+            requestOpen(
+                listOf(
+                    VideoEntry(uri, queryDisplayName(context, uri))
+                )
+            )
+            activity.consumeIncomingUri()
         }
     }
 
-    LaunchedEffect(skipSilence, player) {
+    LaunchedEffect(player, PlaybackRuntime.generation) {
         player.skipSilenceEnabled = skipSilence
-        preferences.edit().putBoolean("skip_silence", skipSilence).apply()
+        player.setPlaybackSpeed(playbackSpeed)
     }
 
-    LaunchedEffect(playbackSpeed, player) {
-        player.setPlaybackSpeed(playbackSpeed.coerceIn(0.5f, 3f))
-    }
-
-    LaunchedEffect(player, selectedUri, selectedSubtitleUri, mediaRevision) {
-        selectedUri?.let { uri ->
-            player.setMediaItem(buildMediaItem(uri, selectedSubtitleUri))
-            player.prepare()
-            if (restorePositionMs > 0L) {
-                player.seekTo(restorePositionMs)
-            }
-            player.setPlaybackSpeed(playbackSpeed)
-            if (restorePlaying) {
-                player.play()
-            }
-        }
+    LaunchedEffect(audioOnly, player) {
+        player.trackSelectionParameters =
+            player.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, audioOnly)
+                .build()
+        preferences.edit().putBoolean("audio_only", audioOnly).apply()
     }
 
     LaunchedEffect(player) {
-        var tick = 0
+        var persistenceTick = 0
         while (isActive) {
             currentMs = player.currentPosition.coerceAtLeast(0L)
-            val value = player.duration
-            durationMs = if (value != C.TIME_UNSET && value > 0) value else 0L
+            val rawDuration = player.duration
+            durationMs =
+                if (rawDuration != C.TIME_UNSET && rawDuration > 0) rawDuration else 0L
             isPlaying = player.isPlaying
             currentTracks = player.currentTracks
-
-            val sampleRate = player.audioFormat?.sampleRate?.takeIf { it > 0 } ?: 48_000
-            val segmentSkipped =
-                playerBundle.silenceProcessor.skippedFrames.toFloat() / sampleRate.toFloat()
-            if (segmentSkipped + 0.02f < previousSegmentSkippedSeconds) {
-                skippedCarrySeconds += previousSegmentSkippedSeconds
+            playerError = player.playerError?.let {
+                "${it.errorCodeName}: ${it.localizedMessage ?: "Playback failed"}"
             }
-            previousSegmentSkippedSeconds = segmentSkipped
-            skippedSeconds = skippedCarrySeconds + segmentSkipped
 
-            val videoFormat = player.videoFormat
-            val resolution = if (
-                videoFormat != null &&
-                videoFormat.width > 0 &&
-                videoFormat.height > 0
-            ) {
-                "${videoFormat.width}×${videoFormat.height}"
-            } else {
-                ""
+            val currentItem = player.currentMediaItem
+            val uri = currentItem?.localConfiguration?.uri
+            val mediaId = currentItem?.mediaId.orEmpty()
+            if (uri != null && mediaId != activeMediaId) {
+                saveCurrentState()
+                activeMediaId = mediaId
+                activeUri = uri
+                fileName = currentItem.mediaMetadata.title?.toString()
+                    ?: queryDisplayName(context, uri)
+                fileInfo = queryFileSize(context, uri)
+                bookmarks = loadBookmarks(preferences, uri)
+
+                val storedSubtitle =
+                    preferences.getString("${mediaKey(uri)}_subtitle", null)
+                        ?.let(Uri::parse)
+                loadExternalSubtitle(storedSubtitle)
+
+                if (resumeMode == ResumeMode.ALWAYS && currentMs < 2_000L) {
+                    val saved = preferences.getLong(
+                        "${mediaKey(uri)}_position",
+                        0L
+                    )
+                    if (saved > 5_000L) {
+                        player.seekTo(saved)
+                    }
+                }
             }
+
+            val videoSize = player.videoSize
+            val resolution =
+                if (videoSize.width > 0 && videoSize.height > 0) {
+                    "${videoSize.width}×${videoSize.height}"
+                } else {
+                    ""
+                }
+            val sizeText = activeUri?.let { queryFileSize(context, it) }.orEmpty()
             fileInfo = listOf(
-                fileSizeText,
+                sizeText,
                 resolution,
                 if (durationMs > 0) formatTime(durationMs) else ""
             ).filter { it.isNotBlank() }.joinToString(" · ")
 
-            tick++
-            if (tick % 5 == 0) {
-                val uri = selectedUri
-                if (uri != null) {
-                    val key = mediaKey(uri)
-                    preferences.edit()
-                        .putLong("${key}_position", currentMs)
-                        .putFloat("${key}_speed", playbackSpeed)
-                        .putFloat("${key}_threshold", silenceThresholdDb)
-                        .putFloat("${key}_minimum", minimumSilence)
-                        .putFloat("${key}_padding", edgePadding)
-                        .putBoolean("${key}_skip", skipSilence)
-                        .apply()
-                }
+            skippedSeconds = PlaybackRuntime.skippedSeconds()
+            if (durationMs > 0 && currentMs > 30_000L) {
+                val predicted =
+                    skippedSeconds * (durationMs.toFloat() / currentMs.toFloat())
+                estimatedSkippedSeconds = predicted.coerceIn(
+                    skippedSeconds,
+                    durationMs / 1000f
+                )
+            } else {
+                estimatedSkippedSeconds = skippedSeconds
+            }
+            estimatedWatchSeconds =
+                ((durationMs / 1000f - estimatedSkippedSeconds)
+                    .coerceAtLeast(0f) / playbackSpeed.coerceAtLeast(0.5f))
+
+            val subtitleClock = currentMs - subtitleOffsetMs
+            externalSubtitleText = externalSubtitleCues.firstOrNull {
+                it.startMs <= subtitleClock && subtitleClock < it.endMs
+            }?.text.orEmpty()
+
+            val a = abStartMs
+            val b = abEndMs
+            if (
+                a != null &&
+                b != null &&
+                b > a &&
+                player.isPlaying &&
+                currentMs >= b
+            ) {
+                player.seekTo(a)
+            }
+
+            val deadline = sleepDeadline
+            if (
+                deadline != null &&
+                SystemClock.elapsedRealtime() >= deadline
+            ) {
+                player.pause()
+                sleepDeadline = null
+                gestureText = "Sleep timer finished"
+            }
+            if (
+                sleepAtEnd &&
+                durationMs > 0 &&
+                currentMs >= durationMs - 500L
+            ) {
+                player.pause()
+                sleepAtEnd = false
+            }
+
+            persistenceTick++
+            if (persistenceTick >= 5) {
+                persistenceTick = 0
+                saveCurrentState()
             }
             delay(200)
         }
@@ -478,41 +793,167 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
 
     LaunchedEffect(gestureText) {
         if (gestureText != null) {
-            delay(700)
+            delay(900)
             gestureText = null
         }
     }
 
     LaunchedEffect(isPlaying, controlsVisible, isFullscreen, activity.pipMode) {
-        if (isPlaying && controlsVisible && !activity.pipMode) {
-            delay(if (isFullscreen) 2_500 else 4_000)
+        if (isPlaying && controlsVisible && !activity.pipMode && !gestureLocked) {
+            delay(if (isFullscreen) 2_500L else 4_000L)
             controlsVisible = false
         }
     }
 
-    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            takePersistableReadPermission(activity, uri)
-            openVideo(
-                uri,
-                uri.lastPathSegment?.substringAfterLast('/') ?: "Video"
-            )
+    DisposableEffect(Unit) {
+        onDispose {
+            saveCurrentState()
+            activity.setPlayerFullscreen(false)
         }
     }
 
-    val subtitlePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null && selectedUri != null) {
-            takePersistableReadPermission(activity, uri)
-            restorePositionMs = player.currentPosition
-            restorePlaying = player.isPlaying
-            selectedSubtitleUri = uri
-            subtitleName = uri.lastPathSegment?.substringAfterLast('/') ?: "External subtitle"
-            val key = mediaKey(selectedUri!!)
-            preferences.edit().putString("${key}_subtitle", uri.toString()).apply()
-            mediaRevision++
-            controlsVisible = true
+    val videoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            val entries = uris.map { uri ->
+                takePersistableReadPermission(activity, uri)
+                VideoEntry(uri, queryDisplayName(context, uri))
+            }
+            requestOpen(entries)
         }
     }
+
+    val folderPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { treeUri ->
+        if (treeUri != null) {
+            takePersistableTreePermission(activity, treeUri)
+            scope.launch {
+                val entries = withContext(Dispatchers.IO) {
+                    collectVideoDocuments(context, treeUri)
+                }
+                if (entries.isEmpty()) {
+                    gestureText = "No videos found in folder"
+                } else {
+                    requestOpen(entries)
+                }
+            }
+        }
+    }
+
+    val subtitlePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null && activeUri != null) {
+            takePersistableReadPermission(activity, uri)
+            loadExternalSubtitle(uri)
+            preferences.edit()
+                .putString(
+                    "${mediaKey(activeUri!!)}_subtitle",
+                    uri.toString()
+                )
+                .apply()
+        }
+    }
+
+    val pointerGestures =
+        if (gestureLocked) {
+            Modifier
+        } else {
+            Modifier
+                .pointerInput(player, doubleTapSeconds) {
+                    detectTapGestures(
+                        onTap = {
+                            controlsVisible = !controlsVisible
+                        },
+                        onDoubleTap = { offset ->
+                            val delta = latestDoubleTap.value * 1000L
+                            if (offset.x < size.width / 2f) {
+                                seekBy(-delta)
+                            } else {
+                                seekBy(delta)
+                            }
+                        }
+                    )
+                }
+                .pointerInput(player) {
+                    var startX = 0f
+                    var startValue = 0f
+                    var totalX = 0f
+                    var totalY = 0f
+                    var orientation = 0
+                    var seekDeltaMs = 0L
+                    var startPosition = 0L
+
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            startX = offset.x
+                            startValue =
+                                if (offset.x < size.width / 2f) {
+                                    latestBrightness.value
+                                } else {
+                                    latestVolume.value
+                                }
+                            totalX = 0f
+                            totalY = 0f
+                            orientation = 0
+                            seekDeltaMs = 0L
+                            startPosition = player.currentPosition
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            totalX += dragAmount.x
+                            totalY += dragAmount.y
+
+                            if (
+                                orientation == 0 &&
+                                max(abs(totalX), abs(totalY)) > 18f
+                            ) {
+                                orientation =
+                                    if (abs(totalX) > abs(totalY)) 1 else 2
+                            }
+
+                            if (orientation == 1) {
+                                val width = max(size.width.toFloat(), 1f)
+                                seekDeltaMs =
+                                    ((totalX / width) * 120_000f).toLong()
+                                        .coerceIn(-120_000L, 120_000L)
+                                gestureText =
+                                    if (seekDeltaMs >= 0) {
+                                        "Seek +${seekDeltaMs / 1000} s"
+                                    } else {
+                                        "Seek ${seekDeltaMs / 1000} s"
+                                    }
+                            } else if (orientation == 2) {
+                                val height = max(size.height.toFloat(), 1f)
+                                val next =
+                                    (startValue - totalY / height)
+                                        .coerceIn(0f, 1f)
+                                if (startX < size.width / 2f) {
+                                    setBrightness(next)
+                                    gestureText =
+                                        "Brightness ${(next * 100).roundToInt()}%"
+                                } else {
+                                    setVolume(next)
+                                    gestureText =
+                                        "Volume ${(next * 100).roundToInt()}%"
+                                }
+                            }
+                        },
+                        onDragEnd = {
+                            if (orientation == 1 && seekDeltaMs != 0L) {
+                                val end =
+                                    if (durationMs > 0) durationMs else Long.MAX_VALUE
+                                player.seekTo(
+                                    (startPosition + seekDeltaMs)
+                                        .coerceIn(0L, end)
+                                )
+                            }
+                        }
+                    )
+                }
+                .transformable(transformState)
 
     Box(
         modifier = Modifier
@@ -523,67 +964,37 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
             factory = { viewContext ->
                 PlayerView(viewContext).apply {
                     useController = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    resizeMode = aspectMode.resizeMode
                     setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                     this.player = player
                 }
             },
-            update = { it.player = player },
-            modifier = Modifier.fillMaxSize()
+            update = { view ->
+                view.player = player
+                view.resizeMode = aspectMode.resizeMode
+                view.subtitleView?.apply {
+                    setApplyEmbeddedFontSizes(false)
+                    setFractionalTextSize(
+                        SubtitleView.DEFAULT_TEXT_SIZE_FRACTION *
+                            subtitleFontScale
+                    )
+                }
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer(
+                    scaleX = videoZoom,
+                    scaleY = videoZoom
+                )
         )
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(player, doubleTapSeconds) {
-                    detectTapGestures(
-                        onTap = {
-                            controlsVisible = !controlsVisible
-                        },
-                        onDoubleTap = { offset ->
-                            val delta = latestDoubleTapSeconds.value * 1000L
-                            if (offset.x < size.width / 2f) {
-                                seekBy(-delta)
-                            } else {
-                                seekBy(delta)
-                            }
-                        }
-                    )
-                }
-                .pointerInput(Unit) {
-                    var leftSide = true
-                    var startValue = 0f
-                    var accumulated = 0f
-
-                    detectVerticalDragGestures(
-                        onDragStart = { offset ->
-                            leftSide = offset.x < size.width / 2f
-                            startValue = if (leftSide) {
-                                latestBrightness.value
-                            } else {
-                                latestVolume.value
-                            }
-                            accumulated = 0f
-                            controlsVisible = true
-                        },
-                        onVerticalDrag = { change, dragAmount ->
-                            change.consume()
-                            accumulated -= dragAmount
-                            val height = max(size.height.toFloat(), 1f)
-                            val next = (startValue + accumulated / height).coerceIn(0f, 1f)
-                            if (leftSide) {
-                                setBrightness(next)
-                                gestureText = "Brightness " + (next * 100).roundToInt() + "%"
-                            } else {
-                                setVolume(next)
-                                gestureText = "Volume " + (next * 100).roundToInt() + "%"
-                            }
-                        }
-                    )
-                }
+                .then(pointerGestures)
         )
 
-        if (selectedUri == null && !activity.pipMode) {
+        if (player.mediaItemCount == 0 && !activity.pipMode) {
             Button(
                 onClick = {
                     videoPicker.launch(
@@ -603,6 +1014,34 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
             }
         }
 
+        if (externalSubtitleText.isNotBlank()) {
+            val alignment = when (subtitlePosition) {
+                SubtitlePosition.TOP -> Alignment.TopCenter
+                SubtitlePosition.CENTER -> Alignment.Center
+                SubtitlePosition.BOTTOM -> Alignment.BottomCenter
+            }
+            Text(
+                text = externalSubtitleText,
+                color = Color.White,
+                fontSize = (18f * subtitleFontScale).sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(alignment)
+                    .padding(
+                        horizontal = 24.dp,
+                        vertical = if (
+                            subtitlePosition == SubtitlePosition.BOTTOM &&
+                            controlsVisible
+                        ) 230.dp else 32.dp
+                    )
+                    .background(
+                        Color.Black.copy(alpha = subtitleBackgroundOpacity),
+                        MaterialTheme.shapes.small
+                    )
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            )
+        }
+
         gestureText?.let { message ->
             if (!activity.pipMode) {
                 Text(
@@ -611,25 +1050,74 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .background(Color.Black.copy(alpha = 0.72f), MaterialTheme.shapes.medium)
+                        .background(
+                            Color.Black.copy(alpha = 0.76f),
+                            MaterialTheme.shapes.medium
+                        )
                         .padding(horizontal = 18.dp, vertical = 12.dp)
                 )
             }
         }
 
-        if (controlsVisible && !activity.pipMode) {
+        if (gestureLocked && !activity.pipMode) {
+            Button(
+                onClick = {
+                    gestureLocked = false
+                    controlsVisible = true
+                },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 20.dp)
+            ) {
+                Text("Unlock gestures")
+            }
+        }
+
+        playerError?.let { error ->
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .background(
+                        Color.Black.copy(alpha = 0.88f),
+                        MaterialTheme.shapes.medium
+                    )
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Playback error", color = Color.White, fontWeight = FontWeight.Bold)
+                Text(
+                    error,
+                    color = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+                Button(
+                    onClick = {
+                        playerError = null
+                        player.prepare()
+                        player.play()
+                    }
+                ) {
+                    Text("Retry")
+                }
+            }
+        }
+
+        if (controlsVisible && !activity.pipMode && !gestureLocked) {
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .heightIn(max = if (isFullscreen) 330.dp else 500.dp)
+                    .heightIn(max = if (isFullscreen) 390.dp else 590.dp)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.96f))
+                            listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.97f)
+                            )
                         )
                     )
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
                     .navigationBarsPadding()
             ) {
                 Row(
@@ -653,26 +1141,40 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                             contentDescription = null,
                             modifier = Modifier.size(18.dp)
                         )
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(5.dp))
                         Text("Open")
                     }
 
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(5.dp))
+
+                    OutlinedButton(onClick = { folderPicker.launch(null) }) {
+                        Text("Folder")
+                    }
+
+                    Spacer(Modifier.width(5.dp))
 
                     RecentMenu(
                         videos = recentVideos,
-                        onOpen = { recent ->
-                            openVideo(Uri.parse(recent.uri), recent.name)
+                        onOpen = {
+                            val uri = Uri.parse(it.uri)
+                            requestOpen(
+                                listOf(VideoEntry(uri, it.name))
+                            )
                         }
                     )
 
                     Spacer(Modifier.weight(1f))
 
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && selectedUri != null) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                        player.mediaItemCount > 0
+                    ) {
                         TextButton(
                             onClick = {
                                 val videoSize = player.videoSize
-                                activity.enterPlayerPip(videoSize.width, videoSize.height)
+                                activity.enterPlayerPip(
+                                    videoSize.width,
+                                    videoSize.height
+                                )
                             }
                         ) {
                             Text("PiP")
@@ -692,34 +1194,29 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
 
                 Text(
                     text = fileName,
-                    color = Color.White.copy(alpha = 0.9f),
+                    color = Color.White,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1
                 )
                 if (fileInfo.isNotBlank()) {
                     Text(
-                        text = fileInfo,
-                        color = Color.White.copy(alpha = 0.6f),
+                        fileInfo,
+                        color = Color.White.copy(alpha = 0.62f),
                         style = MaterialTheme.typography.labelSmall
                     )
                 }
 
-                Spacer(Modifier.height(4.dp))
-
                 Slider(
                     value = currentMs.coerceAtMost(max(durationMs, 0L)).toFloat(),
-                    onValueChange = { value ->
-                        if (durationMs > 0L) {
-                            player.seekTo(value.toLong())
-                            controlsVisible = true
-                        }
+                    onValueChange = {
+                        if (durationMs > 0) player.seekTo(it.toLong())
                     },
                     valueRange = 0f..max(durationMs.toFloat(), 1f),
                     enabled = durationMs > 0L
                 )
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
@@ -728,12 +1225,12 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                         style = MaterialTheme.typography.labelMedium
                     )
                     Text(
-                        "Skipped ${formatTime((skippedSeconds * 1000f).toLong())}",
-                        color = Color.White.copy(alpha = 0.72f),
-                        style = MaterialTheme.typography.labelMedium
+                        "Saved ${formatSeconds(skippedSeconds)} · est. ${formatSeconds(estimatedWatchSeconds)} watch",
+                        color = Color.White.copy(alpha = 0.7f),
+                        style = MaterialTheme.typography.labelSmall
                     )
                     Text(
-                        if (durationMs > 0L) {
+                        if (durationMs > 0) {
                             "−" + formatTime((durationMs - currentMs).coerceAtLeast(0L))
                         } else {
                             "--:--"
@@ -744,43 +1241,62 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                 }
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    TextButton(
+                        onClick = { player.seekToPreviousMediaItem() },
+                        enabled = player.hasPreviousMediaItem()
+                    ) {
+                        Text("Prev")
+                    }
+
                     IconButton(
-                        onClick = { seekBy(-doubleTapSeconds * 1000L) },
-                        enabled = selectedUri != null
+                        onClick = {
+                            seekBy(-doubleTapSeconds * 1000L)
+                        },
+                        enabled = player.mediaItemCount > 0
                     ) {
                         Icon(
                             Icons.Default.FastRewind,
-                            contentDescription = "Back $doubleTapSeconds seconds",
+                            contentDescription = "Back",
                             tint = Color.White
                         )
                     }
+
                     IconButton(
                         onClick = {
                             if (player.isPlaying) player.pause() else player.play()
-                            controlsVisible = true
                         },
-                        enabled = selectedUri != null
+                        enabled = player.mediaItemCount > 0
                     ) {
                         Icon(
                             if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            contentDescription = "Play pause",
                             tint = Color.White,
                             modifier = Modifier.size(36.dp)
                         )
                     }
+
                     IconButton(
-                        onClick = { seekBy(doubleTapSeconds * 1000L) },
-                        enabled = selectedUri != null
+                        onClick = {
+                            seekBy(doubleTapSeconds * 1000L)
+                        },
+                        enabled = player.mediaItemCount > 0
                     ) {
                         Icon(
                             Icons.Default.FastForward,
-                            contentDescription = "Forward $doubleTapSeconds seconds",
+                            contentDescription = "Forward",
                             tint = Color.White
                         )
+                    }
+
+                    TextButton(
+                        onClick = { player.seekToNextMediaItem() },
+                        enabled = player.hasNextMediaItem()
+                    ) {
+                        Text("Next")
                     }
                 }
 
@@ -794,12 +1310,16 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                     Slider(
                         value = playbackSpeed,
                         onValueChange = {
-                            playbackSpeed = ((it * 4).roundToInt() / 4f).coerceIn(0.5f, 3f)
+                            playbackSpeed =
+                                ((it * 4).roundToInt() / 4f)
+                                    .coerceIn(0.5f, 3f)
                             player.setPlaybackSpeed(playbackSpeed)
                         },
                         onValueChangeFinished = {
-                            preferences.edit().putFloat("playback_speed", playbackSpeed).apply()
-                            saveCurrentVideoState()
+                            preferences.edit()
+                                .putFloat("playback_speed", playbackSpeed)
+                                .apply()
+                            saveCurrentState()
                         },
                         valueRange = 0.5f..3f,
                         steps = 9,
@@ -808,17 +1328,18 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                 }
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("Skip silence", color = Color.White)
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(7.dp))
                     Switch(
                         checked = skipSilence,
                         onCheckedChange = {
                             skipSilence = it
                             player.skipSilenceEnabled = it
-                            saveCurrentVideoState()
+                            preferences.edit().putBoolean("skip_silence", it).apply()
+                            saveCurrentState()
                         }
                     )
                     Spacer(Modifier.weight(1f))
@@ -828,13 +1349,12 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                             minimumSilence,
                             edgePadding
                         ),
-                        onPreset = { preset ->
-                            applySilenceSettings(
-                                preset.thresholdDb,
-                                preset.minimumSilence,
-                                preset.edgePadding
-                            )
-                            gestureText = preset.label
+                        onPreset = {
+                            silenceThresholdDb = it.thresholdDb
+                            minimumSilence = it.minimumSilence
+                            edgePadding = it.edgePadding
+                            applySilenceSettings()
+                            gestureText = it.label
                         }
                     )
                 }
@@ -847,7 +1367,7 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                     )
                     Slider(
                         value = brightness,
-                        onValueChange = { setBrightness(it) },
+                        onValueChange =(::setBrightness),
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -860,7 +1380,7 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                     )
                     Slider(
                         value = volume,
-                        onValueChange = { setVolume(it) },
+                        onValueChange =(::setVolume),
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -875,10 +1395,7 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                 if (advancedExpanded) {
                     HorizontalDivider()
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             "Threshold ${silenceThresholdDb.roundToInt()} dB",
                             color = Color.White,
@@ -888,9 +1405,7 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                         Slider(
                             value = silenceThresholdDb,
                             onValueChange = { silenceThresholdDb = it },
-                            onValueChangeFinished = {
-                                applySilenceSettings()
-                            },
+                            onValueChangeFinished =(::applySilenceSettings),
                             valueRange = -60f..-20f,
                             steps = 39,
                             enabled = skipSilence,
@@ -898,10 +1413,7 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                         )
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             "Min ${String.format("%.2f", minimumSilence)} s",
                             color = Color.White,
@@ -911,11 +1423,10 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                         Slider(
                             value = minimumSilence,
                             onValueChange = {
-                                minimumSilence = ((it * 20).roundToInt() / 20f)
+                                minimumSilence =
+                                    ((it * 20).roundToInt() / 20f)
                             },
-                            onValueChangeFinished = {
-                                applySilenceSettings()
-                            },
+                            onValueChangeFinished =(::applySilenceSettings),
                             valueRange = 0.2f..2f,
                             steps = 35,
                             enabled = skipSilence,
@@ -923,10 +1434,7 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                         )
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             "Edge ${(edgePadding * 1000).roundToInt()} ms",
                             color = Color.White,
@@ -936,11 +1444,10 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                         Slider(
                             value = edgePadding,
                             onValueChange = {
-                                edgePadding = ((it * 100).roundToInt() / 100f)
+                                edgePadding =
+                                    ((it * 100).roundToInt() / 100f)
                             },
-                            onValueChangeFinished = {
-                                applySilenceSettings()
-                            },
+                            onValueChangeFinished =(::applySilenceSettings),
                             valueRange = 0.02f..0.20f,
                             steps = 17,
                             enabled = skipSilence,
@@ -949,19 +1456,92 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                     }
 
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        DoubleTapMenu(
-                            seconds = doubleTapSeconds,
+                        AspectMenu(
+                            aspectMode,
                             onSelect = {
-                                doubleTapSeconds = it
-                                preferences.edit().putInt("double_tap_seconds", it).apply()
+                                aspectMode = it
+                                preferences.edit()
+                                    .putString("aspect_mode", it.name)
+                                    .apply()
                             }
                         )
+                        DoubleTapMenu(
+                            doubleTapSeconds,
+                            onSelect = {
+                                doubleTapSeconds = it
+                                preferences.edit()
+                                    .putInt("double_tap_seconds", it)
+                                    .apply()
+                            }
+                        )
+                        ResumeModeMenu(
+                            resumeMode,
+                            onSelect = {
+                                resumeMode = it
+                                preferences.edit()
+                                    .putString("resume_mode", it.name)
+                                    .apply()
+                            }
+                        )
+                    }
 
-                        Spacer(Modifier.width(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Zoom ${String.format("%.1f", videoZoom)}×",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.width(105.dp)
+                        )
+                        Slider(
+                            value = videoZoom,
+                            onValueChange = {
+                                videoZoom = it.coerceIn(1f, 3f)
+                            },
+                            onValueChangeFinished = {
+                                preferences.edit()
+                                    .putFloat("video_zoom", videoZoom)
+                                    .apply()
+                            },
+                            valueRange = 1f..3f,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
 
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Audio only", color = Color.White)
+                        Switch(
+                            checked = audioOnly,
+                            onCheckedChange = { audioOnly = it }
+                        )
+                        Spacer(Modifier.weight(1f))
+                        OutlinedButton(
+                            onClick = {
+                                gestureLocked = true
+                                controlsVisible = false
+                            }
+                        ) {
+                            Text("Lock gestures")
+                        }
+                    }
+
+                    HorizontalDivider()
+                    Text(
+                        "Subtitles",
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         OutlinedButton(
                             onClick = {
                                 subtitlePicker.launch(
@@ -973,12 +1553,30 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                                     )
                                 )
                             },
-                            enabled = selectedUri != null
+                            enabled = activeUri != null
                         ) {
                             Text(
-                                subtitleName?.let { "Subtitle: $it" } ?: "Load subtitle",
+                                subtitleName?.let { "External: $it" }
+                                    ?: "Import subtitle",
                                 maxLines = 1
                             )
+                        }
+
+                        if (selectedSubtitleUri != null) {
+                            TextButton(
+                                onClick = {
+                                    loadExternalSubtitle(null)
+                                    activeUri?.let { uri ->
+                                        preferences.edit()
+                                            .remove(
+                                                "${mediaKey(uri)}_subtitle"
+                                            )
+                                            .apply()
+                                    }
+                                }
+                            ) {
+                                Text("Remove")
+                            }
                         }
                     }
 
@@ -989,57 +1587,321 @@ private fun SkipSilencePlayerScreen(activity: MainActivity) {
                         player = player,
                         includeOff = false
                     )
-
                     TrackMenu(
-                        title = "Subtitles",
+                        title = "Embedded subtitles",
                         tracks = currentTracks,
                         trackType = C.TRACK_TYPE_TEXT,
                         player = player,
                         includeOff = true
                     )
 
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Sync ${if (subtitleOffsetMs >= 0) "+" else ""}${subtitleOffsetMs} ms",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.width(125.dp)
+                        )
+                        Slider(
+                            value = subtitleOffsetMs.toFloat(),
+                            onValueChange = {
+                                subtitleOffsetMs =
+                                    (it / 50f).roundToInt() * 50L
+                            },
+                            onValueChangeFinished = {
+                                preferences.edit()
+                                    .putLong("subtitle_offset_ms", subtitleOffsetMs)
+                                    .apply()
+                            },
+                            valueRange = -10_000f..10_000f,
+                            steps = 399,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Text ${String.format("%.1f", subtitleFontScale)}×",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.width(125.dp)
+                        )
+                        Slider(
+                            value = subtitleFontScale,
+                            onValueChange = {
+                                subtitleFontScale = it.coerceIn(0.7f, 2f)
+                            },
+                            onValueChangeFinished = {
+                                preferences.edit()
+                                    .putFloat(
+                                        "subtitle_font_scale",
+                                        subtitleFontScale
+                                    )
+                                    .apply()
+                            },
+                            valueRange = 0.7f..2f,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SubtitlePositionMenu(
+                            subtitlePosition,
+                            onSelect = {
+                                subtitlePosition = it
+                                preferences.edit()
+                                    .putString("subtitle_position", it.name)
+                                    .apply()
+                            }
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "BG ${(subtitleBackgroundOpacity * 100).roundToInt()}%",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                        Slider(
+                            value = subtitleBackgroundOpacity,
+                            onValueChange = {
+                                subtitleBackgroundOpacity = it
+                            },
+                            onValueChangeFinished = {
+                                preferences.edit()
+                                    .putFloat(
+                                        "subtitle_background_opacity",
+                                        subtitleBackgroundOpacity
+                                    )
+                                    .apply()
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = subtitleSearch,
+                            onValueChange = { subtitleSearch = it },
+                            singleLine = true,
+                            label = { Text("Search subtitle text") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Button(
+                            onClick =(::searchSubtitle),
+                            enabled = externalSubtitleCues.isNotEmpty()
+                        ) {
+                            Text("Next")
+                        }
+                    }
+
+                    HorizontalDivider()
                     Text(
-                        "External subtitles: SRT, VTT, SSA/ASS and TTML when supported by Media3.",
-                        color = Color.White.copy(alpha = 0.6f),
-                        style = MaterialTheme.typography.labelSmall
+                        "Playback tools",
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold
                     )
 
-                    TextButton(
-                        onClick = {
-                            silenceThresholdDb = -42f
-                            minimumSilence = 0.45f
-                            edgePadding = 0.08f
-                            playbackSpeed = 1f
-                            doubleTapSeconds = 10
-                            skipSilence = true
-                            selectedSubtitleUri = null
-                            subtitleName = null
-                            preferences.edit()
-                                .putFloat("silence_threshold_db", -42f)
-                                .putFloat("minimum_silence", 0.45f)
-                                .putFloat("edge_padding", 0.08f)
-                                .putFloat("playback_speed", 1f)
-                                .putInt("double_tap_seconds", 10)
-                                .putBoolean("skip_silence", true)
-                                .apply()
-                            applySilenceSettings(-42f, 0.45f, 0.08f)
-                            player.setPlaybackSpeed(1f)
-                            mediaRevision++
-                            gestureText = "Defaults restored"
-                        },
-                        modifier = Modifier.fillMaxWidth()
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text("Reset player settings")
+                        OutlinedButton(
+                            onClick = {
+                                abStartMs = currentMs
+                                if (abEndMs != null && abEndMs!! <= currentMs) {
+                                    abEndMs = null
+                                }
+                            }
+                        ) {
+                            Text(
+                                abStartMs?.let { "A ${formatTime(it)}" }
+                                    ?: "Set A"
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                if (abStartMs != null && currentMs > abStartMs!!) {
+                                    abEndMs = currentMs
+                                }
+                            },
+                            enabled = abStartMs != null
+                        ) {
+                            Text(
+                                abEndMs?.let { "B ${formatTime(it)}" }
+                                    ?: "Set B"
+                            )
+                        }
+
+                        TextButton(
+                            onClick = {
+                                abStartMs = null
+                                abEndMs = null
+                            },
+                            enabled = abStartMs != null || abEndMs != null
+                        ) {
+                            Text("Clear A-B")
+                        }
+                    }
+
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick =(::addBookmark),
+                            enabled = activeUri != null
+                        ) {
+                            Text("Add bookmark")
+                        }
+                        BookmarkMenu(
+                            bookmarks,
+                            onSelect = { player.seekTo(it.positionMs) },
+                            onClear = {
+                                activeUri?.let {
+                                    bookmarks = emptyList()
+                                    saveBookmarks(
+                                        preferences,
+                                        it,
+                                        emptyList()
+                                    )
+                                }
+                            }
+                        )
+                    }
+
+                    ChapterMenu(
+                        PlaybackRuntime.chapters,
+                        onSelect = { player.seekTo(it.startMs) }
+                    )
+
+                    SleepMenu(
+                        active = sleepDeadline != null || sleepAtEnd,
+                        onMinutes = { minutes ->
+                            sleepAtEnd = false
+                            sleepDeadline =
+                                SystemClock.elapsedRealtime() +
+                                    minutes * 60_000L
+                        },
+                        onEnd = {
+                            sleepDeadline = null
+                            sleepAtEnd = true
+                        },
+                        onCancel = {
+                            sleepDeadline = null
+                            sleepAtEnd = false
+                        }
+                    )
+
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                recentVideos = emptyList()
+                                clearPlaybackHistory(preferences)
+                                gestureText = "Playback history cleared"
+                            }
+                        ) {
+                            Text("Clear history")
+                        }
+
+                        TextButton(
+                            onClick = {
+                                silenceThresholdDb = -42f
+                                minimumSilence = 0.45f
+                                edgePadding = 0.08f
+                                playbackSpeed = 1f
+                                doubleTapSeconds = 10
+                                skipSilence = true
+                                videoZoom = 1f
+                                aspectMode = AspectMode.FIT
+                                subtitleOffsetMs = 0L
+                                subtitleFontScale = 1f
+                                subtitleBackgroundOpacity = 0.72f
+                                subtitlePosition = SubtitlePosition.BOTTOM
+                                audioOnly = false
+                                preferences.edit()
+                                    .putFloat("silence_threshold_db", -42f)
+                                    .putFloat("minimum_silence", 0.45f)
+                                    .putFloat("edge_padding", 0.08f)
+                                    .putFloat("playback_speed", 1f)
+                                    .putInt("double_tap_seconds", 10)
+                                    .putBoolean("skip_silence", true)
+                                    .putFloat("video_zoom", 1f)
+                                    .putString("aspect_mode", AspectMode.FIT.name)
+                                    .putLong("subtitle_offset_ms", 0L)
+                                    .putFloat("subtitle_font_scale", 1f)
+                                    .putFloat(
+                                        "subtitle_background_opacity",
+                                        0.72f
+                                    )
+                                    .putString(
+                                        "subtitle_position",
+                                        SubtitlePosition.BOTTOM.name
+                                    )
+                                    .putBoolean("audio_only", false)
+                                    .apply()
+                                player.setPlaybackSpeed(1f)
+                                player.skipSilenceEnabled = true
+                                applySilenceSettings()
+                                gestureText = "Defaults restored"
+                            }
+                        ) {
+                            Text("Reset settings")
+                        }
                     }
                 }
 
                 Text(
-                    "Double-tap: ±$doubleTapSeconds s · Swipe left: brightness · Swipe right: volume",
-                    color = Color.White.copy(alpha = 0.6f),
+                    "Double-tap ±${doubleTapSeconds}s · horizontal swipe seeks · left/right vertical swipe controls brightness/volume · pinch zoom",
+                    color = Color.White.copy(alpha = 0.58f),
                     style = MaterialTheme.typography.labelSmall
                 )
             }
         }
+    }
+
+    pendingResume?.let { request ->
+        AlertDialog(
+            onDismissRequest = { pendingResume = null },
+            title = { Text("Resume playback?") },
+            text = {
+                Text("Continue from ${formatTime(request.positionMs)}?")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingResume = null
+                        commitOpen(
+                            request.entries,
+                            request.startIndex,
+                            request.positionMs
+                        )
+                    }
+                ) {
+                    Text("Resume")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        pendingResume = null
+                        commitOpen(
+                            request.entries,
+                            request.startIndex,
+                            0L
+                        )
+                    }
+                ) {
+                    Text("Start over")
+                }
+            }
+        )
     }
 }
 
@@ -1060,12 +1922,12 @@ private fun RecentMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false }
         ) {
-            videos.forEach { video ->
+            videos.forEach {
                 DropdownMenuItem(
-                    text = { Text(video.name, maxLines = 1) },
+                    text = { Text(it.name, maxLines = 1) },
                     onClick = {
                         expanded = false
-                        onOpen(video)
+                        onOpen(it)
                     }
                 )
             }
@@ -1083,16 +1945,37 @@ private fun PresetMenu(
         OutlinedButton(onClick = { expanded = true }) {
             Text(current?.label ?: "Custom")
         }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
-            SilencePreset.entries.forEach { preset ->
+        DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+            SilencePreset.entries.forEach {
                 DropdownMenuItem(
-                    text = { Text(preset.label) },
+                    text = { Text(it.label) },
                     onClick = {
                         expanded = false
-                        onPreset(preset)
+                        onPreset(it)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AspectMenu(
+    current: AspectMode,
+    onSelect: (AspectMode) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }) {
+            Text(current.label)
+        }
+        DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+            AspectMode.entries.forEach {
+                DropdownMenuItem(
+                    text = { Text(it.label) },
+                    onClick = {
+                        expanded = false
+                        onSelect(it)
                     }
                 )
             }
@@ -1108,18 +1991,181 @@ private fun DoubleTapMenu(
     var expanded by remember { mutableStateOf(false) }
     Box {
         OutlinedButton(onClick = { expanded = true }) {
-            Text("Double-tap: $seconds s")
+            Text("Tap ${seconds}s")
         }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
-            listOf(5, 10, 15, 30).forEach { value ->
+        DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+            listOf(5, 10, 15, 30).forEach {
                 DropdownMenuItem(
-                    text = { Text("$value seconds") },
+                    text = { Text("$it seconds") },
                     onClick = {
                         expanded = false
-                        onSelect(value)
+                        onSelect(it)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResumeModeMenu(
+    current: ResumeMode,
+    onSelect: (ResumeMode) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }) {
+            Text("Resume: ${current.label}")
+        }
+        DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+            ResumeMode.entries.forEach {
+                DropdownMenuItem(
+                    text = { Text(it.label) },
+                    onClick = {
+                        expanded = false
+                        onSelect(it)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubtitlePositionMenu(
+    current: SubtitlePosition,
+    onSelect: (SubtitlePosition) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }) {
+            Text("Position: ${current.label}")
+        }
+        DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+            SubtitlePosition.entries.forEach {
+                DropdownMenuItem(
+                    text = { Text(it.label) },
+                    onClick = {
+                        expanded = false
+                        onSelect(it)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookmarkMenu(
+    bookmarks: List<BookmarkPoint>,
+    onSelect: (BookmarkPoint) -> Unit,
+    onClear: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(
+            onClick = { expanded = true },
+            enabled = bookmarks.isNotEmpty()
+        ) {
+            Text("Bookmarks (${bookmarks.size})")
+        }
+        DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+            bookmarks.forEach {
+                DropdownMenuItem(
+                    text = { Text(it.label) },
+                    onClick = {
+                        expanded = false
+                        onSelect(it)
+                    }
+                )
+            }
+            if (bookmarks.isNotEmpty()) {
+                DropdownMenuItem(
+                    text = { Text("Clear bookmarks") },
+                    onClick = {
+                        expanded = false
+                        onClear()
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChapterMenu(
+    chapters: List<ChapterInfo>,
+    onSelect: (ChapterInfo) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(
+            onClick = { expanded = true },
+            enabled = chapters.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                if (chapters.isEmpty()) {
+                    "Chapters: none detected"
+                } else {
+                    "Chapters (${chapters.size})"
+                }
+            )
+        }
+        DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+            chapters.forEach {
+                DropdownMenuItem(
+                    text = {
+                        Text("${formatTime(it.startMs)} · ${it.title}")
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelect(it)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SleepMenu(
+    active: Boolean,
+    onMinutes: (Long) -> Unit,
+    onEnd: () -> Unit,
+    onCancel: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(
+            onClick = { expanded = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (active) "Sleep timer: active" else "Sleep timer")
+        }
+        DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+            listOf(15L, 30L, 45L, 60L).forEach {
+                DropdownMenuItem(
+                    text = { Text("$it minutes") },
+                    onClick = {
+                        expanded = false
+                        onMinutes(it)
+                    }
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("At end of video") },
+                onClick = {
+                    expanded = false
+                    onEnd()
+                }
+            )
+            if (active) {
+                DropdownMenuItem(
+                    text = { Text("Cancel timer") },
+                    onClick = {
+                        expanded = false
+                        onCancel()
                     }
                 )
             }
@@ -1132,15 +2178,15 @@ private fun TrackMenu(
     title: String,
     tracks: Tracks?,
     trackType: Int,
-    player: ExoPlayer,
+    player: Player,
     includeOff: Boolean
 ) {
     val groups = tracks?.groups?.filter { it.type == trackType }.orEmpty()
     var expanded by remember { mutableStateOf(false) }
     val selectedName = groups.firstNotNullOfOrNull { group ->
-        (0 until group.length).firstOrNull { group.isTrackSelected(it) }?.let { index ->
-            trackLabel(group, index)
-        }
+        (0 until group.length)
+            .firstOrNull { group.isTrackSelected(it) }
+            ?.let { trackLabel(group, it) }
     } ?: if (includeOff) "Off/Auto" else "Auto"
 
     Box {
@@ -1151,10 +2197,7 @@ private fun TrackMenu(
         ) {
             Text("$title: $selectedName", maxLines = 1)
         }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
+        DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
                 text = { Text(if (includeOff) "Off" else "Auto") },
                 onClick = {
@@ -1162,12 +2205,7 @@ private fun TrackMenu(
                     val builder = player.trackSelectionParameters
                         .buildUpon()
                         .clearOverridesOfType(trackType)
-
-                    if (includeOff) {
-                        builder.setTrackTypeDisabled(trackType, true)
-                    } else {
-                        builder.setTrackTypeDisabled(trackType, false)
-                    }
+                        .setTrackTypeDisabled(trackType, includeOff)
                     player.trackSelectionParameters = builder.build()
                 }
             )
@@ -1199,107 +2237,44 @@ private fun TrackMenu(
 
 private fun trackLabel(group: Tracks.Group, index: Int): String {
     val format = group.getTrackFormat(index)
-    val base = format.label
-        ?: format.language?.uppercase()
-        ?: "Track ${index + 1}"
-
+    val base =
+        format.label ?: format.language?.uppercase() ?: "Track ${index + 1}"
     return if (group.type == C.TRACK_TYPE_AUDIO) {
-        val channels = format.channelCount.takeIf { it > 0 }?.let { " · ${it}ch" } ?: ""
+        val channels =
+            format.channelCount.takeIf { it > 0 }?.let { " · ${it}ch" }.orEmpty()
         "$base$channels"
     } else {
         base
     }
 }
 
-private fun buildMediaItem(videoUri: Uri, subtitleUri: Uri?): MediaItem {
-    val builder = MediaItem.Builder().setUri(videoUri)
-    if (subtitleUri != null) {
-        val mime = subtitleMimeType(subtitleUri)
-        val subtitle = MediaItem.SubtitleConfiguration.Builder(subtitleUri)
-            .setMimeType(mime)
-            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-            .setLabel("External")
-            .build()
-        builder.setSubtitleConfigurations(listOf(subtitle))
-    }
-    return builder.build()
-}
-
-private fun subtitleMimeType(uri: Uri): String {
-    val path = uri.toString().lowercase()
-    return when {
-        path.endsWith(".vtt") -> "text/vtt"
-        path.endsWith(".ass") || path.endsWith(".ssa") -> "text/x-ssa"
-        path.endsWith(".ttml") || path.endsWith(".xml") -> "application/ttml+xml"
-        else -> "application/x-subrip"
-    }
-}
-
-@Suppress("DEPRECATION")
-private fun buildPlayer(
-    context: Context,
-    silenceThresholdDb: Float,
-    minimumSilenceSeconds: Float,
-    edgePaddingSeconds: Float
-): PlayerBundle {
-    val minimumUs = (minimumSilenceSeconds.coerceIn(0.2f, 2f) * 1_000_000L).toLong()
-    val requestedPaddingUs = (edgePaddingSeconds.coerceIn(0.02f, 0.20f) * 1_000_000L).toLong()
-    val paddingUs = requestedPaddingUs.coerceAtMost((minimumUs / 2L).coerceAtLeast(1L))
-
-    val silenceProcessor = SilenceSkippingAudioProcessor(
-        minimumUs,
-        paddingUs,
-        dbToPcmThreshold(silenceThresholdDb)
-    )
-    val chain = DefaultAudioSink.DefaultAudioProcessorChain(
-        emptyArray<AudioProcessor>(),
-        silenceProcessor,
-        SonicAudioProcessor()
-    )
-    val renderersFactory = object : DefaultRenderersFactory(context) {
-        override fun buildAudioSink(
-            context: Context,
-            enableFloatOutput: Boolean,
-            enableAudioOutputPlaybackParams: Boolean
-        ): AudioSink {
-            return DefaultAudioSink.Builder(context)
-                .setEnableFloatOutput(enableFloatOutput)
-                .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams)
-                .setAudioProcessorChain(chain)
-                .build()
-        }
-    }
-    return PlayerBundle(
-        player = ExoPlayer.Builder(context, renderersFactory).build(),
-        silenceProcessor = silenceProcessor
-    )
-}
-
-private fun dbToPcmThreshold(db: Float): Short {
-    val amplitude = 32767.0 * 10.0.pow(db.toDouble() / 20.0)
-    return amplitude
-        .roundToInt()
-        .coerceIn(1, Short.MAX_VALUE.toInt())
-        .toShort()
-}
-
 private fun mediaKey(uri: Uri): String {
     return "media_" + uri.toString().hashCode().toUInt().toString(16)
 }
 
-private fun takePersistableReadPermission(activity: Activity, uri: Uri) {
-    try {
-        activity.contentResolver.takePersistableUriPermission(
+private fun queryDisplayName(context: Context, uri: Uri): String {
+    return runCatching {
+        context.contentResolver.query(
             uri,
-            Intent.FLAG_GRANT_READ_URI_PERMISSION
-        )
-    } catch (_: SecurityException) {
-        // Some providers only grant process-lifetime access.
-    }
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (index >= 0 && cursor.moveToFirst()) {
+                cursor.getString(index)
+            } else {
+                null
+            }
+        }
+    }.getOrNull()
+        ?: uri.lastPathSegment?.substringAfterLast('/')
+        ?: "Video"
 }
 
 private fun queryFileSize(context: Context, uri: Uri): String {
-    return try {
+    return runCatching {
         context.contentResolver.query(
             uri,
             arrayOf(OpenableColumns.SIZE),
@@ -1314,18 +2289,93 @@ private fun queryFileSize(context: Context, uri: Uri): String {
                 ""
             }
         } ?: ""
-    } catch (_: Exception) {
-        ""
+    }.getOrDefault("")
+}
+
+private fun collectVideoDocuments(
+    context: Context,
+    treeUri: Uri
+): List<VideoEntry> {
+    val resolver = context.contentResolver
+    val results = mutableListOf<VideoEntry>()
+    val rootId = DocumentsContract.getTreeDocumentId(treeUri)
+
+    fun walk(documentId: String) {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(
+            treeUri,
+            documentId
+        )
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE
+        )
+
+        runCatching {
+            resolver.query(children, projection, null, null, null)?.use { cursor ->
+                val idColumn = cursor.getColumnIndex(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID
+                )
+                val nameColumn = cursor.getColumnIndex(
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                )
+                val mimeColumn = cursor.getColumnIndex(
+                    DocumentsContract.Document.COLUMN_MIME_TYPE
+                )
+
+                while (cursor.moveToNext()) {
+                    val id = cursor.getString(idColumn)
+                    val name = cursor.getString(nameColumn) ?: "Video"
+                    val mime = cursor.getString(mimeColumn).orEmpty()
+
+                    if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                        walk(id)
+                    } else if (
+                        mime.startsWith("video/") ||
+                        name.substringAfterLast('.', "")
+                            .lowercase() in setOf(
+                            "mkv",
+                            "webm",
+                            "mp4",
+                            "m4v",
+                            "mov",
+                            "avi",
+                            "ts",
+                            "mts",
+                            "m2ts"
+                        )
+                    ) {
+                        val uri = DocumentsContract.buildDocumentUriUsingTree(
+                            treeUri,
+                            id
+                        )
+                        results += VideoEntry(uri, name)
+                    }
+                }
+            }
+        }
+    }
+
+    walk(rootId)
+    return results.sortedBy { it.name.lowercase() }
+}
+
+private fun takePersistableReadPermission(activity: Activity, uri: Uri) {
+    runCatching {
+        activity.contentResolver.takePersistableUriPermission(
+            uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION
+        )
     }
 }
 
-private fun formatBytes(bytes: Long): String {
-    if (bytes <= 0L) return ""
-    val mb = bytes / (1024.0 * 1024.0)
-    return if (mb >= 1024.0) {
-        String.format("%.2f GB", mb / 1024.0)
-    } else {
-        String.format("%.1f MB", mb)
+private fun takePersistableTreePermission(activity: Activity, uri: Uri) {
+    runCatching {
+        activity.contentResolver.takePersistableUriPermission(
+            uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        )
     }
 }
 
@@ -1333,7 +2383,7 @@ private fun loadRecentVideos(
     preferences: android.content.SharedPreferences
 ): List<RecentVideo> {
     val raw = preferences.getString("recent_videos", null) ?: return emptyList()
-    return try {
+    return runCatching {
         val array = JSONArray(raw)
         buildList {
             for (index in 0 until array.length()) {
@@ -1342,15 +2392,13 @@ private fun loadRecentVideos(
                 if (uri.isBlank()) continue
                 add(
                     RecentVideo(
-                        uri = uri,
-                        name = item.optString("name", "Video")
+                        uri,
+                        item.optString("name", "Video")
                     )
                 )
             }
         }
-    } catch (_: Exception) {
-        emptyList()
-    }
+    }.getOrDefault(emptyList())
 }
 
 private fun saveRecentVideos(
@@ -1358,24 +2406,91 @@ private fun saveRecentVideos(
     videos: List<RecentVideo>
 ) {
     val array = JSONArray()
-    videos.take(8).forEach { video ->
+    videos.take(12).forEach {
         array.put(
             JSONObject()
-                .put("uri", video.uri)
-                .put("name", video.name)
+                .put("uri", it.uri)
+                .put("name", it.name)
         )
     }
     preferences.edit().putString("recent_videos", array.toString()).apply()
 }
 
+private fun loadBookmarks(
+    preferences: android.content.SharedPreferences,
+    uri: Uri
+): List<BookmarkPoint> {
+    val raw = preferences.getString("${mediaKey(uri)}_bookmarks", null)
+        ?: return emptyList()
+    return runCatching {
+        val array = JSONArray(raw)
+        buildList {
+            for (index in 0 until array.length()) {
+                val item = array.getJSONObject(index)
+                add(
+                    BookmarkPoint(
+                        positionMs = item.getLong("position"),
+                        label = item.optString(
+                            "label",
+                            formatTime(item.getLong("position"))
+                        )
+                    )
+                )
+            }
+        }
+    }.getOrDefault(emptyList())
+}
+
+private fun saveBookmarks(
+    preferences: android.content.SharedPreferences,
+    uri: Uri,
+    bookmarks: List<BookmarkPoint>
+) {
+    val array = JSONArray()
+    bookmarks.forEach {
+        array.put(
+            JSONObject()
+                .put("position", it.positionMs)
+                .put("label", it.label)
+        )
+    }
+    preferences.edit()
+        .putString("${mediaKey(uri)}_bookmarks", array.toString())
+        .apply()
+}
+
+private fun clearPlaybackHistory(
+    preferences: android.content.SharedPreferences
+) {
+    val editor = preferences.edit().remove("recent_videos")
+    preferences.all.keys
+        .filter { it.startsWith("media_") && it.endsWith("_position") }
+        .forEach(editor::remove)
+    editor.apply()
+}
+
+private fun formatBytes(bytes: Long): String {
+    if (bytes <= 0) return ""
+    val mb = bytes / (1024.0 * 1024.0)
+    return if (mb >= 1024.0) {
+        String.format("%.2f GB", mb / 1024.0)
+    } else {
+        String.format("%.1f MB", mb)
+    }
+}
+
 private fun formatTime(ms: Long): String {
-    val totalSeconds = ms.coerceAtLeast(0L) / 1000L
-    val hours = totalSeconds / 3600L
-    val minutes = (totalSeconds % 3600L) / 60L
-    val seconds = totalSeconds % 60L
-    return if (hours > 0L) {
+    val total = ms.coerceAtLeast(0L) / 1000L
+    val hours = total / 3600L
+    val minutes = (total % 3600L) / 60L
+    val seconds = total % 60L
+    return if (hours > 0) {
         String.format("%d:%02d:%02d", hours, minutes, seconds)
     } else {
         String.format("%d:%02d", minutes, seconds)
     }
+}
+
+private fun formatSeconds(seconds: Float): String {
+    return formatTime((seconds.coerceAtLeast(0f) * 1000f).toLong())
 }
