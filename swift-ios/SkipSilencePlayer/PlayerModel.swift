@@ -1,6 +1,8 @@
 @preconcurrency import AVFoundation
 import Combine
 import Foundation
+import MediaPlayer
+import UniformTypeIdentifiers
 import UIKit
 
 struct RecentVideo: Identifiable, Codable, Equatable {
@@ -13,6 +15,89 @@ struct SubtitleCue: Equatable, Sendable {
     let start: Double
     let end: Double
     let text: String
+}
+
+struct PlaybackBookmark: Identifiable, Codable, Equatable {
+    let id: UUID
+    let position: Double
+    let name: String
+
+    init(id: UUID = UUID(), position: Double, name: String) {
+        self.id = id
+        self.position = position
+        self.name = name
+    }
+}
+
+struct ChapterMarker: Identifiable, Equatable {
+    let id = UUID()
+    let position: Double
+    let name: String
+}
+
+enum ResumeMode: String, CaseIterable, Identifiable {
+    case always
+    case ask
+    case never
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .always: return "Always resume"
+        case .ask: return "Ask"
+        case .never: return "Always restart"
+        }
+    }
+}
+
+enum VideoGravityMode: String, CaseIterable, Identifiable {
+    case fit
+    case fill
+    case crop
+    case width
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .fit: return "Fit"
+        case .fill: return "Stretch"
+        case .crop: return "Crop"
+        case .width: return "Fit width"
+        }
+    }
+
+    var gravity: AVLayerVideoGravity {
+        switch self {
+        case .fit, .width:
+            return .resizeAspect
+        case .fill:
+            return .resize
+        case .crop:
+            return .resizeAspectFill
+        }
+    }
+}
+
+enum SubtitleTone: String, CaseIterable, Identifiable {
+    case white
+    case yellow
+    case cyan
+
+    var id: String { rawValue }
+
+    var label: String {
+        rawValue.capitalized
+    }
+
+    var color: UIColor {
+        switch self {
+        case .white: return .white
+        case .yellow: return .yellow
+        case .cyan: return .cyan
+        }
+    }
 }
 
 enum SilencePreset: String, CaseIterable, Identifiable {
@@ -55,6 +140,13 @@ enum SilencePreset: String, CaseIterable, Identifiable {
     }
 }
 
+private struct PendingPlaylist {
+    let urls: [URL]
+    let names: [String]
+    let startIndex: Int
+    let resume: Double
+}
+
 @MainActor
 final class PlayerModel: ObservableObject {
     let player = AVPlayer()
@@ -66,7 +158,9 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var analysisStatus = "Open a video to begin"
     @Published private(set) var silenceRanges: [SilenceRange] = []
+    @Published private(set) var analysisSkippableTime = 0.0
     @Published private(set) var skippedTime = 0.0
+    @Published private(set) var playbackError: String?
 
     @Published private(set) var silenceEnabled: Bool
     @Published private(set) var silenceThresholdDB: Double
@@ -74,6 +168,16 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var edgePadding: Double
     @Published private(set) var playbackSpeed: Double
     @Published private(set) var doubleTapSeconds: Int
+
+    @Published private(set) var subtitleOffset: Double
+    @Published private(set) var subtitleFontSize: Double
+    @Published private(set) var subtitleBottomFraction: Double
+    @Published private(set) var subtitleBackgroundOpacity: Double
+    @Published private(set) var subtitleTone: SubtitleTone
+    @Published private(set) var videoGravityMode: VideoGravityMode
+    @Published private(set) var videoZoom: Double
+    @Published private(set) var audioOnly: Bool
+    @Published private(set) var resumeMode: ResumeMode
 
     @Published private(set) var brightness = Double(UIScreen.main.brightness)
     @Published private(set) var volume = 1.0
@@ -86,21 +190,41 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var externalSubtitleName: String?
     @Published private(set) var externalSubtitleText = ""
 
+    @Published private(set) var playlistIndex = 0
+    @Published private(set) var playlistCount = 0
+    @Published private(set) var pendingResumeSeconds: Double?
+    @Published private(set) var chapters: [ChapterMarker] = []
+    @Published private(set) var bookmarks: [PlaybackBookmark] = []
+
+    @Published private(set) var sleepRemaining = 0.0
+    @Published private(set) var abStart: Double?
+    @Published private(set) var abEnd: Double?
+
     private let defaults = UserDefaults.standard
+    private let notificationCenter = NotificationCenter.default
+    private let remote = MPRemoteCommandCenter.shared()
 
     private var timeObserver: Any?
+    private var notificationTokens: [NSObjectProtocol] = []
     private var analysisTask: Task<Void, Never>?
-    private var securityURL: URL?
+    private var metadataTask: Task<Void, Never>?
     private var selectedURL: URL?
+    private var securityURL: URL?
     private var hasSecurityScope = false
+    private var playlistRootURL: URL?
+    private var hasPlaylistRootScope = false
+    private var playlistURLs: [URL] = []
+    private var playlistNames: [String] = []
+    private var pendingPlaylist: PendingPlaylist?
     private var jumpingOverSilence = false
     private var persistTick = 0
+    private var sleepDeadline: Date?
+    private var wasPlayingBeforeInterruption = false
 
     private var audioGroup: AVMediaSelectionGroup?
     private var subtitleGroup: AVMediaSelectionGroup?
     private var audioOptions: [AVMediaSelectionOption] = []
     private var subtitleOptions: [AVMediaSelectionOption] = []
-
     private var externalSubtitleCues: [SubtitleCue] = []
 
     init() {
@@ -112,38 +236,63 @@ final class PlayerModel: ObservableObject {
         playbackSpeed = Self.savedDouble("playbackSpeed", fallback: 1.0)
         doubleTapSeconds =
             (UserDefaults.standard.object(forKey: "doubleTapSeconds") as? Int) ?? 10
+
+        subtitleOffset = Self.savedDouble("subtitleOffset", fallback: 0)
+        subtitleFontSize = Self.savedDouble("subtitleFontSize", fallback: 24)
+        subtitleBottomFraction = Self.savedDouble("subtitleBottomFraction", fallback: 0.10)
+        subtitleBackgroundOpacity = Self.savedDouble("subtitleBackgroundOpacity", fallback: 0.65)
+        subtitleTone = SubtitleTone(
+            rawValue: UserDefaults.standard.string(forKey: "subtitleTone") ?? ""
+        ) ?? .white
+        videoGravityMode = VideoGravityMode(
+            rawValue: UserDefaults.standard.string(forKey: "videoGravityMode") ?? ""
+        ) ?? .fit
+        videoZoom = Self.savedDouble("videoZoom", fallback: 1.0)
+        audioOnly =
+            (UserDefaults.standard.object(forKey: "audioOnly") as? Bool) ?? false
+        resumeMode = ResumeMode(
+            rawValue: UserDefaults.standard.string(forKey: "resumeMode") ?? ""
+        ) ?? .always
+
         recentVideos = Self.loadRecentVideos()
 
         player.volume = 1.0
         player.defaultRate = Float(playbackSpeed)
 
-        do {
-            try AVAudioSession.sharedInstance().setCategory(
-                .playback,
-                mode: .moviePlayback
-            )
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            // Playback can still work if the shared audio session cannot be changed.
-        }
+        configureAudioSession()
+        configureRemoteCommands()
+        configureNotifications()
 
         timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.08, preferredTimescale: 600),
+            forInterval: CMTime(seconds: 0.10, preferredTimescale: 600),
             queue: .main
         ) { [weak self] time in
             Task { @MainActor in
                 self?.tick(time)
             }
         }
+
+        updateRemoteIntervals()
+        updateNowPlaying()
     }
 
     deinit {
         analysisTask?.cancel()
+        metadataTask?.cancel()
+
         if let timeObserver {
             player.removeTimeObserver(timeObserver)
         }
+
+        notificationTokens.forEach {
+            notificationCenter.removeObserver($0)
+        }
+
         if hasSecurityScope {
             securityURL?.stopAccessingSecurityScopedResource()
+        }
+        if hasPlaylistRootScope {
+            playlistRootURL?.stopAccessingSecurityScopedResource()
         }
     }
 
@@ -156,7 +305,10 @@ final class PlayerModel: ObservableObject {
     }
 
     var selectedAudioName: String {
-        guard let selectedAudioIndex, audioTrackNames.indices.contains(selectedAudioIndex) else {
+        guard
+            let selectedAudioIndex,
+            audioTrackNames.indices.contains(selectedAudioIndex)
+        else {
             return audioTrackNames.isEmpty ? "None" : "Default"
         }
         return audioTrackNames[selectedAudioIndex]
@@ -166,6 +318,7 @@ final class PlayerModel: ObservableObject {
         if let externalSubtitleName {
             return externalSubtitleName
         }
+
         guard
             let selectedSubtitleIndex,
             subtitleTrackNames.indices.contains(selectedSubtitleIndex)
@@ -175,76 +328,93 @@ final class PlayerModel: ObservableObject {
         return subtitleTrackNames[selectedSubtitleIndex]
     }
 
-    func load(url: URL) {
-        saveCurrentVideoState()
-        analysisTask?.cancel()
+    var estimatedWatchTime: Double? {
+        guard duration > 0 else { return nil }
+        let content = max(0, duration - analysisSkippableTime)
+        return content / max(playbackSpeed, 0.01)
+    }
 
-        if hasSecurityScope {
-            securityURL?.stopAccessingSecurityScopedResource()
-        }
+    var estimatedTimeSaved: Double? {
+        guard let estimatedWatchTime else { return nil }
+        return max(0, duration - estimatedWatchTime)
+    }
 
-        securityURL = url
-        selectedURL = url
-        hasSecurityScope = url.startAccessingSecurityScopedResource()
+    func requestOpen(urls: [URL], startIndex: Int = 0) {
+        let valid = urls.filter { !$0.hasDirectoryPath }
+        guard !valid.isEmpty else { return }
 
-        let videoKey = Self.videoKey(url)
-        silenceEnabled = savedVideoBool(
-            key: videoKey,
-            suffix: "skip",
-            fallback: (defaults.object(forKey: "silenceEnabled") as? Bool) ?? true
-        )
-        silenceThresholdDB = savedVideoDouble(
-            key: videoKey,
-            suffix: "threshold",
-            fallback: Self.savedDouble("silenceThresholdDB", fallback: -42)
-        )
-        minimumSilence = savedVideoDouble(
-            key: videoKey,
-            suffix: "minimum",
-            fallback: Self.savedDouble("minimumSilence", fallback: 0.45)
-        )
-        edgePadding = savedVideoDouble(
-            key: videoKey,
-            suffix: "padding",
-            fallback: Self.savedDouble("edgePadding", fallback: 0.08)
-        )
-        playbackSpeed = savedVideoDouble(
-            key: videoKey,
-            suffix: "speed",
-            fallback: Self.savedDouble("playbackSpeed", fallback: 1.0)
-        )
+        let names = valid.map(\.lastPathComponent)
+        let safeIndex = min(max(startIndex, 0), valid.count - 1)
+        let key = Self.videoKey(valid[safeIndex])
+        let resume = defaults.double(forKey: "\(key).position")
 
-        fileName = url.lastPathComponent
-        currentTime = 0
-        duration = 0
-        skippedTime = 0
-        silenceRanges = []
-        externalSubtitleText = ""
-        jumpingOverSilence = false
-        analysisStatus = "Analyzing audio for silence…"
-
-        let item = AVPlayerItem(url: url)
-        player.replaceCurrentItem(with: item)
-        player.defaultRate = Float(playbackSpeed)
-        configureMediaSelection(for: item)
-
-        let resume = defaults.double(forKey: "\(videoKey).position")
-        if resume > 0 {
-            player.seek(
-                to: CMTime(seconds: resume, preferredTimescale: 600),
-                toleranceBefore: .zero,
-                toleranceAfter: .zero
+        switch resumeMode {
+        case .always:
+            loadPlaylist(
+                urls: valid,
+                names: names,
+                startIndex: safeIndex,
+                resume: resume
             )
-            currentTime = resume
+        case .never:
+            loadPlaylist(
+                urls: valid,
+                names: names,
+                startIndex: safeIndex,
+                resume: 0
+            )
+        case .ask:
+            if resume > 5 {
+                pendingPlaylist = PendingPlaylist(
+                    urls: valid,
+                    names: names,
+                    startIndex: safeIndex,
+                    resume: resume
+                )
+                pendingResumeSeconds = resume
+            } else {
+                loadPlaylist(
+                    urls: valid,
+                    names: names,
+                    startIndex: safeIndex,
+                    resume: 0
+                )
+            }
+        }
+    }
+
+    func requestOpenFolder(_ folderURL: URL) {
+        if hasPlaylistRootScope {
+            playlistRootURL?.stopAccessingSecurityScopedResource()
         }
 
-        player.play()
-        isPlaying = true
+        playlistRootURL = folderURL
+        hasPlaylistRootScope = folderURL.startAccessingSecurityScopedResource()
 
-        restoreExternalSubtitle(for: videoKey)
-        addRecentVideo(url)
-        refreshFileInfo(url: url)
-        startSilenceAnalysis(url: url)
+        let urls = Self.scanVideoFolder(folderURL)
+        guard !urls.isEmpty else {
+            playbackError = "No supported video files were found in this folder."
+            return
+        }
+
+        requestOpen(urls: urls)
+    }
+
+    func confirmPendingResume(_ resume: Bool) {
+        guard let pendingPlaylist else {
+            pendingResumeSeconds = nil
+            return
+        }
+
+        loadPlaylist(
+            urls: pendingPlaylist.urls,
+            names: pendingPlaylist.names,
+            startIndex: pendingPlaylist.startIndex,
+            resume: resume ? pendingPlaylist.resume : 0
+        )
+
+        self.pendingPlaylist = nil
+        pendingResumeSeconds = nil
     }
 
     func openRecent(_ recent: RecentVideo) {
@@ -262,10 +432,35 @@ final class PlayerModel: ObservableObject {
                 relativeTo: nil,
                 bookmarkDataIsStale: &stale
             )
-            load(url: url)
+            requestOpen(urls: [url])
         } catch {
-            analysisStatus = "Could not reopen \(recent.name)"
+            playbackError = "Could not reopen \(recent.name)."
         }
+    }
+
+    func clearHistory() {
+        recentVideos = []
+        defaults.removeObject(forKey: "recentVideos")
+    }
+
+    func nextVideo() {
+        guard playlistIndex + 1 < playlistURLs.count else { return }
+        saveCurrentVideoState()
+        playlistIndex += 1
+        loadPlaylistItem(at: playlistIndex, resume: savedResume(for: playlistURLs[playlistIndex]))
+    }
+
+    func previousVideo() {
+        guard playlistIndex > 0 else { return }
+        saveCurrentVideoState()
+        playlistIndex -= 1
+        loadPlaylistItem(at: playlistIndex, resume: savedResume(for: playlistURLs[playlistIndex]))
+    }
+
+    func retryPlayback() {
+        playbackError = nil
+        player.currentItem?.seek(to: CMTime(seconds: currentTime, preferredTimescale: 600))
+        player.play()
     }
 
     func togglePlayback() {
@@ -276,6 +471,7 @@ final class PlayerModel: ObservableObject {
             player.pause()
         }
         isPlaying = player.rate != 0
+        updateNowPlaying()
     }
 
     func seek(by seconds: Double) {
@@ -286,13 +482,16 @@ final class PlayerModel: ObservableObject {
         let upper = duration > 0 ? duration : max(currentTime, 0)
         let target = min(max(0, seconds), max(upper, 0))
         jumpingOverSilence = false
+
         player.seek(
             to: CMTime(seconds: target, preferredTimescale: 600),
             toleranceBefore: .zero,
             toleranceAfter: .zero
         )
+
         currentTime = target
         updateExternalSubtitle(at: target)
+        updateNowPlaying()
     }
 
     func setSilenceEnabled(_ enabled: Bool) {
@@ -302,11 +501,11 @@ final class PlayerModel: ObservableObject {
     }
 
     func setSilenceThreshold(_ value: Double) {
-        silenceThresholdDB = min(max(value, -60.0), -20.0)
+        silenceThresholdDB = min(max(value, -60), -20)
     }
 
     func setMinimumSilence(_ value: Double) {
-        minimumSilence = min(max(value, 0.2), 2.0)
+        minimumSilence = min(max(value, 0.2), 2)
     }
 
     func setEdgePadding(_ value: Double) {
@@ -323,10 +522,9 @@ final class PlayerModel: ObservableObject {
         defaults.set(edgePadding, forKey: "edgePadding")
         saveCurrentVideoState()
 
-        guard let selectedURL else {
-            return
+        if let selectedURL {
+            startSilenceAnalysis(url: selectedURL)
         }
-        startSilenceAnalysis(url: selectedURL)
     }
 
     func applyPreset(_ preset: SilencePreset) {
@@ -340,9 +538,11 @@ final class PlayerModel: ObservableObject {
         let rounded = min(max((value * 4).rounded() / 4, 0.5), 3.0)
         playbackSpeed = rounded
         player.defaultRate = Float(rounded)
+
         if isPlaying {
             player.rate = Float(rounded)
         }
+        updateNowPlaying()
     }
 
     func commitPlaybackSpeed() {
@@ -354,6 +554,53 @@ final class PlayerModel: ObservableObject {
         let allowed = [5, 10, 15, 30]
         doubleTapSeconds = allowed.contains(seconds) ? seconds : 10
         defaults.set(doubleTapSeconds, forKey: "doubleTapSeconds")
+        updateRemoteIntervals()
+    }
+
+    func setSubtitleOffset(_ value: Double) {
+        subtitleOffset = min(max((value * 10).rounded() / 10, -10), 10)
+        defaults.set(subtitleOffset, forKey: "subtitleOffset")
+        updateExternalSubtitle(at: currentTime)
+    }
+
+    func setSubtitleFontSize(_ value: Double) {
+        subtitleFontSize = min(max(value, 14), 40)
+        defaults.set(subtitleFontSize, forKey: "subtitleFontSize")
+    }
+
+    func setSubtitleBottomFraction(_ value: Double) {
+        subtitleBottomFraction = min(max(value, 0.02), 0.35)
+        defaults.set(subtitleBottomFraction, forKey: "subtitleBottomFraction")
+    }
+
+    func setSubtitleBackgroundOpacity(_ value: Double) {
+        subtitleBackgroundOpacity = min(max(value, 0), 0.9)
+        defaults.set(subtitleBackgroundOpacity, forKey: "subtitleBackgroundOpacity")
+    }
+
+    func setSubtitleTone(_ value: SubtitleTone) {
+        subtitleTone = value
+        defaults.set(value.rawValue, forKey: "subtitleTone")
+    }
+
+    func setVideoGravityMode(_ mode: VideoGravityMode) {
+        videoGravityMode = mode
+        defaults.set(mode.rawValue, forKey: "videoGravityMode")
+    }
+
+    func setVideoZoom(_ value: Double) {
+        videoZoom = min(max(value, 1), 3)
+        defaults.set(videoZoom, forKey: "videoZoom")
+    }
+
+    func setAudioOnly(_ enabled: Bool) {
+        audioOnly = enabled
+        defaults.set(enabled, forKey: "audioOnly")
+    }
+
+    func setResumeMode(_ mode: ResumeMode) {
+        resumeMode = mode
+        defaults.set(mode.rawValue, forKey: "resumeMode")
     }
 
     func setBrightness(_ value: Double) {
@@ -363,7 +610,7 @@ final class PlayerModel: ObservableObject {
     }
 
     func setVolume(_ value: Double) {
-        let clamped = min(max(value, 0.0), 1.0)
+        let clamped = min(max(value, 0), 1)
         volume = clamped
         player.volume = Float(clamped)
     }
@@ -408,14 +655,16 @@ final class PlayerModel: ObservableObject {
         do {
             let text = try String(contentsOf: url, encoding: .utf8)
             let cues = Self.parseSubtitleText(text, extension: url.pathExtension)
+
             guard !cues.isEmpty else {
-                analysisStatus = "No subtitle cues found in \(url.lastPathComponent)"
+                playbackError = "No subtitle cues were found in \(url.lastPathComponent)."
                 return
             }
 
             externalSubtitleCues = cues
             externalSubtitleName = url.lastPathComponent
             externalSubtitleText = ""
+
             if let group = subtitleGroup {
                 player.currentItem?.select(nil, in: group)
                 selectedSubtitleIndex = nil
@@ -438,9 +687,10 @@ final class PlayerModel: ObservableObject {
                     )
                 }
             }
+
             updateExternalSubtitle(at: currentTime)
         } catch {
-            analysisStatus = "Could not read subtitle file"
+            playbackError = "Could not read subtitle file: \(error.localizedDescription)"
         }
     }
 
@@ -456,6 +706,59 @@ final class PlayerModel: ObservableObject {
         }
     }
 
+    func setSleepTimer(minutes: Int?) {
+        guard let minutes, minutes > 0 else {
+            sleepDeadline = nil
+            sleepRemaining = 0
+            return
+        }
+
+        sleepDeadline = Date().addingTimeInterval(Double(minutes) * 60)
+        sleepRemaining = Double(minutes) * 60
+    }
+
+    func setABStart() {
+        abStart = currentTime
+        if let abEnd, abEnd <= currentTime {
+            self.abEnd = nil
+        }
+    }
+
+    func setABEnd() {
+        guard let abStart, currentTime > abStart else { return }
+        abEnd = currentTime
+    }
+
+    func clearABRepeat() {
+        abStart = nil
+        abEnd = nil
+    }
+
+    func addBookmark() {
+        guard let selectedURL else { return }
+        let new = PlaybackBookmark(
+            position: currentTime,
+            name: "Bookmark \(bookmarks.count + 1)"
+        )
+        bookmarks.append(new)
+        bookmarks.sort { $0.position < $1.position }
+        Self.saveBookmarks(bookmarks, key: Self.videoKey(selectedURL))
+    }
+
+    func clearBookmarks() {
+        guard let selectedURL else { return }
+        bookmarks = []
+        Self.saveBookmarks([], key: Self.videoKey(selectedURL))
+    }
+
+    func jump(to bookmark: PlaybackBookmark) {
+        seek(to: bookmark.position)
+    }
+
+    func jump(to chapter: ChapterMarker) {
+        seek(to: chapter.position)
+    }
+
     func resetSettings() {
         silenceEnabled = true
         silenceThresholdDB = -42
@@ -463,6 +766,15 @@ final class PlayerModel: ObservableObject {
         edgePadding = 0.08
         playbackSpeed = 1
         doubleTapSeconds = 10
+        subtitleOffset = 0
+        subtitleFontSize = 24
+        subtitleBottomFraction = 0.10
+        subtitleBackgroundOpacity = 0.65
+        subtitleTone = .white
+        videoGravityMode = .fit
+        videoZoom = 1
+        audioOnly = false
+        resumeMode = .always
 
         defaults.set(true, forKey: "silenceEnabled")
         defaults.set(-42.0, forKey: "silenceThresholdDB")
@@ -470,30 +782,140 @@ final class PlayerModel: ObservableObject {
         defaults.set(0.08, forKey: "edgePadding")
         defaults.set(1.0, forKey: "playbackSpeed")
         defaults.set(10, forKey: "doubleTapSeconds")
-
-        if let selectedURL {
-            let key = Self.videoKey(selectedURL)
-            [
-                "skip",
-                "threshold",
-                "minimum",
-                "padding",
-                "speed"
-            ].forEach {
-                defaults.removeObject(forKey: "\(key).\($0)")
-            }
-        }
+        defaults.set(0.0, forKey: "subtitleOffset")
+        defaults.set(24.0, forKey: "subtitleFontSize")
+        defaults.set(0.10, forKey: "subtitleBottomFraction")
+        defaults.set(0.65, forKey: "subtitleBackgroundOpacity")
+        defaults.set(SubtitleTone.white.rawValue, forKey: "subtitleTone")
+        defaults.set(VideoGravityMode.fit.rawValue, forKey: "videoGravityMode")
+        defaults.set(1.0, forKey: "videoZoom")
+        defaults.set(false, forKey: "audioOnly")
+        defaults.set(ResumeMode.always.rawValue, forKey: "resumeMode")
 
         player.defaultRate = 1
         if isPlaying {
             player.rate = 1
         }
+
+        updateRemoteIntervals()
         applySilenceSettings()
+    }
+
+    private func loadPlaylist(
+        urls: [URL],
+        names: [String],
+        startIndex: Int,
+        resume: Double
+    ) {
+        saveCurrentVideoState()
+
+        playlistURLs = urls
+        playlistNames = names
+        playlistCount = urls.count
+        playlistIndex = min(max(startIndex, 0), urls.count - 1)
+        loadPlaylistItem(at: playlistIndex, resume: resume)
+    }
+
+    private func loadPlaylistItem(at index: Int, resume: Double) {
+        guard playlistURLs.indices.contains(index) else { return }
+
+        analysisTask?.cancel()
+        metadataTask?.cancel()
+
+        if hasSecurityScope {
+            securityURL?.stopAccessingSecurityScopedResource()
+        }
+
+        let url = playlistURLs[index]
+        let name = playlistNames.indices.contains(index)
+            ? playlistNames[index]
+            : url.lastPathComponent
+
+        securityURL = url
+        selectedURL = url
+        hasSecurityScope = url.startAccessingSecurityScopedResource()
+
+        loadPerVideoSettings(url)
+        playlistIndex = index
+        fileName = name
+        fileInfo = ""
+        currentTime = 0
+        duration = 0
+        skippedTime = 0
+        analysisSkippableTime = 0
+        silenceRanges = []
+        externalSubtitleText = ""
+        playbackError = nil
+        jumpingOverSilence = false
+        analysisStatus = "Analyzing audio for silence…"
+        chapters = []
+        bookmarks = Self.loadBookmarks(key: Self.videoKey(url))
+
+        let item = AVPlayerItem(url: url)
+        player.replaceCurrentItem(with: item)
+        player.defaultRate = Float(playbackSpeed)
+        configureMediaSelection(for: item)
+        observePlayerItem(item)
+
+        if resume > 0 {
+            player.seek(
+                to: CMTime(seconds: resume, preferredTimescale: 600),
+                toleranceBefore: .zero,
+                toleranceAfter: .zero
+            )
+            currentTime = resume
+        }
+
+        player.play()
+        isPlaying = true
+
+        restoreExternalSubtitle(for: Self.videoKey(url))
+        if externalSubtitleName == nil {
+            autoLoadSiblingSubtitle(for: url)
+        }
+
+        addRecentVideo(url)
+        refreshFileInfo(url: url)
+        loadChapters(url: url)
+        startSilenceAnalysis(url: url)
+        updateNowPlaying()
+    }
+
+    private func loadPerVideoSettings(_ url: URL) {
+        let key = Self.videoKey(url)
+
+        silenceEnabled = savedVideoBool(
+            key: key,
+            suffix: "skip",
+            fallback: (defaults.object(forKey: "silenceEnabled") as? Bool) ?? true
+        )
+        silenceThresholdDB = savedVideoDouble(
+            key: key,
+            suffix: "threshold",
+            fallback: Self.savedDouble("silenceThresholdDB", fallback: -42)
+        )
+        minimumSilence = savedVideoDouble(
+            key: key,
+            suffix: "minimum",
+            fallback: Self.savedDouble("minimumSilence", fallback: 0.45)
+        )
+        edgePadding = savedVideoDouble(
+            key: key,
+            suffix: "padding",
+            fallback: Self.savedDouble("edgePadding", fallback: 0.08)
+        )
+        playbackSpeed = savedVideoDouble(
+            key: key,
+            suffix: "speed",
+            fallback: Self.savedDouble("playbackSpeed", fallback: 1)
+        )
     }
 
     private func startSilenceAnalysis(url: URL) {
         analysisTask?.cancel()
         silenceRanges = []
+        analysisSkippableTime = 0
+
         analysisStatus = String(
             format: "Analyzing at %.0f dB · %.2f s min · %.0f ms edge…",
             silenceThresholdDB,
@@ -514,33 +936,268 @@ final class PlayerModel: ObservableObject {
                     minimumSilence: minimum,
                     edgePadding: padding
                 )
-                guard !Task.isCancelled, let self else {
+
+                guard !Task.isCancelled, let self, selectedURL == url else {
                     return
                 }
 
                 duration = result.duration
                 silenceRanges = result.ranges
+                analysisSkippableTime = result.ranges.reduce(0) { $0 + $1.duration }
 
                 if !result.hasAudio {
                     analysisStatus = "This video has no audio track"
                 } else if result.ranges.isEmpty {
                     analysisStatus = "No sustained silence found"
                 } else {
-                    let seconds = result.ranges.reduce(0.0) { $0 + $1.duration }
                     analysisStatus = String(
                         format: "%d silent ranges · %@ skippable",
                         result.ranges.count,
-                        Self.format(seconds: seconds)
+                        Self.format(seconds: analysisSkippableTime)
                     )
                 }
+
+                updateNowPlaying()
             } catch is CancellationError {
                 return
             } catch {
-                guard !Task.isCancelled, let self else {
-                    return
-                }
+                guard !Task.isCancelled, let self else { return }
                 analysisStatus = error.localizedDescription
             }
+        }
+    }
+
+    private func configureAudioSession() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(
+                .playback,
+                mode: .moviePlayback
+            )
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            playbackError = "Audio session setup failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func configureRemoteCommands() {
+        remote.playCommand.isEnabled = true
+        remote.pauseCommand.isEnabled = true
+        remote.togglePlayPauseCommand.isEnabled = true
+        remote.skipForwardCommand.isEnabled = true
+        remote.skipBackwardCommand.isEnabled = true
+        remote.changePlaybackPositionCommand.isEnabled = true
+        remote.nextTrackCommand.isEnabled = true
+        remote.previousTrackCommand.isEnabled = true
+        remote.changePlaybackRateCommand.isEnabled = true
+        remote.changePlaybackRateCommand.supportedPlaybackRates = [
+            0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0
+        ].map(NSNumber.init(value:))
+
+        remote.playCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                player.play()
+                isPlaying = true
+                updateNowPlaying()
+            }
+            return .success
+        }
+
+        remote.pauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                player.pause()
+                isPlaying = false
+                updateNowPlaying()
+            }
+            return .success
+        }
+
+        remote.togglePlayPauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                self?.togglePlayback()
+            }
+            return .success
+        }
+
+        remote.skipForwardCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                seek(by: Double(doubleTapSeconds))
+            }
+            return .success
+        }
+
+        remote.skipBackwardCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                seek(by: -Double(doubleTapSeconds))
+            }
+            return .success
+        }
+
+        remote.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let positionEvent = event as? MPChangePlaybackPositionCommandEvent else {
+                return .commandFailed
+            }
+
+            Task { @MainActor in
+                self?.seek(to: positionEvent.positionTime)
+            }
+            return .success
+        }
+
+        remote.nextTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                self?.nextVideo()
+            }
+            return .success
+        }
+
+        remote.previousTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                self?.previousVideo()
+            }
+            return .success
+        }
+
+        remote.changePlaybackRateCommand.addTarget { [weak self] event in
+            guard let rateEvent = event as? MPChangePlaybackRateCommandEvent else {
+                return .commandFailed
+            }
+
+            Task { @MainActor in
+                self?.setPlaybackSpeed(Double(rateEvent.playbackRate))
+                self?.commitPlaybackSpeed()
+            }
+            return .success
+        }
+    }
+
+    private func updateRemoteIntervals() {
+        remote.skipForwardCommand.preferredIntervals = [NSNumber(value: doubleTapSeconds)]
+        remote.skipBackwardCommand.preferredIntervals = [NSNumber(value: doubleTapSeconds)]
+    }
+
+    private func configureNotifications() {
+        let interruption = notificationCenter.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] note in
+            Task { @MainActor in
+                self?.handleInterruption(note)
+            }
+        }
+
+        let route = notificationCenter.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] note in
+            Task { @MainActor in
+                self?.handleRouteChange(note)
+            }
+        }
+
+        let ended = notificationCenter.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            Task { @MainActor in
+                guard
+                    let self,
+                    let item = note.object as? AVPlayerItem,
+                    item === player.currentItem
+                else {
+                    return
+                }
+
+                if playlistIndex + 1 < playlistURLs.count {
+                    nextVideo()
+                }
+            }
+        }
+
+        notificationTokens = [interruption, route, ended]
+    }
+
+    private func observePlayerItem(_ item: AVPlayerItem) {
+        let failed = notificationCenter.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] note in
+            Task { @MainActor in
+                let error = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+                self?.playbackError =
+                    error?.localizedDescription ?? "The video could not finish playback."
+            }
+        }
+
+        let stalled = notificationCenter.addObserver(
+            forName: .AVPlayerItemPlaybackStalled,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.playbackError = "Playback stalled. Retry or check the media file."
+            }
+        }
+
+        notificationTokens.append(contentsOf: [failed, stalled])
+    }
+
+    private func handleInterruption(_ note: Notification) {
+        guard
+            let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+            let type = AVAudioSession.InterruptionType(rawValue: raw)
+        else {
+            return
+        }
+
+        switch type {
+        case .began:
+            wasPlayingBeforeInterruption = isPlaying
+            player.pause()
+            isPlaying = false
+            updateNowPlaying()
+
+        case .ended:
+            let optionsRaw =
+                note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let options = AVAudioSession.InterruptionOptions(rawValue: optionsRaw)
+
+            if wasPlayingBeforeInterruption && options.contains(.shouldResume) {
+                do {
+                    try AVAudioSession.sharedInstance().setActive(true)
+                    player.play()
+                    isPlaying = true
+                } catch {
+                    playbackError = "Audio could not resume: \(error.localizedDescription)"
+                }
+            }
+            wasPlayingBeforeInterruption = false
+            updateNowPlaying()
+
+        @unknown default:
+            break
+        }
+    }
+
+    private func handleRouteChange(_ note: Notification) {
+        guard
+            let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+            let reason = AVAudioSession.RouteChangeReason(rawValue: raw)
+        else {
+            return
+        }
+
+        if reason == .oldDeviceUnavailable {
+            player.pause()
+            isPlaying = false
+            updateNowPlaying()
         }
     }
 
@@ -576,6 +1233,7 @@ final class PlayerModel: ObservableObject {
 
     private func refreshFileInfo(url: URL) {
         let sizeText: String
+
         if
             let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
             size > 0
@@ -590,6 +1248,7 @@ final class PlayerModel: ObservableObject {
         Task { [weak self] in
             let asset = AVURLAsset(url: url)
             var parts: [String] = []
+
             if !sizeText.isEmpty {
                 parts.append(sizeText)
             }
@@ -601,24 +1260,66 @@ final class PlayerModel: ObservableObject {
                 size.width > 0,
                 size.height > 0
             {
-                parts.append(
-                    "\(Int(abs(size.width)))×\(Int(abs(size.height)))"
-                )
+                parts.append("\(Int(abs(size.width)))×\(Int(abs(size.height)))")
             }
 
-            if
-                let durationTime = try? await asset.load(.duration)
-            {
+            if let durationTime = try? await asset.load(.duration) {
                 let seconds = CMTimeGetSeconds(durationTime)
                 if seconds.isFinite && seconds > 0 {
                     parts.append(Self.format(seconds: seconds))
                 }
             }
 
-            guard let self, selectedURL == url else {
-                return
-            }
+            guard let self, selectedURL == url else { return }
             fileInfo = parts.joined(separator: " · ")
+        }
+    }
+
+    private func loadChapters(url: URL) {
+        metadataTask?.cancel()
+
+        metadataTask = Task { [weak self] in
+            let asset = AVURLAsset(url: url)
+
+            do {
+                let locales = try await asset.load(.availableChapterLocales)
+                guard
+                    !Task.isCancelled,
+                    let locale = locales.first
+                else {
+                    return
+                }
+
+                let groups = try await asset.loadChapterMetadataGroups(
+                    withTitleLocale: locale,
+                    containingItemsWithCommonKeys: [AVMetadataKey.commonKeyTitle]
+                )
+
+                var loaded: [ChapterMarker] = []
+
+                for (index, group) in groups.enumerated() {
+                    let position = CMTimeGetSeconds(group.timeRange.start)
+                    guard position.isFinite && position >= 0 else { continue }
+
+                    let title =
+                        group.items.first(where: {
+                            $0.commonKey?.rawValue == AVMetadataKey.commonKeyTitle.rawValue
+                        })?.stringValue
+                        ?? "Chapter \(index + 1)"
+
+                    loaded.append(
+                        ChapterMarker(position: position, name: title)
+                    )
+                }
+
+                guard !Task.isCancelled, let self, selectedURL == url else {
+                    return
+                }
+                chapters = loaded
+            } catch {
+                guard let self, selectedURL == url else { return }
+                chapters = []
+            }
         }
     }
 
@@ -639,9 +1340,9 @@ final class PlayerModel: ObservableObject {
             bookmarkBase64: bookmark.base64EncodedString()
         )
 
-        recentVideos = ([item] + recentVideos.filter { $0.id != item.id })
-            .prefix(8)
-            .map { $0 }
+        recentVideos = Array(
+            ([item] + recentVideos.filter { $0.id != item.id }).prefix(12)
+        )
 
         if let data = try? JSONEncoder().encode(recentVideos) {
             defaults.set(data, forKey: "recentVideos")
@@ -675,10 +1376,31 @@ final class PlayerModel: ObservableObject {
         loadExternalSubtitle(url: url)
     }
 
-    private func saveCurrentVideoState() {
-        guard let selectedURL else {
+    private func autoLoadSiblingSubtitle(for videoURL: URL) {
+        let base = videoURL.deletingPathExtension().lastPathComponent.lowercased()
+        let parent = videoURL.deletingLastPathComponent()
+        let supported = ["srt", "vtt", "ass", "ssa"]
+
+        guard
+            let files = try? FileManager.default.contentsOfDirectory(
+                at: parent,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+        else {
             return
         }
+
+        if let subtitle = files.first(where: {
+            supported.contains($0.pathExtension.lowercased()) &&
+                $0.deletingPathExtension().lastPathComponent.lowercased() == base
+        }) {
+            loadExternalSubtitle(url: subtitle)
+        }
+    }
+
+    private func saveCurrentVideoState() {
+        guard let selectedURL else { return }
 
         let key = Self.videoKey(selectedURL)
         defaults.set(currentTime, forKey: "\(key).position")
@@ -687,6 +1409,15 @@ final class PlayerModel: ObservableObject {
         defaults.set(minimumSilence, forKey: "\(key).minimum")
         defaults.set(edgePadding, forKey: "\(key).padding")
         defaults.set(playbackSpeed, forKey: "\(key).speed")
+    }
+
+    private func savedResume(for url: URL) -> Double {
+        switch resumeMode {
+        case .always:
+            return defaults.double(forKey: "\(Self.videoKey(url)).position")
+        case .ask, .never:
+            return 0
+        }
     }
 
     private func tick(_ time: CMTime) {
@@ -709,10 +1440,31 @@ final class PlayerModel: ObservableObject {
         isPlaying = player.rate != 0
         updateExternalSubtitle(at: currentTime)
 
+        if player.currentItem?.status == .failed, playbackError == nil {
+            playbackError =
+                player.currentItem?.error?.localizedDescription
+                ?? "Unsupported or damaged media file."
+        }
+
+        if let abStart, let abEnd, abEnd > abStart, currentTime >= abEnd {
+            seek(to: abStart)
+        }
+
+        if let sleepDeadline {
+            sleepRemaining = max(0, sleepDeadline.timeIntervalSinceNow)
+            if sleepRemaining <= 0 {
+                player.pause()
+                isPlaying = false
+                self.sleepDeadline = nil
+                sleepRemaining = 0
+            }
+        }
+
         persistTick += 1
-        if persistTick >= 12 {
+        if persistTick >= 10 {
             persistTick = 0
             saveCurrentVideoState()
+            updateNowPlaying()
         }
 
         guard
@@ -743,13 +1495,39 @@ final class PlayerModel: ObservableObject {
     }
 
     private func updateExternalSubtitle(at time: Double) {
+        let adjusted = time - subtitleOffset
         let text = externalSubtitleCues.first {
-            $0.start <= time && time < $0.end
+            $0.start <= adjusted && adjusted < $0.end
         }?.text ?? ""
 
         if text != externalSubtitleText {
             externalSubtitleText = text
         }
+    }
+
+    private func updateNowPlaying() {
+        guard fileName != "No video selected" else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: fileName,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? playbackSpeed : 0,
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: playbackSpeed
+        ]
+
+        if duration > 0 {
+            info[MPMediaItemPropertyPlaybackDuration] = duration
+        }
+
+        if playlistCount > 1 {
+            info[MPNowPlayingInfoPropertyExternalContentIdentifier] =
+                "\(playlistIndex + 1)/\(playlistCount)"
+        }
+
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 
     private func savedVideoDouble(
@@ -774,6 +1552,32 @@ final class PlayerModel: ObservableObject {
         return defaults.bool(forKey: "\(key).\(suffix)")
     }
 
+    private static func scanVideoFolder(_ folder: URL) -> [URL] {
+        guard
+            let enumerator = FileManager.default.enumerator(
+                at: folder,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            )
+        else {
+            return []
+        }
+
+        let supported = Set([
+            "mp4", "m4v", "mov", "mkv", "webm",
+            "avi", "3gp", "ts", "mts", "m2ts"
+        ])
+
+        return enumerator.compactMap { item -> URL? in
+            guard let url = item as? URL else { return nil }
+            return supported.contains(url.pathExtension.lowercased()) ? url : nil
+        }
+        .sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                == .orderedAscending
+        }
+    }
+
     private static func loadRecentVideos() -> [RecentVideo] {
         guard
             let data = UserDefaults.standard.data(forKey: "recentVideos"),
@@ -781,7 +1585,22 @@ final class PlayerModel: ObservableObject {
         else {
             return []
         }
-        return Array(videos.prefix(8))
+        return Array(videos.prefix(12))
+    }
+
+    private static func loadBookmarks(key: String) -> [PlaybackBookmark] {
+        guard
+            let data = UserDefaults.standard.data(forKey: "\(key).bookmarks"),
+            let bookmarks = try? JSONDecoder().decode([PlaybackBookmark].self, from: data)
+        else {
+            return []
+        }
+        return bookmarks.sorted { $0.position < $1.position }
+    }
+
+    private static func saveBookmarks(_ bookmarks: [PlaybackBookmark], key: String) {
+        guard let data = try? JSONEncoder().encode(bookmarks) else { return }
+        UserDefaults.standard.set(data, forKey: "\(key).bookmarks")
     }
 
     private static func savedDouble(_ key: String, fallback: Double) -> Double {
@@ -835,9 +1654,7 @@ final class PlayerModel: ObservableObject {
             }
 
             let timing = lines[timingIndex].components(separatedBy: "-->")
-            guard timing.count == 2 else {
-                continue
-            }
+            guard timing.count == 2 else { continue }
 
             let startToken = timing[0].trimmingCharacters(in: .whitespaces)
             let endToken = timing[1]
@@ -864,9 +1681,7 @@ final class PlayerModel: ObservableObject {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
             if !text.isEmpty {
-                cues.append(
-                    SubtitleCue(start: start, end: end, text: text)
-                )
+                cues.append(SubtitleCue(start: start, end: end, text: text))
             }
         }
 
@@ -877,9 +1692,7 @@ final class PlayerModel: ObservableObject {
         var cues: [SubtitleCue] = []
 
         for line in input.components(separatedBy: .newlines) {
-            guard line.lowercased().hasPrefix("dialogue:") else {
-                continue
-            }
+            guard line.lowercased().hasPrefix("dialogue:") else { continue }
 
             let payload = line.dropFirst("Dialogue:".count)
             let fields = payload.split(
@@ -887,6 +1700,7 @@ final class PlayerModel: ObservableObject {
                 maxSplits: 9,
                 omittingEmptySubsequences: false
             )
+
             guard
                 fields.count >= 10,
                 let start = parseSubtitleTime(String(fields[1])),
@@ -906,9 +1720,7 @@ final class PlayerModel: ObservableObject {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
             if !text.isEmpty {
-                cues.append(
-                    SubtitleCue(start: start, end: end, text: text)
-                )
+                cues.append(SubtitleCue(start: start, end: end, text: text))
             }
         }
 
@@ -921,9 +1733,7 @@ final class PlayerModel: ObservableObject {
             .replacingOccurrences(of: ",", with: ".")
 
         let parts = clean.split(separator: ":")
-        guard parts.count == 2 || parts.count == 3 else {
-            return nil
-        }
+        guard parts.count == 2 || parts.count == 3 else { return nil }
 
         if parts.count == 3 {
             guard
@@ -946,9 +1756,7 @@ final class PlayerModel: ObservableObject {
     }
 
     static func format(seconds: Double) -> String {
-        guard seconds.isFinite else {
-            return "--:--"
-        }
+        guard seconds.isFinite else { return "--:--" }
 
         let total = max(0, Int(seconds.rounded(.down)))
         let hours = total / 3600
@@ -962,9 +1770,7 @@ final class PlayerModel: ObservableObject {
     }
 
     private static func formatBytes(_ bytes: Int64) -> String {
-        guard bytes > 0 else {
-            return ""
-        }
+        guard bytes > 0 else { return "" }
 
         let megabytes = Double(bytes) / 1_048_576
         if megabytes >= 1024 {
