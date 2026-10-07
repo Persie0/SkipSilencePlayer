@@ -411,6 +411,7 @@ final class PlayerModel: NSObject, ObservableObject {
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else {
             playbackError = "Could not read the selected folder."
+            releasePlaylistSecurityScope()
             return
         }
 
@@ -1432,8 +1433,8 @@ final class PlayerModel: NSObject, ObservableObject {
 
     private func releaseFolderScopeIfNeeded(for urls: [URL]) {
         guard
-            hasFolderSecurityScope,
-            let root = folderSecurityURL
+            hasPlaylistSecurityScope,
+            let root = playlistSecurityURL
         else { return }
 
         var rootPath = root.standardizedFileURL.path
@@ -1447,8 +1448,8 @@ final class PlayerModel: NSObject, ObservableObject {
 
         if !allInsideRoot {
             root.stopAccessingSecurityScopedResource()
-            folderSecurityURL = nil
-            hasFolderSecurityScope = false
+            playlistSecurityURL = nil
+            hasPlaylistSecurityScope = false
         }
     }
 
