@@ -199,6 +199,28 @@ struct ContentView: View {
             .buttonStyle(.plain)
 
             HStack {
+                Text("Silence \(Int(model.silenceThresholdDB.rounded())) dB")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .frame(width: 110, alignment: .leading)
+
+                Slider(
+                    value: Binding(
+                        get: { model.silenceThresholdDB },
+                        set: { model.setSilenceThreshold($0) }
+                    ),
+                    in: -60 ... -20,
+                    step: 1,
+                    onEditingChanged: { editing in
+                        if !editing {
+                            model.applySilenceThreshold()
+                        }
+                    }
+                )
+                .disabled(!model.silenceEnabled)
+            }
+
+            HStack {
                 Image(systemName: "sun.max.fill")
                     .frame(width: 24)
                 Slider(

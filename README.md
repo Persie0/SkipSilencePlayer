@@ -9,6 +9,7 @@ Two native mobile video players that automatically skip silent parts of local vi
 
 - Open local video files with the platform document picker.
 - Toggle automatic silence skipping.
+- Adjustable silence threshold from -60 dB to -20 dB (default -42 dB), persisted across launches.
 - Double-tap the left/right side of the video to seek backward/forward 10 seconds.
 - Vertical swipe on the left side adjusts screen brightness.
 - Vertical swipe on the right side adjusts media volume.

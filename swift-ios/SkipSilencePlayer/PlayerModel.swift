@@ -15,16 +15,20 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var silenceRanges: [SilenceRange] = []
 
     @Published var silenceEnabled = true
+    @Published private(set) var silenceThresholdDB: Double
     @Published private(set) var brightness = Double(UIScreen.main.brightness)
     @Published private(set) var volume = 1.0
 
     private var timeObserver: Any?
     private var analysisTask: Task<Void, Never>?
     private var securityURL: URL?
+    private var selectedURL: URL?
     private var hasSecurityScope = false
     private var jumpingOverSilence = false
 
     init() {
+        let savedThreshold = UserDefaults.standard.object(forKey: "silenceThresholdDB") as? Double
+        silenceThresholdDB = min(max(savedThreshold ?? -42.0, -60.0), -20.0)
         player.volume = 1.0
 
         do {
@@ -62,6 +66,7 @@ final class PlayerModel: ObservableObject {
         }
 
         securityURL = url
+        selectedURL = url
         hasSecurityScope = url.startAccessingSecurityScopedResource()
 
         fileName = url.lastPathComponent
@@ -75,38 +80,7 @@ final class PlayerModel: ObservableObject {
         player.play()
         isPlaying = true
 
-        let analyzer = SilenceAnalyzer()
-        analysisTask = Task { [weak self] in
-            do {
-                let result = try await analyzer.analyze(url: url)
-                guard !Task.isCancelled, let self else {
-                    return
-                }
-
-                duration = result.duration
-                silenceRanges = result.ranges
-
-                if !result.hasAudio {
-                    analysisStatus = "This video has no audio track"
-                } else if result.ranges.isEmpty {
-                    analysisStatus = "No sustained silence found"
-                } else {
-                    let seconds = result.ranges.reduce(0.0) { $0 + $1.duration }
-                    analysisStatus = String(
-                        format: "%d silent ranges · %@ skippable",
-                        result.ranges.count,
-                        Self.format(seconds: seconds)
-                    )
-                }
-            } catch is CancellationError {
-                return
-            } catch {
-                guard !Task.isCancelled, let self else {
-                    return
-                }
-                analysisStatus = error.localizedDescription
-            }
-        }
+        startSilenceAnalysis(url: url)
     }
 
     func togglePlayback() {
@@ -134,6 +108,20 @@ final class PlayerModel: ObservableObject {
         currentTime = target
     }
 
+    func setSilenceThreshold(_ value: Double) {
+        silenceThresholdDB = min(max(value, -60.0), -20.0)
+    }
+
+    func applySilenceThreshold() {
+        let rounded = silenceThresholdDB.rounded()
+        silenceThresholdDB = rounded
+        UserDefaults.standard.set(rounded, forKey: "silenceThresholdDB")
+        guard let selectedURL else {
+            return
+        }
+        startSilenceAnalysis(url: selectedURL)
+    }
+
     func setBrightness(_ value: Double) {
         let clamped = min(max(value, 0.02), 1.0)
         brightness = clamped
@@ -144,6 +132,50 @@ final class PlayerModel: ObservableObject {
         let clamped = min(max(value, 0.0), 1.0)
         volume = clamped
         player.volume = Float(clamped)
+    }
+
+    private func startSilenceAnalysis(url: URL) {
+        analysisTask?.cancel()
+        silenceRanges = []
+        analysisStatus = "Analyzing audio at \(Int(silenceThresholdDB.rounded())) dB…"
+
+        let threshold = silenceThresholdDB
+        let analyzer = SilenceAnalyzer()
+        analysisTask = Task { [weak self] in
+            do {
+                let result = try await analyzer.analyze(
+                    url: url,
+                    thresholdDB: threshold
+                )
+                guard !Task.isCancelled, let self else {
+                    return
+                }
+
+                duration = result.duration
+                silenceRanges = result.ranges
+
+                if !result.hasAudio {
+                    analysisStatus = "This video has no audio track"
+                } else if result.ranges.isEmpty {
+                    analysisStatus = "No sustained silence found at \(Int(threshold.rounded())) dB"
+                } else {
+                    let seconds = result.ranges.reduce(0.0) { $0 + $1.duration }
+                    analysisStatus = String(
+                        format: "%d silent ranges · %@ skippable · %.0f dB",
+                        result.ranges.count,
+                        Self.format(seconds: seconds),
+                        threshold
+                    )
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, let self else {
+                    return
+                }
+                analysisStatus = error.localizedDescription
+            }
+        }
     }
 
     private func tick(_ time: CMTime) {
