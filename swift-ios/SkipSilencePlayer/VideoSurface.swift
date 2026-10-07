@@ -1,5 +1,6 @@
 import AVFoundation
 import SwiftUI
+import UIKit
 
 final class PlayerLayerView: UIView {
     override class var layerClass: AnyClass {
