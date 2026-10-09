@@ -40,4 +40,25 @@
 <string name="subtitle_background_label">BG %1$d%%</string>
 <string name="bookmark_count">Bookmarks (%1$d)</string>
 <string name="continue_from_time">Continue from %1$s?</string>
+<string name="choice_ask">Ask</string>
+<string name="choice_always">Always</string>
+<string name="choice_never">Never</string>
+<string name="choice_fit">Fit</string>
+<string name="choice_fill">Fill</string>
+<string name="choice_crop">Crop</string>
+<string name="choice_original">Original</string>
+<string name="choice_top">Top</string>
+<string name="choice_center">Center</string>
+<string name="choice_bottom">Bottom</string>
+<string name="choice_conservative">Conservative</string>
+<string name="choice_balanced">Balanced</string>
+<string name="choice_aggressive">Aggressive</string>
+<string name="choice_no_video_selected">No video selected</string>
+<string name="choice_no_subtitle_cues_found">No subtitle cues found</string>
+<string name="choice_subtitle_match">Subtitle match</string>
+<string name="choice_no_subtitle_match">No subtitle match</string>
+<string name="choice_sleep_timer_finished">Sleep timer finished</string>
+<string name="choice_no_videos_found_in_folder">No videos found in folder</string>
+<string name="choice_resume">Resume</string>
+<string name="choice_start_over">Start over</string>
 </resources>

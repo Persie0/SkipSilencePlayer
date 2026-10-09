@@ -1951,7 +1951,7 @@ private fun PresetMenu(
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
             SilencePreset.entries.forEach {
                 DropdownMenuItem(
-                    text = { Text(it.label) },
+                    text = { Text(localizePlayerLabel(it.label)) },
                     onClick = {
                         expanded = false
                         onPreset(it)
@@ -1970,12 +1970,12 @@ private fun AspectMenu(
     var expanded by remember { mutableStateOf(false) }
     Box {
         OutlinedButton(onClick = { expanded = true }) {
-            Text(current.label)
+            Text(localizePlayerLabel(current.label))
         }
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
             AspectMode.entries.forEach {
                 DropdownMenuItem(
-                    text = { Text(it.label) },
+                    text = { Text(localizePlayerLabel(it.label)) },
                     onClick = {
                         expanded = false
                         onSelect(it)
@@ -2023,7 +2023,7 @@ private fun ResumeModeMenu(
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
             ResumeMode.entries.forEach {
                 DropdownMenuItem(
-                    text = { Text(it.label) },
+                    text = { Text(localizePlayerLabel(it.label)) },
                     onClick = {
                         expanded = false
                         onSelect(it)
@@ -2047,7 +2047,7 @@ private fun SubtitlePositionMenu(
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
             SubtitlePosition.entries.forEach {
                 DropdownMenuItem(
-                    text = { Text(it.label) },
+                    text = { Text(localizePlayerLabel(it.label)) },
                     onClick = {
                         expanded = false
                         onSelect(it)
@@ -2075,7 +2075,7 @@ private fun BookmarkMenu(
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
             bookmarks.forEach {
                 DropdownMenuItem(
-                    text = { Text(it.label) },
+                    text = { Text(localizePlayerLabel(it.label)) },
                     onClick = {
                         expanded = false
                         onSelect(it)
