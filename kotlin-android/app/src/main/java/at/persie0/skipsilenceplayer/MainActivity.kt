@@ -2,6 +2,8 @@
 
 package at.persie0.skipsilenceplayer
 
+import androidx.compose.ui.res.stringResource
+
 import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.ComponentName
@@ -153,7 +155,7 @@ class MainActivity : ComponentActivity() {
                         Modifier.fillMaxSize().background(Color.Black),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("Starting player…", color = Color.White)
+                        Text(stringResource(R.string.ui_starting_player), color = Color.White)
                     }
                 } else {
                     SkipSilencePlayerScreen(this, player)
@@ -1011,7 +1013,7 @@ private fun SkipSilencePlayerScreen(
             ) {
                 Icon(Icons.Default.FolderOpen, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Open video")
+                Text(stringResource(R.string.ui_open_video))
             }
         }
 
@@ -1070,7 +1072,7 @@ private fun SkipSilencePlayerScreen(
                     .align(Alignment.TopCenter)
                     .padding(top = 20.dp)
             ) {
-                Text("Unlock gestures")
+                Text(stringResource(R.string.ui_unlock_gestures))
             }
         }
 
@@ -1085,7 +1087,7 @@ private fun SkipSilencePlayerScreen(
                     .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("Playback error", color = Color.White, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.ui_playback_error), color = Color.White, fontWeight = FontWeight.Bold)
                 Text(
                     error,
                     color = Color.White.copy(alpha = 0.8f),
@@ -1098,7 +1100,7 @@ private fun SkipSilencePlayerScreen(
                         player.play()
                     }
                 ) {
-                    Text("Retry")
+                    Text(stringResource(R.string.ui_retry))
                 }
             }
         }
@@ -1143,13 +1145,13 @@ private fun SkipSilencePlayerScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(Modifier.width(5.dp))
-                        Text("Open")
+                        Text(stringResource(R.string.ui_open))
                     }
 
                     Spacer(Modifier.width(5.dp))
 
                     OutlinedButton(onClick = { folderPicker.launch(null) }) {
-                        Text("Folder")
+                        Text(stringResource(R.string.ui_folder))
                     }
 
                     Spacer(Modifier.width(5.dp))
@@ -1178,7 +1180,7 @@ private fun SkipSilencePlayerScreen(
                                 )
                             }
                         ) {
-                            Text("PiP")
+                            Text(stringResource(R.string.ui_pip))
                         }
                     }
 
@@ -1250,7 +1252,7 @@ private fun SkipSilencePlayerScreen(
                         onClick = { player.seekToPreviousMediaItem() },
                         enabled = player.hasPreviousMediaItem()
                     ) {
-                        Text("Prev")
+                        Text(stringResource(R.string.ui_prev))
                     }
 
                     IconButton(
@@ -1297,7 +1299,7 @@ private fun SkipSilencePlayerScreen(
                         onClick = { player.seekToNextMediaItem() },
                         enabled = player.hasNextMediaItem()
                     ) {
-                        Text("Next")
+                        Text(stringResource(R.string.ui_next))
                     }
                 }
 
@@ -1332,7 +1334,7 @@ private fun SkipSilencePlayerScreen(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Skip silence", color = Color.White)
+                    Text(stringResource(R.string.ui_skip_silence), color = Color.White)
                     Spacer(Modifier.width(7.dp))
                     Switch(
                         checked = skipSilence,
@@ -1516,7 +1518,7 @@ private fun SkipSilencePlayerScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Audio only", color = Color.White)
+                        Text(stringResource(R.string.ui_audio_only), color = Color.White)
                         Switch(
                             checked = audioOnly,
                             onCheckedChange = { audioOnly = it }
@@ -1528,13 +1530,13 @@ private fun SkipSilencePlayerScreen(
                                 controlsVisible = false
                             }
                         ) {
-                            Text("Lock gestures")
+                            Text(stringResource(R.string.ui_lock_gestures))
                         }
                     }
 
                     HorizontalDivider()
                     Text(
-                        "Subtitles",
+                        stringResource(R.string.ui_subtitles),
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -1576,7 +1578,7 @@ private fun SkipSilencePlayerScreen(
                                     }
                                 }
                             ) {
-                                Text("Remove")
+                                Text(stringResource(R.string.ui_remove))
                             }
                         }
                     }
@@ -1686,7 +1688,7 @@ private fun SkipSilencePlayerScreen(
                             value = subtitleSearch,
                             onValueChange = { subtitleSearch = it },
                             singleLine = true,
-                            label = { Text("Search subtitle text") },
+                            label = { Text(stringResource(R.string.ui_search_subtitle_text)) },
                             modifier = Modifier.weight(1f)
                         )
                         Spacer(Modifier.width(6.dp))
@@ -1694,13 +1696,13 @@ private fun SkipSilencePlayerScreen(
                             onClick =(::searchSubtitle),
                             enabled = externalSubtitleCues.isNotEmpty()
                         ) {
-                            Text("Next")
+                            Text(stringResource(R.string.ui_next))
                         }
                     }
 
                     HorizontalDivider()
                     Text(
-                        "Playback tools",
+                        stringResource(R.string.ui_playback_tools),
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -1744,7 +1746,7 @@ private fun SkipSilencePlayerScreen(
                             },
                             enabled = abStartMs != null || abEndMs != null
                         ) {
-                            Text("Clear A-B")
+                            Text(stringResource(R.string.ui_clear_a_b))
                         }
                     }
 
@@ -1756,7 +1758,7 @@ private fun SkipSilencePlayerScreen(
                             onClick =(::addBookmark),
                             enabled = activeUri != null
                         ) {
-                            Text("Add bookmark")
+                            Text(stringResource(R.string.ui_add_bookmark))
                         }
                         BookmarkMenu(
                             bookmarks,
@@ -1808,7 +1810,7 @@ private fun SkipSilencePlayerScreen(
                                 gestureText = "Playback history cleared"
                             }
                         ) {
-                            Text("Clear history")
+                            Text(stringResource(R.string.ui_clear_history))
                         }
 
                         TextButton(
@@ -1853,7 +1855,7 @@ private fun SkipSilencePlayerScreen(
                                 gestureText = "Defaults restored"
                             }
                         ) {
-                            Text("Reset settings")
+                            Text(stringResource(R.string.ui_reset_settings))
                         }
                     }
                 }
@@ -1870,7 +1872,7 @@ private fun SkipSilencePlayerScreen(
     pendingResume?.let { request ->
         AlertDialog(
             onDismissRequest = { pendingResume = null },
-            title = { Text("Resume playback?") },
+            title = { Text(stringResource(R.string.ui_resume_playback)) },
             text = {
                 Text("Continue from ${formatTime(request.positionMs)}?")
             },
@@ -1885,7 +1887,7 @@ private fun SkipSilencePlayerScreen(
                         )
                     }
                 ) {
-                    Text("Resume")
+                    Text(stringResource(R.string.ui_resume))
                 }
             },
             dismissButton = {
@@ -1899,7 +1901,7 @@ private fun SkipSilencePlayerScreen(
                         )
                     }
                 ) {
-                    Text("Start over")
+                    Text(stringResource(R.string.ui_start_over))
                 }
             }
         )
@@ -1917,7 +1919,7 @@ private fun RecentMenu(
             onClick = { expanded = true },
             enabled = videos.isNotEmpty()
         ) {
-            Text("Recent")
+            Text(stringResource(R.string.ui_recent))
         }
         DropdownMenu(
             expanded = expanded,
@@ -2082,7 +2084,7 @@ private fun BookmarkMenu(
             }
             if (bookmarks.isNotEmpty()) {
                 DropdownMenuItem(
-                    text = { Text("Clear bookmarks") },
+                    text = { Text(stringResource(R.string.ui_clear_bookmarks)) },
                     onClick = {
                         expanded = false
                         onClear()
@@ -2155,7 +2157,7 @@ private fun SleepMenu(
                 )
             }
             DropdownMenuItem(
-                text = { Text("At end of video") },
+                text = { Text(stringResource(R.string.ui_at_end_of_video)) },
                 onClick = {
                     expanded = false
                     onEnd()
@@ -2163,7 +2165,7 @@ private fun SleepMenu(
             )
             if (active) {
                 DropdownMenuItem(
-                    text = { Text("Cancel timer") },
+                    text = { Text(stringResource(R.string.ui_cancel_timer)) },
                     onClick = {
                         expanded = false
                         onCancel()

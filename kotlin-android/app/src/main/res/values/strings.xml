@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Skip Silence Player</string>
+  <string name="ui_starting_player">Starting player…</string>
+  <string name="ui_open_video">Open video</string>
+  <string name="ui_unlock_gestures">Unlock gestures</string>
+  <string name="ui_playback_error">Playback error</string>
+  <string name="ui_retry">Retry</string>
+  <string name="ui_open">Open</string>
+  <string name="ui_folder">Folder</string>
+  <string name="ui_pip">PiP</string>
+  <string name="ui_prev">Prev</string>
+  <string name="ui_next">Next</string>
+  <string name="ui_skip_silence">Skip silence</string>
+  <string name="ui_audio_only">Audio only</string>
+  <string name="ui_lock_gestures">Lock gestures</string>
+  <string name="ui_subtitles">Subtitles</string>
+  <string name="ui_remove">Remove</string>
+  <string name="ui_search_subtitle_text">Search subtitle text</string>
+  <string name="ui_playback_tools">Playback tools</string>
+  <string name="ui_clear_a_b">Clear A-B</string>
+  <string name="ui_add_bookmark">Add bookmark</string>
+  <string name="ui_clear_history">Clear history</string>
+  <string name="ui_reset_settings">Reset settings</string>
+  <string name="ui_resume_playback">Resume playback?</string>
+  <string name="ui_resume">Resume</string>
+  <string name="ui_start_over">Start over</string>
+  <string name="ui_recent">Recent</string>
+  <string name="ui_clear_bookmarks">Clear bookmarks</string>
+  <string name="ui_at_end_of_video">At end of video</string>
+  <string name="ui_cancel_timer">Cancel timer</string>
+</resources>
