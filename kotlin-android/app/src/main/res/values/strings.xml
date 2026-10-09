@@ -29,4 +29,15 @@
   <string name="ui_clear_bookmarks">Clear bookmarks</string>
   <string name="ui_at_end_of_video">At end of video</string>
   <string name="ui_cancel_timer">Cancel timer</string>
+<string name="playback_time_saved">Saved %1$s · est. %2$s watch</string>
+<string name="playback_speed_label">Speed %1$s×</string>
+<string name="silence_threshold_label">Threshold %1$d dB</string>
+<string name="minimum_silence_label">Min %1$s s</string>
+<string name="edge_padding_label">Edge %1$d ms</string>
+<string name="video_zoom_label">Zoom %1$s×</string>
+<string name="subtitle_sync_label">Sync %1$s%2$d ms</string>
+<string name="subtitle_font_scale_label">Text %1$s×</string>
+<string name="subtitle_background_label">BG %1$d%%</string>
+<string name="bookmark_count">Bookmarks (%1$d)</string>
+<string name="continue_from_time">Continue from %1$s?</string>
 </resources>

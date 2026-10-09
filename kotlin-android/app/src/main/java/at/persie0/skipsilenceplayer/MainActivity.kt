@@ -1228,7 +1228,7 @@ private fun SkipSilencePlayerScreen(
                         style = MaterialTheme.typography.labelMedium
                     )
                     Text(
-                        "Saved ${formatSeconds(skippedSeconds)} · est. ${formatSeconds(estimatedWatchSeconds)} watch",
+                        stringResource(R.string.playback_time_saved, formatSeconds(skippedSeconds), formatSeconds(estimatedWatchSeconds)),
                         color = Color.White.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.labelSmall
                     )
@@ -1305,7 +1305,7 @@ private fun SkipSilencePlayerScreen(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "Speed ${String.format("%.2f", playbackSpeed)}×",
+                        stringResource(R.string.playback_speed_label, String.format("%.2f", playbackSpeed)),
                         color = Color.White,
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.width(105.dp)
@@ -1400,7 +1400,7 @@ private fun SkipSilencePlayerScreen(
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "Threshold ${silenceThresholdDb.roundToInt()} dB",
+                            stringResource(R.string.silence_threshold_label, silenceThresholdDb.roundToInt()),
                             color = Color.White,
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.width(125.dp)
@@ -1418,7 +1418,7 @@ private fun SkipSilencePlayerScreen(
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "Min ${String.format("%.2f", minimumSilence)} s",
+                            stringResource(R.string.minimum_silence_label, String.format("%.2f", minimumSilence)),
                             color = Color.White,
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.width(125.dp)
@@ -1439,7 +1439,7 @@ private fun SkipSilencePlayerScreen(
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "Edge ${(edgePadding * 1000).roundToInt()} ms",
+                            stringResource(R.string.edge_padding_label, (edgePadding * 1000).roundToInt()),
                             color = Color.White,
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.width(125.dp)
@@ -1493,7 +1493,7 @@ private fun SkipSilencePlayerScreen(
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "Zoom ${String.format("%.1f", videoZoom)}×",
+                            stringResource(R.string.video_zoom_label, String.format("%.1f", videoZoom)),
                             color = Color.White,
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.width(105.dp)
@@ -1600,7 +1600,7 @@ private fun SkipSilencePlayerScreen(
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "Sync ${if (subtitleOffsetMs >= 0) "+" else ""}${subtitleOffsetMs} ms",
+                            stringResource(R.string.subtitle_sync_label, if (subtitleOffsetMs >= 0) "+" else "", subtitleOffsetMs),
                             color = Color.White,
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.width(125.dp)
@@ -1624,7 +1624,7 @@ private fun SkipSilencePlayerScreen(
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "Text ${String.format("%.1f", subtitleFontScale)}×",
+                            stringResource(R.string.subtitle_font_scale_label, String.format("%.1f", subtitleFontScale)),
                             color = Color.White,
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.width(125.dp)
@@ -1659,7 +1659,7 @@ private fun SkipSilencePlayerScreen(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "BG ${(subtitleBackgroundOpacity * 100).roundToInt()}%",
+                            stringResource(R.string.subtitle_background_label, (subtitleBackgroundOpacity * 100).roundToInt()),
                             color = Color.White,
                             style = MaterialTheme.typography.labelMedium
                         )
@@ -1874,7 +1874,7 @@ private fun SkipSilencePlayerScreen(
             onDismissRequest = { pendingResume = null },
             title = { Text(stringResource(R.string.ui_resume_playback)) },
             text = {
-                Text("Continue from ${formatTime(request.positionMs)}?")
+                Text(stringResource(R.string.continue_from_time, formatTime(request.positionMs)))
             },
             confirmButton = {
                 TextButton(
@@ -2070,7 +2070,7 @@ private fun BookmarkMenu(
             onClick = { expanded = true },
             enabled = bookmarks.isNotEmpty()
         ) {
-            Text("Bookmarks (${bookmarks.size})")
+            Text(stringResource(R.string.bookmark_count, bookmarks.size))
         }
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
             bookmarks.forEach {
