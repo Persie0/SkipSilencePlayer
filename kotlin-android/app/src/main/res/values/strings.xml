@@ -61,4 +61,9 @@
 <string name="choice_no_videos_found_in_folder">No videos found in folder</string>
 <string name="choice_resume">Resume</string>
 <string name="choice_start_over">Start over</string>
+  <string name="cd_back">Back</string>
+  <string name="cd_play_pause">Play pause</string>
+  <string name="cd_forward">Forward</string>
+  <string name="cd_brightness">Brightness</string>
+  <string name="cd_volume">Volume</string>
 </resources>

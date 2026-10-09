@@ -1263,7 +1263,7 @@ private fun SkipSilencePlayerScreen(
                     ) {
                         Icon(
                             Icons.Default.FastRewind,
-                            contentDescription = "Back",
+                            contentDescription = stringResource(R.string.cd_back),
                             tint = Color.White
                         )
                     }
@@ -1276,7 +1276,7 @@ private fun SkipSilencePlayerScreen(
                     ) {
                         Icon(
                             if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = "Play pause",
+                            contentDescription = stringResource(R.string.cd_play_pause),
                             tint = Color.White,
                             modifier = Modifier.size(36.dp)
                         )
@@ -1290,7 +1290,7 @@ private fun SkipSilencePlayerScreen(
                     ) {
                         Icon(
                             Icons.Default.FastForward,
-                            contentDescription = "Forward",
+                            contentDescription = stringResource(R.string.cd_forward),
                             tint = Color.White
                         )
                     }
@@ -1365,7 +1365,7 @@ private fun SkipSilencePlayerScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Default.Brightness6,
-                        contentDescription = "Brightness",
+                        contentDescription = stringResource(R.string.cd_brightness),
                         tint = Color.White
                     )
                     Slider(
@@ -1378,7 +1378,7 @@ private fun SkipSilencePlayerScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Default.VolumeUp,
-                        contentDescription = "Volume",
+                        contentDescription = stringResource(R.string.cd_volume),
                         tint = Color.White
                     )
                     Slider(
