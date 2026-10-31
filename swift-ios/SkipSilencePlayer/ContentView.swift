@@ -731,9 +731,7 @@ struct ContentView: View {
                         systemImage: "waveform",
                         selected: model.silenceEnabled
                     ) {
-                        let next = !model.silenceEnabled
-                        model.setSilenceEnabled(next)
-                        showHUD(next ? "Silence on" : "Silence off")
+                        showSilenceSheet = true
                     }
 
                     PlayerChip(
@@ -1196,6 +1194,7 @@ struct ContentView: View {
                     let entry = model.playlist[index]
                     Button {
                         model.jumpToPlaylistIndex(index)
+                        showPlaylistSheet = false
                         showControls()
                     } label: {
                         HStack(spacing: 10) {
@@ -1239,6 +1238,7 @@ struct ContentView: View {
                 ForEach(model.recentVideos) { recent in
                     Button {
                         model.openRecent(recent)
+                        showRecentSheet = false
                         showControls()
                     } label: {
                         HStack(spacing: 10) {
@@ -1466,7 +1466,7 @@ private struct SheetCard<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     init(
-        _ title: String,
+        title: String,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.title = title
@@ -1550,18 +1550,29 @@ private struct SheetSliderRow: View {
                     .foregroundStyle(PlayerColors.accent)
                     .monospacedDigit()
             }
-            Slider(
-                value: $value,
-                in: range,
-                step: step,
-                onEditingChanged: { editing in
-                    if !editing {
-                        onCommit()
-                    }
-                }
-            )
-            .disabled(disabled)
+            if let step {
+                Slider(
+                    value: $value,
+                    in: range,
+                    step: step,
+                    onEditingChanged: finishSliderEditing
+                )
+                .disabled(disabled)
+            } else {
+                Slider(
+                    value: $value,
+                    in: range,
+                    onEditingChanged: finishSliderEditing
+                )
+                .disabled(disabled)
+            }
         }
         .padding(.vertical, 2)
+    }
+
+    private func finishSliderEditing(_ editing: Bool) {
+        if !editing {
+            onCommit()
+        }
     }
 }
