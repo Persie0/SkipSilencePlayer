@@ -8,6 +8,12 @@ private enum DragControl {
     case seek
 }
 
+private enum PlayerColors {
+    static let accent = Color(red: 63 / 255, green: 216 / 255, blue: 199 / 255)
+    static let accentDark = Color(red: 4 / 255, green: 33 / 255, blue: 28 / 255)
+    static let sheet = Color(red: 23 / 255, green: 27 / 255, blue: 34 / 255)
+}
+
 struct ContentView: View {
     @StateObject private var model = PlayerModel()
     @StateObject private var pipManager = PictureInPictureManager()
@@ -20,12 +26,23 @@ struct ContentView: View {
     @State private var dragStartTime = 0.0
     @State private var gestureHUD: String?
     @State private var controlsVisible = true
-    @State private var advancedExpanded = false
     @State private var isFullscreen = false
     @State private var gesturesLocked = false
     @State private var hideGeneration = 0
     @State private var subtitleSearch = ""
     @State private var pinchStartZoom = 1.0
+
+    @State private var showSpeedSheet = false
+    @State private var showSilenceSheet = false
+    @State private var showSubtitleSheet = false
+    @State private var showAudioSheet = false
+    @State private var showToolsSheet = false
+    @State private var showPlaylistSheet = false
+    @State private var showRecentSheet = false
+
+    private var hasVideo: Bool {
+        model.fileName != "No video selected"
+    }
 
     var body: some View {
         ZStack {
@@ -33,21 +50,34 @@ struct ContentView: View {
 
             videoArea
 
-            if controlsVisible && !gesturesLocked {
-                controls
-                    .frame(maxHeight: isFullscreen ? 390 : 620)
-                    .frame(maxWidth: .infinity)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
+            if !hasVideo {
+                homeScreen
+            } else if controlsVisible && !gesturesLocked {
+                VStack(spacing: 0) {
+                    topBar
+                    Spacer()
+                    bottomCluster
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
             if gesturesLocked {
-                Button("Unlock gestures") {
+                Button {
                     gesturesLocked = false
                     showControls()
+                } label: {
+                    Label("Unlock", systemImage: "lock.open")
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(Color.black.opacity(0.72)))
+                        .overlay(
+                            Capsule().strokeBorder(PlayerColors.accent.opacity(0.6))
+                        )
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
                 .frame(maxHeight: .infinity, alignment: .top)
-                .padding(.top, 18)
+                .padding(.top, 14)
             }
 
             if let error = model.playbackError {
@@ -125,6 +155,27 @@ struct ContentView: View {
                 gestureHUD = error.localizedDescription
             }
         }
+        .sheet(isPresented: $showSpeedSheet) {
+            speedSheet
+        }
+        .sheet(isPresented: $showSilenceSheet) {
+            silenceSheet
+        }
+        .sheet(isPresented: $showSubtitleSheet) {
+            subtitleSheet
+        }
+        .sheet(isPresented: $showAudioSheet) {
+            audioSheet
+        }
+        .sheet(isPresented: $showToolsSheet) {
+            toolsSheet
+        }
+        .sheet(isPresented: $showPlaylistSheet) {
+            playlistSheet
+        }
+        .sheet(isPresented: $showRecentSheet) {
+            recentSheet
+        }
         .alert(
             "Resume playback?",
             isPresented: Binding(
@@ -155,6 +206,8 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Video area with gestures (unchanged behavior)
+
     private var videoArea: some View {
         GeometryReader { geometry in
             ZStack {
@@ -177,15 +230,6 @@ struct ContentView: View {
                         }
                         .foregroundStyle(.secondary)
                     }
-                }
-
-                if model.fileName == "No video selected" {
-                    Button {
-                        showingVideoImporter = true
-                    } label: {
-                        Label("Open video", systemImage: "folder")
-                    }
-                    .buttonStyle(.borderedProminent)
                 }
 
                 if !gesturesLocked {
@@ -292,10 +336,16 @@ struct ContentView: View {
 
                 if let gestureHUD {
                     Text(gestureHUD)
-                        .font(.headline)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 12)
-                        .background(.black.opacity(0.76), in: RoundedRectangle(cornerRadius: 12))
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .foregroundStyle(.white)
+                        .background(
+                            Capsule().fill(Color.black.opacity(0.78))
+                        )
+                        .overlay(
+                            Capsule().strokeBorder(PlayerColors.accent.opacity(0.55))
+                        )
                 }
             }
         }
@@ -331,345 +381,525 @@ struct ContentView: View {
                     Spacer()
                 }
             }
-            .padding(.vertical, controlsVisible ? 90 : 28)
+            .padding(.vertical, controlsVisible ? 170 : 28)
             .allowsHitTesting(false)
         }
     }
 
-    private var controls: some View {
-        ScrollView {
-            VStack(spacing: 8) {
-                HStack {
-                    Button {
-                        showingVideoImporter = true
-                    } label: {
-                        Label("Open", systemImage: "folder")
-                    }
-                    .buttonStyle(.bordered)
+    // MARK: - Home screen
 
-                    Button("Folder") {
-                        showingFolderImporter = true
-                    }
-                    .buttonStyle(.bordered)
+    private var homeScreen: some View {
+        VStack(spacing: 0) {
+            Spacer()
 
-                    recentMenu
-
-                    Spacer()
-
-                    if PictureInPictureManager.isSupported {
-                        Button {
-                            pipManager.toggle()
-                        } label: {
-                            Image(systemName: "pip.enter")
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(model.fileName == "No video selected")
-                    }
-
-                    Button {
-                        setFullscreen(!isFullscreen)
-                    } label: {
-                        Image(
-                            systemName: isFullscreen
-                                ? "arrow.down.right.and.arrow.up.left"
-                                : "arrow.up.left.and.arrow.down.right"
-                        )
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(model.fileName)
-                        .lineLimit(1)
-                        .font(.caption)
-
-                    if !model.fileInfo.isEmpty {
-                        Text(model.fileInfo)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Text(model.analysisStatus)
-                        .lineLimit(1)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Slider(
-                    value: Binding(
-                        get: { min(model.currentTime, max(model.duration, 0)) },
-                        set: { model.seek(to: $0) }
-                    ),
-                    in: 0...max(model.duration, 1)
-                )
-                .disabled(model.duration <= 0)
-
-                HStack {
-                    Text(PlayerModel.format(seconds: model.currentTime))
-                        .monospacedDigit()
-                    Spacer()
-                    Text(
-                        "Saved " + PlayerModel.format(seconds: model.skippedTime) +
-                        " · est. " + PlayerModel.format(seconds: model.estimatedWatchTime) +
-                        " watch"
-                    )
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    Spacer()
-                    Text(
-                        model.duration > 0
-                            ? "−" + PlayerModel.format(
-                                seconds: max(0, model.duration - model.currentTime)
-                            )
-                            : "--:--"
-                    )
-                    .monospacedDigit()
-                }
-                .font(.caption)
-
-                HStack(spacing: 18) {
-                    Button("Prev") { model.previous() }
-                        .disabled(!model.hasPrevious)
-
-                    Button {
-                        model.seek(by: -Double(model.doubleTapSeconds))
-                        showHUD("−\(model.doubleTapSeconds) s")
-                    } label: {
-                        Image(systemName: "gobackward")
-                    }
-
-                    Button {
-                        model.togglePlayback()
-                        showControls()
-                    } label: {
-                        Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 30))
-                    }
-
-                    Button {
-                        model.seek(by: Double(model.doubleTapSeconds))
-                        showHUD("+\(model.doubleTapSeconds) s")
-                    } label: {
-                        Image(systemName: "goforward")
-                    }
-
-                    Button("Next") { model.next() }
-                        .disabled(!model.hasNext)
-                }
-                .buttonStyle(.plain)
-
-                HStack {
-                    Text(String(format: "Speed %.2f×", model.playbackSpeed))
-                        .font(.caption)
-                        .frame(width: 100, alignment: .leading)
-
-                    Slider(
-                        value: Binding(
-                            get: { model.playbackSpeed },
-                            set: { model.setPlaybackSpeed($0) }
-                        ),
-                        in: 0.5...3,
-                        step: 0.25,
-                        onEditingChanged: { editing in
-                            if !editing {
-                                model.commitPlaybackSpeed()
-                            }
-                        }
-                    )
-                }
-
-                HStack {
-                    Text("Skip silence")
-                    Toggle(
-                        "",
-                        isOn: Binding(
-                            get: { model.silenceEnabled },
-                            set: { model.setSilenceEnabled($0) }
-                        )
-                    )
-                    .labelsHidden()
-
-                    Spacer()
-                    presetMenu
-                }
-
-                HStack {
-                    Image(systemName: "sun.max.fill")
-                    Slider(
-                        value: Binding(
-                            get: { model.brightness },
-                            set: { model.setBrightness($0) }
-                        ),
-                        in: 0.02...1
-                    )
-                }
-
-                HStack {
-                    Image(systemName: "speaker.wave.2.fill")
-                    Slider(
-                        value: Binding(
-                            get: { model.volume },
-                            set: { model.setVolume($0) }
-                        ),
-                        in: 0...1
-                    )
-                }
-
-                Button {
-                    advancedExpanded.toggle()
-                    showControls()
-                } label: {
-                    HStack {
-                        Text(advancedExpanded ? "Hide advanced" : "Advanced")
-                        Spacer()
-                        Image(systemName: advancedExpanded ? "chevron.up" : "chevron.down")
-                    }
-                }
-                .buttonStyle(.plain)
-
-                if advancedExpanded {
-                    Divider()
-
-                    silenceControls
-                    viewingControls
-                    subtitleControls
-                    playbackTools
-
-                    Button(role: .destructive) {
-                        model.resetSettings()
-                        showHUD("Defaults restored")
-                    } label: {
-                        Text("Reset player settings")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                Text(
-                    "Double-tap ±\(model.doubleTapSeconds)s · horizontal drag seeks · vertical drag controls brightness/volume · pinch zoom"
-                )
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            ZStack {
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(PlayerColors.accent.opacity(0.16))
+                Image(systemName: "waveform")
+                    .font(.system(size: 36, weight: .semibold))
+                    .foregroundStyle(PlayerColors.accent)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
-            .padding(.bottom, 8)
+            .frame(width: 76, height: 76)
+
+            Text("Skip Silence Player")
+                .font(.title3.weight(.semibold))
+                .padding(.top, 14)
+
+            Text("Plays only what matters")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .padding(.top, 3)
+
+            HStack(spacing: 12) {
+                HomeCard(label: "Open video", systemImage: "play.rectangle") {
+                    showingVideoImporter = true
+                }
+                HomeCard(label: "Open folder", systemImage: "folder") {
+                    showingFolderImporter = true
+                }
+            }
+            .padding(.horizontal, 22)
+            .padding(.top, 30)
+
+            if !model.recentVideos.isEmpty {
+                HStack {
+                    Text("Recent")
+                        .font(.headline)
+                    Spacer()
+                    Button("See all") {
+                        showRecentSheet = true
+                    }
+                    .foregroundStyle(PlayerColors.accent)
+                }
+                .padding(.horizontal, 26)
+                .padding(.top, 28)
+                .padding(.bottom, 6)
+
+                VStack(spacing: 2) {
+                    ForEach(model.recentVideos.prefix(4)) { recent in
+                        Button {
+                            model.openRecent(recent)
+                            showControls()
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "clock.arrow.circlepath")
+                                    .foregroundStyle(.tertiary)
+                                Text(recent.name)
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 26)
+                            .padding(.vertical, 9)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            Text(
+                "Double-tap to seek · swipe for brightness and volume"
+            )
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 40)
+            .padding(.top, 26)
+
+            Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(
-                colors: [.clear, .black.opacity(0.96)],
+                colors: [Color(red: 16 / 255, green: 23 / 255, blue: 32 / 255), .black],
                 startPoint: .top,
                 endPoint: .bottom
             )
         )
     }
 
-    private var silenceControls: some View {
-        Group {
-            HStack {
-                Text("Threshold \(Int(model.silenceThresholdDB.rounded())) dB")
-                    .font(.caption)
-                    .frame(width: 125, alignment: .leading)
-                Slider(
-                    value: Binding(
-                        get: { model.silenceThresholdDB },
-                        set: { model.setSilenceThreshold($0) }
-                    ),
-                    in: -60...(-20),
-                    step: 1,
-                    onEditingChanged: { if !$0 { model.applySilenceSettings() } }
-                )
-                .disabled(!model.silenceEnabled)
+    // MARK: - Top bar
+
+    private var topBar: some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.fileName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+
+                HStack(spacing: 6) {
+                    if !model.fileInfo.isEmpty {
+                        Text(model.fileInfo)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(model.analysisStatus)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
 
-            HStack {
-                Text(String(format: "Min %.2f s", model.minimumSilence))
-                    .font(.caption)
-                    .frame(width: 125, alignment: .leading)
-                Slider(
-                    value: Binding(
-                        get: { model.minimumSilence },
-                        set: { model.setMinimumSilence($0) }
-                    ),
-                    in: 0.2...2,
-                    step: 0.05,
-                    onEditingChanged: { if !$0 { model.applySilenceSettings() } }
-                )
-                .disabled(!model.silenceEnabled)
-            }
+            Spacer(minLength: 12)
 
-            HStack {
-                Text("Edge \(Int((model.edgePadding * 1000).rounded())) ms")
-                    .font(.caption)
-                    .frame(width: 125, alignment: .leading)
-                Slider(
-                    value: Binding(
-                        get: { model.edgePadding },
-                        set: { model.setEdgePadding($0) }
-                    ),
-                    in: 0.02...0.20,
-                    step: 0.01,
-                    onEditingChanged: { if !$0 { model.applySilenceSettings() } }
-                )
-                .disabled(!model.silenceEnabled)
-            }
-        }
-    }
-
-    private var viewingControls: some View {
-        Group {
-            HStack {
-                aspectMenu
-                doubleTapMenu
-                resumeMenu
-            }
-
-            HStack {
-                Text(String(format: "Zoom %.1f×", model.videoZoom))
-                    .font(.caption)
-                    .frame(width: 100, alignment: .leading)
-                Slider(
-                    value: Binding(
-                        get: { model.videoZoom },
-                        set: { model.setVideoZoom($0) }
-                    ),
-                    in: 1...3,
-                    onEditingChanged: { if !$0 { model.commitVideoZoom() } }
-                )
-            }
-
-            HStack {
-                Text("Audio only")
-                Toggle(
-                    "",
-                    isOn: Binding(
-                        get: { model.audioOnly },
-                        set: { model.setAudioOnly($0) }
-                    )
-                )
-                .labelsHidden()
-
-                Spacer()
-
-                Button("Lock gestures") {
+            HStack(spacing: 10) {
+                playerIconButton("lock.fill") {
                     gesturesLocked = true
                     controlsVisible = false
                 }
-                .buttonStyle(.bordered)
+
+                if PictureInPictureManager.isSupported {
+                    playerIconButton("pip.enter") {
+                        pipManager.toggle()
+                    }
+                    .disabled(!hasVideo)
+                }
+
+                playerIconButton(
+                    isFullscreen
+                        ? "arrow.down.right.and.arrow.up.left"
+                        : "arrow.up.left.and.arrow.down.right"
+                ) {
+                    setFullscreen(!isFullscreen)
+                }
+
+                Menu {
+                    Button {
+                        showingVideoImporter = true
+                    } label: {
+                        Label("Open video…", systemImage: "play.rectangle")
+                    }
+                    Button {
+                        showingFolderImporter = true
+                    } label: {
+                        Label("Open folder…", systemImage: "folder")
+                    }
+                    Button {
+                        showRecentSheet = true
+                    } label: {
+                        Label("Recent…", systemImage: "clock.arrow.circlepath")
+                    }
+                    Divider()
+                    Menu {
+                        ForEach(VideoAspectMode.allCases) { mode in
+                            Button(mode.label) {
+                                model.setAspectMode(mode)
+                            }
+                        }
+                    } label: {
+                        Text("Aspect: " + model.aspectMode.label)
+                    }
+                    Menu {
+                        ForEach([5, 10, 15, 30], id: \.self) { seconds in
+                            Button("\(seconds) s") {
+                                model.setDoubleTapSeconds(seconds)
+                            }
+                        }
+                    } label: {
+                        Text("Double-tap seek: \(model.doubleTapSeconds) s")
+                    }
+                    Menu {
+                        ForEach(ResumeMode.allCases) { mode in
+                            Button(mode.label) {
+                                model.setResumeMode(mode)
+                            }
+                        }
+                    } label: {
+                        Text("Resume: " + model.resumeMode.label)
+                    }
+                    Toggle(
+                        isOn: Binding(
+                            get: { model.audioOnly },
+                            set: { model.setAudioOnly($0) }
+                        )
+                    ) {
+                        Label("Audio only", systemImage: "waveform")
+                    }
+                    Divider()
+                    Button("Clear history", role: .destructive) {
+                        model.clearHistory()
+                    }
+                    Button("Reset settings", role: .destructive) {
+                        model.resetSettings()
+                        showHUD("Defaults restored")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 15, weight: .medium))
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(Color.white.opacity(0.12)))
+                }
+                .foregroundStyle(.white)
             }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 30)
+        .background(
+            LinearGradient(
+                colors: [.black.opacity(0.82), .clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea(edges: .top)
+        )
+    }
+
+    // MARK: - Bottom cluster
+
+    private var bottomCluster: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Text(PlayerModel.format(seconds: model.currentTime))
+                    .monospacedDigit()
+                    .font(.caption)
+                Spacer()
+                if model.silenceEnabled {
+                    Text(
+                        "Saved " + PlayerModel.format(seconds: model.skippedTime) +
+                            " · est. " +
+                            PlayerModel.format(seconds: model.estimatedWatchTime) +
+                            " watch"
+                    )
+                    .font(.caption2)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule().fill(PlayerColors.accent.opacity(0.16))
+                    )
+                    .overlay(
+                        Capsule().strokeBorder(PlayerColors.accent.opacity(0.35))
+                    )
+                    .foregroundStyle(PlayerColors.accent)
+                    .lineLimit(1)
+                }
+                Spacer()
+                Text(
+                    model.duration > 0
+                        ? "−" + PlayerModel.format(
+                            seconds: max(0, model.duration - model.currentTime)
+                        )
+                        : "--:--"
+                )
+                .monospacedDigit()
+                .font(.caption)
+            }
+            .padding(.horizontal, 20)
+
+            SeekBar(
+                position: model.currentTime,
+                duration: model.duration,
+                bookmarkSeconds: model.bookmarks.map(\.seconds)
+            ) { target in
+                model.seek(to: target)
+            }
+            .padding(.horizontal, 20)
+
+            HStack(spacing: 36) {
+                Button {
+                    model.previous()
+                } label: {
+                    Image(systemName: "backward.end.fill")
+                        .font(.title3)
+                }
+                .disabled(!model.hasPrevious)
+                .foregroundStyle(.white)
+
+                Button {
+                    model.seek(by: -Double(model.doubleTapSeconds))
+                    showHUD("−\(model.doubleTapSeconds) s")
+                } label: {
+                    VStack(spacing: 2) {
+                        Image(systemName: "gobackward")
+                            .font(.title2)
+                        Text("\(model.doubleTapSeconds) s")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .foregroundStyle(.white)
+
+                Button {
+                    model.togglePlayback()
+                    showControls()
+                } label: {
+                    Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 26, weight: .bold))
+                        .foregroundStyle(PlayerColors.accentDark)
+                        .frame(width: 58, height: 58)
+                        .background(Circle().fill(PlayerColors.accent))
+                }
+
+                Button {
+                    model.seek(by: Double(model.doubleTapSeconds))
+                    showHUD("+\(model.doubleTapSeconds) s")
+                } label: {
+                    VStack(spacing: 2) {
+                        Image(systemName: "goforward")
+                            .font(.title2)
+                        Text("\(model.doubleTapSeconds) s")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .foregroundStyle(.white)
+
+                Button {
+                    model.next()
+                } label: {
+                    Image(systemName: "forward.end.fill")
+                        .font(.title3)
+                }
+                .disabled(!model.hasNext)
+                .foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    PlayerChip(
+                        label: String(format: "%g×", model.playbackSpeed),
+                        systemImage: "gauge",
+                        selected: abs(model.playbackSpeed - 1) > 0.01
+                    ) {
+                        showSpeedSheet = true
+                    }
+
+                    PlayerChip(
+                        label: model.silenceEnabled ? "Silence on" : "Silence off",
+                        systemImage: "waveform",
+                        selected: model.silenceEnabled
+                    ) {
+                        showSilenceSheet = true
+                    }
+
+                    PlayerChip(
+                        label: "Subtitles",
+                        systemImage: "captions.bubble",
+                        selected: model.selectedSubtitleIndex != nil ||
+                            model.externalSubtitleName != nil
+                    ) {
+                        showSubtitleSheet = true
+                    }
+
+                    PlayerChip(
+                        label: model.selectedAudioName,
+                        systemImage: "speaker.wave.2",
+                        selected: model.selectedAudioIndex != nil
+                    ) {
+                        showAudioSheet = true
+                    }
+
+                    PlayerChip(
+                        label: "Tools",
+                        systemImage: "wrench.and.screwdriver"
+                    ) {
+                        showToolsSheet = true
+                    }
+
+                    if model.playlist.count > 1 {
+                        PlayerChip(
+                            label: "\(model.playlistIndex + 1)/\(model.playlist.count)",
+                            systemImage: "list.number"
+                        ) {
+                            showPlaylistSheet = true
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+        .padding(.top, 26)
+        .padding(.bottom, 16)
+        .background(
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.9)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea(edges: .bottom)
+        )
+    }
+
+    // MARK: - Sheets
+
+    private var speedSheet: some View {
+        SheetCard(title: "Speed") {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(
+                        [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0],
+                        id: \.self
+                    ) { speed in
+                        PlayerChip(
+                            label: String(format: "%g×", speed),
+                            selected: abs(model.playbackSpeed - speed) < 0.01
+                        ) {
+                            model.setPlaybackSpeed(speed)
+                            model.commitPlaybackSpeed()
+                        }
+                    }
+                }
+            }
+
+            SheetSliderRow(
+                label: "Speed",
+                valueText: String(format: "%.2g×", model.playbackSpeed),
+                value: Binding(
+                    get: { model.playbackSpeed },
+                    set: { model.setPlaybackSpeed($0) }
+                ),
+                range: 0.5...3,
+                step: 0.25,
+                onCommit: { model.commitPlaybackSpeed() }
+            )
         }
     }
 
-    private var subtitleControls: some View {
-        Group {
-            Divider()
-            Text("Subtitles")
-                .font(.headline)
-                .frame(maxWidth: .infinity, alignment: .leading)
+    private var silenceSheet: some View {
+        SheetCard(title: "Silence skipping") {
+            Toggle(
+                "Skip silence",
+                isOn: Binding(
+                    get: { model.silenceEnabled },
+                    set: { model.setSilenceEnabled($0) }
+                )
+            )
+            .tint(PlayerColors.accent)
 
-            HStack {
+            SectionLabel(text: "Preset")
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(SilencePreset.allCases) { preset in
+                        PlayerChip(
+                            label: preset.label,
+                            selected: model.currentPreset == preset
+                        ) {
+                            model.applyPreset(preset)
+                            showHUD(preset.label)
+                        }
+                    }
+                    PlayerChip(
+                        label: "Custom",
+                        selected: model.currentPreset == nil
+                    ) {
+                        showControls()
+                    }
+                    .disabled(true)
+                }
+            }
+
+            SheetSliderRow(
+                label: "Threshold",
+                valueText: "\(Int(model.silenceThresholdDB.rounded())) dB",
+                value: Binding(
+                    get: { model.silenceThresholdDB },
+                    set: { model.setSilenceThreshold($0) }
+                ),
+                range: -60...(-20),
+                step: 1,
+                disabled: !model.silenceEnabled,
+                onCommit: { model.applySilenceSettings() }
+            )
+
+            SheetSliderRow(
+                label: "Min silence",
+                valueText: String(format: "%.2f s", model.minimumSilence),
+                value: Binding(
+                    get: { model.minimumSilence },
+                    set: { model.setMinimumSilence($0) }
+                ),
+                range: 0.2...2,
+                step: 0.05,
+                disabled: !model.silenceEnabled,
+                onCommit: { model.applySilenceSettings() }
+            )
+
+            SheetSliderRow(
+                label: "Edge padding",
+                valueText: "\(Int((model.edgePadding * 1000).rounded())) ms",
+                value: Binding(
+                    get: { model.edgePadding },
+                    set: { model.setEdgePadding($0) }
+                ),
+                range: 0.02...0.20,
+                step: 0.01,
+                disabled: !model.silenceEnabled,
+                onCommit: { model.applySilenceSettings() }
+            )
+
+            Text(model.analysisStatus)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.top, 4)
+        }
+    }
+
+    private var subtitleSheet: some View {
+        SheetCard(title: "Subtitles") {
+            HStack(spacing: 10) {
                 Button {
                     showingSubtitleImporter = true
                 } label: {
@@ -680,6 +910,7 @@ struct ContentView: View {
                     .lineLimit(1)
                 }
                 .buttonStyle(.bordered)
+                .tint(PlayerColors.accent)
 
                 if model.externalSubtitleName != nil {
                     Button("Remove", role: .destructive) {
@@ -689,58 +920,85 @@ struct ContentView: View {
                 }
             }
 
-            audioTrackMenu
-            subtitleTrackMenu
+            SectionLabel(text: "Embedded subtitles")
 
-            HStack {
-                Text(
-                    String(
-                        format: "Sync %+.2f s",
-                        model.subtitleOffset
-                    )
-                )
-                .font(.caption)
-                .frame(width: 125, alignment: .leading)
-
-                Slider(
-                    value: Binding(
-                        get: { model.subtitleOffset },
-                        set: { model.setSubtitleOffset($0) }
-                    ),
-                    in: -10...10,
-                    step: 0.05
-                )
+            SelectRow(
+                label: "Off",
+                selected: model.selectedSubtitleIndex == nil &&
+                    model.externalSubtitleName == nil
+            ) {
+                model.selectSubtitle(index: nil)
             }
 
-            HStack {
-                Text(String(format: "Text %.1f×", model.subtitleFontScale))
-                    .font(.caption)
-                    .frame(width: 125, alignment: .leading)
-                Slider(
-                    value: Binding(
-                        get: { model.subtitleFontScale },
-                        set: { model.setSubtitleFontScale($0) }
-                    ),
-                    in: 0.7...2
-                )
+            ForEach(model.subtitleTrackNames.indices, id: \.self) { index in
+                SelectRow(
+                    label: model.subtitleTrackNames[index],
+                    selected: model.selectedSubtitleIndex == index
+                ) {
+                    model.selectSubtitle(index: index)
+                }
             }
 
-            HStack {
-                subtitlePositionMenu
-                Text(
-                    "BG \(Int((model.subtitleBackgroundOpacity * 100).rounded()))%"
-                )
-                .font(.caption)
-                Slider(
-                    value: Binding(
-                        get: { model.subtitleBackgroundOpacity },
-                        set: { model.setSubtitleBackgroundOpacity($0) }
-                    ),
-                    in: 0...1
-                )
+            if model.subtitleTrackNames.isEmpty {
+                Text("No embedded subtitle tracks")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
 
-            HStack {
+            SectionLabel(text: "Sync & style")
+
+            SheetSliderRow(
+                label: "Sync",
+                valueText: String(format: "%+.1f s", model.subtitleOffset),
+                value: Binding(
+                    get: { model.subtitleOffset },
+                    set: { model.setSubtitleOffset($0) }
+                ),
+                range: -10...10,
+                step: 0.05,
+                onCommit: {}
+            )
+
+            SheetSliderRow(
+                label: "Text size",
+                valueText: String(format: "%.1f×", model.subtitleFontScale),
+                value: Binding(
+                    get: { model.subtitleFontScale },
+                    set: { model.setSubtitleFontScale($0) }
+                ),
+                range: 0.7...2,
+                onCommit: {}
+            )
+
+            SheetSliderRow(
+                label: "Background",
+                valueText: "\(Int((model.subtitleBackgroundOpacity * 100).rounded()))%",
+                value: Binding(
+                    get: { model.subtitleBackgroundOpacity },
+                    set: { model.setSubtitleBackgroundOpacity($0) }
+                ),
+                range: 0...1,
+                onCommit: {}
+            )
+
+            SectionLabel(text: "Position")
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(SubtitlePosition.allCases) { position in
+                        PlayerChip(
+                            label: position.label,
+                            selected: model.subtitlePosition == position
+                        ) {
+                            model.setSubtitlePosition(position)
+                        }
+                    }
+                }
+            }
+
+            SectionLabel(text: "Search")
+
+            HStack(spacing: 10) {
                 TextField("Search subtitle text", text: $subtitleSearch)
                     .textFieldStyle(.roundedBorder)
                 Button("Next") {
@@ -754,19 +1012,34 @@ struct ContentView: View {
                 Text(status)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
-    private var playbackTools: some View {
-        Group {
-            Divider()
-            Text("Playback tools")
-                .font(.headline)
-                .frame(maxWidth: .infinity, alignment: .leading)
+    private var audioSheet: some View {
+        SheetCard(title: "Audio") {
+            if model.audioTrackNames.isEmpty {
+                Text("No audio tracks detected")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(model.audioTrackNames.indices, id: \.self) { index in
+                    SelectRow(
+                        label: model.audioTrackNames[index],
+                        selected: model.selectedAudioIndex == index
+                    ) {
+                        model.selectAudio(index: index)
+                    }
+                }
+            }
+        }
+    }
 
-            HStack {
+    private var toolsSheet: some View {
+        SheetCard(title: "Tools") {
+            SectionLabel(text: "A–B repeat")
+
+            HStack(spacing: 10) {
                 Button(
                     model.abStart.map { "A " + PlayerModel.format(seconds: $0) } ?? "Set A"
                 ) {
@@ -782,232 +1055,229 @@ struct ContentView: View {
                 .buttonStyle(.bordered)
                 .disabled(model.abStart == nil)
 
-                Button("Clear A–B") {
+                Button("Clear A–B", role: .destructive) {
                     model.clearAB()
                 }
                 .buttonStyle(.bordered)
                 .disabled(model.abStart == nil && model.abEnd == nil)
             }
 
-            HStack {
-                Button("Add bookmark") {
-                    model.addBookmark()
+            SectionLabel(text: "Bookmarks")
+
+            Button {
+                model.addBookmark()
+            } label: {
+                Label("Add bookmark", systemImage: "bookmark")
+            }
+            .buttonStyle(.bordered)
+
+            if model.bookmarks.isEmpty {
+                Text("No bookmarks yet")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(model.bookmarks) { bookmark in
+                    HStack(spacing: 10) {
+                        Button {
+                            model.seek(to: bookmark.seconds)
+                            showControls()
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "bookmark")
+                                    .font(.caption)
+                                    .foregroundStyle(PlayerColors.accent)
+                                Text(bookmark.label)
+                                    .foregroundStyle(.white)
+                                Spacer()
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            model.removeBookmark(bookmark)
+                        } label: {
+                            Image(systemName: "minus.circle")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.vertical, 6)
+                }
+
+                Button("Clear bookmarks", role: .destructive) {
+                    model.clearBookmarks()
                 }
                 .buttonStyle(.bordered)
-
-                bookmarkMenu
             }
 
-            chapterMenu
-            sleepMenu
+            SectionLabel(text: "Chapters")
 
-            HStack {
+            if model.chapters.isEmpty {
+                Text("No chapters detected")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(model.chapters) { chapter in
+                    Button {
+                        model.seek(to: chapter.start)
+                        showControls()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Text(PlayerModel.format(seconds: chapter.start))
+                                .monospacedDigit()
+                                .font(.caption)
+                                .foregroundStyle(PlayerColors.accent)
+                            Text(chapter.title)
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                            Spacer()
+                        }
+                        .padding(.vertical, 7)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            SectionLabel(text: "Sleep timer")
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach([15, 30, 45, 60], id: \.self) { minutes in
+                        PlayerChip(
+                            label: "\(minutes) min",
+                            selected: model.sleepDeadline != nil
+                        ) {
+                            model.setSleepTimer(minutes: Double(minutes))
+                        }
+                    }
+                    PlayerChip(
+                        label: "At end of video",
+                        selected: model.sleepAtEnd
+                    ) {
+                        model.setSleepAtEnd()
+                    }
+                    if model.sleepDeadline != nil || model.sleepAtEnd {
+                        PlayerChip(label: model.sleepTimerLabel) {
+                            model.cancelSleepTimer()
+                        }
+                    }
+                }
+            }
+
+            SectionLabel(text: "Data")
+
+            HStack(spacing: 10) {
                 Button("Clear history", role: .destructive) {
                     model.clearHistory()
                 }
                 .buttonStyle(.bordered)
 
-                Spacer()
-
-                Text(
-                    model.playlist.count > 1
-                        ? "Playlist \(model.playlistIndex + 1)/\(model.playlist.count)"
-                        : ""
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Button("Reset settings", role: .destructive) {
+                    model.resetSettings()
+                    showHUD("Defaults restored")
+                }
+                .buttonStyle(.bordered)
             }
         }
     }
 
-    private var recentMenu: some View {
-        Menu {
-            ForEach(model.recentVideos) { recent in
-                Button(recent.name) {
-                    model.openRecent(recent)
-                    showControls()
-                }
-            }
-        } label: {
-            Text("Recent")
-        }
-        .buttonStyle(.bordered)
-        .disabled(model.recentVideos.isEmpty)
-    }
-
-    private var presetMenu: some View {
-        Menu {
-            ForEach(SilencePreset.allCases) { preset in
-                Button(preset.label) {
-                    model.applyPreset(preset)
-                    showHUD(preset.label)
-                }
-            }
-        } label: {
-            Text(model.currentPreset?.label ?? "Custom")
-        }
-        .buttonStyle(.bordered)
-    }
-
-    private var aspectMenu: some View {
-        Menu {
-            ForEach(VideoAspectMode.allCases) { mode in
-                Button(mode.label) {
-                    model.setAspectMode(mode)
-                }
-            }
-        } label: {
-            Text(model.aspectMode.label)
-        }
-        .buttonStyle(.bordered)
-    }
-
-    private var doubleTapMenu: some View {
-        Menu {
-            ForEach([5, 10, 15, 30], id: \.self) { seconds in
-                Button("\(seconds) s") {
-                    model.setDoubleTapSeconds(seconds)
-                }
-            }
-        } label: {
-            Text("Tap \(model.doubleTapSeconds)s")
-        }
-        .buttonStyle(.bordered)
-    }
-
-    private var resumeMenu: some View {
-        Menu {
-            ForEach(ResumeMode.allCases) { mode in
-                Button(mode.label) {
-                    model.setResumeMode(mode)
-                }
-            }
-        } label: {
-            Text("Resume: " + model.resumeMode.label)
-        }
-        .buttonStyle(.bordered)
-    }
-
-    private var subtitlePositionMenu: some View {
-        Menu {
-            ForEach(SubtitlePosition.allCases) { position in
-                Button(position.label) {
-                    model.setSubtitlePosition(position)
-                }
-            }
-        } label: {
-            Text(model.subtitlePosition.label)
-        }
-        .buttonStyle(.bordered)
-    }
-
-    private var audioTrackMenu: some View {
-        Menu {
-            ForEach(model.audioTrackNames.indices, id: \.self) { index in
-                Button(model.audioTrackNames[index]) {
-                    model.selectAudio(index: index)
-                }
-            }
-        } label: {
-            HStack {
-                Text("Audio")
-                Spacer()
-                Text(model.selectedAudioName)
+    private var playlistSheet: some View {
+        SheetCard(title: "Playlist") {
+            if model.playlist.isEmpty {
+                Text("No videos loaded")
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
-        .disabled(model.audioTrackNames.isEmpty)
-    }
-
-    private var subtitleTrackMenu: some View {
-        Menu {
-            Button("Off") {
-                model.selectSubtitle(index: nil)
-            }
-
-            ForEach(model.subtitleTrackNames.indices, id: \.self) { index in
-                Button(model.subtitleTrackNames[index]) {
-                    model.selectSubtitle(index: index)
+            } else {
+                ForEach(model.playlist.indices, id: \.self) { index in
+                    let entry = model.playlist[index]
+                    Button {
+                        model.jumpToPlaylistIndex(index)
+                        showPlaylistSheet = false
+                        showControls()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: index == model.playlistIndex ? "play.fill" : "play")
+                                .font(.caption)
+                                .foregroundStyle(
+                                    index == model.playlistIndex
+                                        ? PlayerColors.accent
+                                        : .secondary
+                                )
+                            Text(entry.name)
+                                .foregroundStyle(
+                                    index == model.playlistIndex
+                                        ? PlayerColors.accent
+                                        : .white
+                                )
+                                .lineLimit(1)
+                            Spacer()
+                            if index == model.playlistIndex {
+                                Text("Now")
+                                    .font(.caption2)
+                                    .foregroundStyle(PlayerColors.accent)
+                            }
+                        }
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-        } label: {
-            HStack {
-                Text("Embedded subtitles")
-                Spacer()
-                Text(model.selectedSubtitleName)
+        }
+    }
+
+    private var recentSheet: some View {
+        SheetCard(title: "Recent") {
+            if model.recentVideos.isEmpty {
+                Text("No recent videos")
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
+            } else {
+                ForEach(model.recentVideos) { recent in
+                    Button {
+                        model.openRecent(recent)
+                        showRecentSheet = false
+                        showControls()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .foregroundStyle(.tertiary)
+                            Text(recent.name)
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                            Spacer()
+                        }
+                        .padding(.vertical, 9)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Button("Clear history", role: .destructive) {
+                    model.clearHistory()
+                }
+                .buttonStyle(.bordered)
+                .padding(.top, 8)
             }
-            .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.bordered)
     }
 
-    private var bookmarkMenu: some View {
-        Menu {
-            ForEach(model.bookmarks) { bookmark in
-                Button(bookmark.label) {
-                    model.seek(to: bookmark.seconds)
-                }
-            }
+    // MARK: - Helpers
 
-            if !model.bookmarks.isEmpty {
-                Divider()
-                Button("Clear bookmarks", role: .destructive) {
-                    model.clearBookmarks()
-                }
-            }
-        } label: {
-            Text("Bookmarks (\(model.bookmarks.count))")
+    private func playerIconButton(
+        _ systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .medium))
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(Color.white.opacity(0.12)))
         }
-        .buttonStyle(.bordered)
-        .disabled(model.bookmarks.isEmpty)
-    }
-
-    private var chapterMenu: some View {
-        Menu {
-            ForEach(model.chapters) { chapter in
-                Button(
-                    PlayerModel.format(seconds: chapter.start) +
-                        " · " + chapter.title
-                ) {
-                    model.seek(to: chapter.start)
-                }
-            }
-        } label: {
-            Text(
-                model.chapters.isEmpty
-                    ? "Chapters: none detected"
-                    : "Chapters (\(model.chapters.count))"
-            )
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
-        .disabled(model.chapters.isEmpty)
-    }
-
-    private var sleepMenu: some View {
-        Menu {
-            ForEach([15, 30, 45, 60], id: \.self) { minutes in
-                Button("\(minutes) minutes") {
-                    model.setSleepTimer(minutes: Double(minutes))
-                }
-            }
-            Button("At end of video") {
-                model.setSleepAtEnd()
-            }
-            if model.sleepDeadline != nil || model.sleepAtEnd {
-                Divider()
-                Button("Cancel timer", role: .destructive) {
-                    model.cancelSleepTimer()
-                }
-            }
-        } label: {
-            Text(model.sleepTimerLabel)
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
     }
 
     private func setFullscreen(_ enabled: Bool) {
@@ -1058,6 +1328,251 @@ struct ContentView: View {
             if gestureHUD == expected {
                 gestureHUD = nil
             }
+        }
+    }
+}
+
+// MARK: - Reusable components
+
+private struct HomeCard: View {
+    let label: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.title2)
+                    .foregroundStyle(PlayerColors.accent)
+                Text(label)
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+            .background(
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(Color.white.opacity(0.08))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct PlayerChip: View {
+    let label: String
+    var systemImage: String? = nil
+    var selected: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 13))
+                }
+                Text(label)
+                    .font(.caption)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 13)
+            .padding(.vertical, 8)
+            .background(
+                Capsule().fill(
+                    selected ? PlayerColors.accent.opacity(0.22) : Color.white.opacity(0.12)
+                )
+            )
+            .overlay(
+                Capsule().strokeBorder(
+                    selected ? PlayerColors.accent.opacity(0.7) : Color.white.opacity(0.06)
+                )
+            )
+            .foregroundStyle(selected ? PlayerColors.accent : .white)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct SeekBar: View {
+    let position: Double
+    let duration: Double
+    let bookmarkSeconds: [Double]
+    let onSeek: (Double) -> Void
+
+    @State private var scrubFraction: Double?
+
+    private var fraction: Double {
+        if let scrubFraction {
+            return min(max(scrubFraction, 0), 1)
+        }
+        guard duration > 0 else { return 0 }
+        return min(max(position / duration, 0), 1)
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = max(geo.size.width, 1)
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.white.opacity(0.28))
+                    .frame(height: 4)
+
+                Capsule()
+                    .fill(PlayerColors.accent)
+                    .frame(width: max(width * fraction, 4), height: 4)
+
+                ForEach(bookmarkSeconds.indices, id: \.self) { index in
+                    let marker = min(max(bookmarkSeconds[index] / max(duration, 1), 0), 1)
+                    Circle()
+                        .fill(Color.white.opacity(0.9))
+                        .frame(width: 5, height: 5)
+                        .offset(x: width * marker - 2.5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Circle()
+                    .fill(PlayerColors.accent)
+                    .frame(width: 12, height: 12)
+                    .overlay(
+                        Circle().fill(Color.white)
+                            .frame(width: 4, height: 4)
+                    )
+                    .offset(x: width * fraction - 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard duration > 0 else { return }
+                        let next = min(max(value.location.x / width, 0), 1)
+                        scrubFraction = next
+                        onSeek(next * duration)
+                    }
+                    .onEnded { _ in
+                        scrubFraction = nil
+                    }
+            )
+        }
+        .frame(height: 26)
+    }
+}
+
+private struct SheetCard<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: () -> Content
+
+    init(
+        title: String,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = title
+        self.content = content
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(title)
+                    .font(.headline)
+                    .padding(.top, 6)
+                    .padding(.bottom, 2)
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 22)
+            .padding(.bottom, 30)
+        }
+        .background(PlayerColors.sheet)
+        .presentationDetents([.medium, .large])
+        .presentationBackground(PlayerColors.sheet)
+    }
+}
+
+private struct SectionLabel: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(PlayerColors.accent)
+            .padding(.top, 10)
+            .padding(.bottom, 2)
+    }
+}
+
+private struct SelectRow: View {
+    let label: String
+    var selected: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 15))
+                    .foregroundStyle(
+                        selected ? PlayerColors.accent : Color.white.opacity(0.35)
+                    )
+                Text(label)
+                    .foregroundStyle(selected ? PlayerColors.accent : .white)
+                    .lineLimit(1)
+                Spacer()
+            }
+            .padding(.vertical, 9)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct SheetSliderRow: View {
+    let label: String
+    let valueText: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    var step: Double? = nil
+    var disabled: Bool = false
+    let onCommit: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.85))
+                Spacer()
+                Text(valueText)
+                    .font(.caption)
+                    .foregroundStyle(PlayerColors.accent)
+                    .monospacedDigit()
+            }
+            if let step {
+                Slider(
+                    value: $value,
+                    in: range,
+                    step: step,
+                    onEditingChanged: finishSliderEditing
+                )
+                .disabled(disabled)
+            } else {
+                Slider(
+                    value: $value,
+                    in: range,
+                    onEditingChanged: finishSliderEditing
+                )
+                .disabled(disabled)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func finishSliderEditing(_ editing: Bool) {
+        if !editing {
+            onCommit()
         }
     }
 }
