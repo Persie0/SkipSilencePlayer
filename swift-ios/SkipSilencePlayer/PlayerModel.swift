@@ -468,6 +468,12 @@ final class PlayerModel: NSObject, ObservableObject {
         requestLoad(urls: [url])
     }
 
+    func jumpToPlaylistIndex(_ index: Int) {
+        guard playlist.indices.contains(index), index != playlistIndex else { return }
+        saveCurrentVideoState()
+        performLoad(entries: playlist, index: index, position: 0, savePrevious: false)
+    }
+
     func previous() {
         guard hasPrevious else { return }
         saveCurrentVideoState()
