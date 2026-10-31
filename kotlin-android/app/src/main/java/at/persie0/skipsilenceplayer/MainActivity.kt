@@ -1177,7 +1177,8 @@ private fun SkipSilencePlayerScreen(
                     requestOpen(
                         listOf(VideoEntry(Uri.parse(recent.uri), recent.name))
                     )
-                }
+                },
+                onSeeAllRecents = { showRecentSheet = true }
             )
         }
 
@@ -1319,7 +1320,8 @@ private fun SkipSilencePlayerScreen(
         }
 
         AnimatedVisibility(
-            visible = controlsVisible && !activity.pipMode && !gestureLocked,
+            visible = player.mediaItemCount > 0 && controlsVisible &&
+                !activity.pipMode && !gestureLocked,
             enter = fadeIn() + slideInVertically { -it / 2 },
             exit = fadeOut() + slideOutVertically { -it / 2 },
             modifier = Modifier.align(Alignment.TopCenter)
@@ -1522,7 +1524,8 @@ private fun SkipSilencePlayerScreen(
         }
 
         AnimatedVisibility(
-            visible = controlsVisible && !activity.pipMode && !gestureLocked,
+            visible = player.mediaItemCount > 0 && controlsVisible &&
+                !activity.pipMode && !gestureLocked,
             enter = fadeIn() + slideInVertically { it / 2 },
             exit = fadeOut() + slideOutVertically { it / 2 },
             modifier = Modifier.align(Alignment.BottomCenter)
@@ -1691,14 +1694,7 @@ private fun SkipSilencePlayerScreen(
                             else R.string.ui_silence_off
                         ),
                         selected = skipSilence,
-                        onClick = {
-                            skipSilence = !skipSilence
-                            PlaybackRuntime.setSkipSilenceEnabled(skipSilence)
-                            preferences.edit()
-                                .putBoolean("skip_silence", skipSilence)
-                                .apply()
-                            saveCurrentState()
-                        },
+                        onClick = { showSilenceSheet = true },
                         icon = Icons.Outlined.GraphicEq
                     )
 
@@ -2408,7 +2404,8 @@ private fun HomeScreen(
     recentVideos: List<RecentVideo>,
     onOpenVideo: () -> Unit,
     onOpenFolder: () -> Unit,
-    onOpenRecent: (RecentVideo) -> Unit
+    onOpenRecent: (RecentVideo) -> Unit,
+    onSeeAllRecents: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -2490,6 +2487,14 @@ private fun HomeScreen(
                     color = Color.White,
                     fontWeight = FontWeight.SemiBold
                 )
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onSeeAllRecents) {
+                    Text(
+                        stringResource(R.string.ui_see_all),
+                        color = PlayerAccent,
+                        fontSize = 12.sp
+                    )
+                }
             }
 
             recentVideos.take(4).forEach { recent ->
