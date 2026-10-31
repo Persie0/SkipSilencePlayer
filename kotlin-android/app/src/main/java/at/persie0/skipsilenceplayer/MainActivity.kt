@@ -1,4 +1,7 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
+@file:OptIn(
+    androidx.media3.common.util.UnstableApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class
+)
 
 package at.persie0.skipsilenceplayer
 
@@ -2641,7 +2644,7 @@ private fun PlayerChip(
 private fun <T> ChoiceChips(
     options: List<T>,
     selected: (T) -> Boolean,
-    label: (T) -> String,
+    label: @Composable (T) -> String,
     onSelect: (T) -> Unit
 ) {
     Row(
@@ -2905,7 +2908,7 @@ private fun TrackSectionRows(
         )
     } else {
         val hasOverride = player.trackSelectionParameters.overrides
-            .any { it.type == trackType }
+            .any { it.key.type == trackType }
         SelectRow(
             text = stringResource(R.string.ui_auto),
             selected = !hasOverride,
@@ -2921,7 +2924,7 @@ private fun TrackSectionRows(
     }
 
     val overridesForType = player.trackSelectionParameters.overrides
-        .filter { it.type == trackType }
+        .filterKeys { it.type == trackType }.values
 
     groups.forEach { group ->
         for (index in 0 until group.length) {
