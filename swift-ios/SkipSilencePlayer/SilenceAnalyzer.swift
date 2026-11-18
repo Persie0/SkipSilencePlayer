@@ -84,6 +84,8 @@ actor SilenceAnalyzer {
         }
 
         var windows: [PCMWindow] = []
+        let windowDuration = min(0.1, max(0.02, duration / 450_000.0))
+        let maxWindows = 900_000
         var lastPublishedAt = 0.0
         while let sampleBuffer = output.copyNextSampleBuffer() {
             if Task.isCancelled {
@@ -91,7 +93,10 @@ actor SilenceAnalyzer {
                 throw CancellationError()
             }
 
-            let sampleWindows = Self.pcmWindows(of: sampleBuffer)
+            let sampleWindows = Self.pcmWindows(
+                of: sampleBuffer,
+                targetDuration: windowDuration
+            )
             if sampleWindows.isEmpty {
                 // A decoded PCM buffer with samples but no accessible PCM data
                 // is NOT silence. Fail closed instead of skipping speech.
@@ -102,12 +107,35 @@ actor SilenceAnalyzer {
                 continue
             }
             windows.append(contentsOf: sampleWindows)
+            if windows.count >= maxWindows {
+                // Do not let unknown-duration files grow decoded-window memory
+                // without bound. Keep the successfully analyzed prefix usable.
+                reader.cancelReading()
+                let partial = Self.detect(
+                    windows: windows,
+                    manualThresholdDB: thresholdDB,
+                    minimumSilence: minimumSilence,
+                    edgePadding: edgePadding,
+                    adaptive: adaptive
+                )
+                return SilenceAnalysis(
+                    ranges: partial.ranges,
+                    hasAudio: true,
+                    duration: duration,
+                    effectiveThresholdDB: partial.threshold,
+                    noiseFloorDB: partial.floor,
+                    complete: false,
+                    analyzedUntil: windows.last?.end ?? 0
+                )
+            }
 
             if let onProgress, let last = windows.last {
                 let scannedUntil = last.end
+                let updateInterval = scannedUntil > 3600 ? 240.0 : 90.0
                 let shouldPublish =
                     (lastPublishedAt == 0 && scannedUntil >= 10) ||
-                    (lastPublishedAt > 0 && scannedUntil - lastPublishedAt >= 90)
+                    (lastPublishedAt > 0 &&
+                        scannedUntil - lastPublishedAt >= updateInterval)
                 if shouldPublish {
                     lastPublishedAt = scannedUntil
                     let partial = Self.detect(
