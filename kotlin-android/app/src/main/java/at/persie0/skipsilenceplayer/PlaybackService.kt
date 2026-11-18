@@ -3,6 +3,8 @@
 package at.persie0.skipsilenceplayer
 
 import android.app.PendingIntent
+import android.os.SystemClock
+import android.net.Uri
 import android.content.Intent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,6 +25,15 @@ import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
 import androidx.media3.extractor.metadata.Chapter
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
@@ -35,7 +46,8 @@ data class ChapterInfo(
 data class SilenceConfig(
     val thresholdDb: Float,
     val minimumSilenceSeconds: Float,
-    val edgePaddingSeconds: Float
+    val edgePaddingSeconds: Float,
+    val adaptiveEnabled: Boolean = true
 )
 
 private data class PlayerBundle(
@@ -48,6 +60,15 @@ object PlaybackRuntime {
         private set
 
     var generation by mutableStateOf(0)
+        private set
+
+    var silenceRanges by mutableStateOf<List<SilenceRangeMs>>(emptyList())
+        private set
+    var analysisStatus by mutableStateOf("Open a local video to analyze silence")
+        private set
+    var effectiveThresholdDb by mutableStateOf(-42f)
+        private set
+    var isAnalyzing by mutableStateOf(false)
         private set
 
     private var service: PlaybackService? = null
@@ -70,6 +91,18 @@ object PlaybackRuntime {
         generation++
     }
 
+    internal fun publishAnalysis(
+        ranges: List<SilenceRangeMs>,
+        status: String,
+        thresholdDb: Float,
+        analyzing: Boolean
+    ) {
+        silenceRanges = ranges
+        analysisStatus = status
+        effectiveThresholdDb = thresholdDb
+        isAnalyzing = analyzing
+    }
+
     fun reconfigureSilence(config: SilenceConfig) {
         service?.reconfigureSilence(config)
     }
@@ -86,6 +119,17 @@ class PlaybackService : MediaSessionService() {
     private var bundle: PlayerBundle? = null
     private var carriedSkippedSeconds = 0f
     private val chapterMap = linkedMapOf<Long, ChapterInfo>()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var analysisJob: Job? = null
+    private var analysisRevision = 0
+    private var analyzedUri: Uri? = null
+    private var analysisReady = false
+    private var requestedSkipSilence = true
+    private var timelineSkipSeconds = 0f
+    private var lastAutomaticSeekAtMs = 0L
+    private var lastAutomaticSeekTargetMs = -1L
+    private var currentConfig = SilenceConfig(-42f, 0.45f, 0.08f)
+
 
     override fun onCreate() {
         super.onCreate()
@@ -95,11 +139,24 @@ class PlaybackService : MediaSessionService() {
         val config = SilenceConfig(
             thresholdDb = prefs.getFloat("silence_threshold_db", -42f),
             minimumSilenceSeconds = prefs.getFloat("minimum_silence", 0.45f),
-            edgePaddingSeconds = prefs.getFloat("edge_padding", 0.08f)
+            edgePaddingSeconds = prefs.getFloat("edge_padding", 0.08f),
+            adaptiveEnabled = prefs.getBoolean("adaptive_silence", true)
         )
+        currentConfig = config
+        requestedSkipSilence = prefs.getBoolean("skip_silence", true)
         val initial = createPlayer(config)
         bundle = initial
         attachListeners(initial.player)
+        syncNativeSilence()
+
+        // Runs in the service, not the activity: background playback remains
+        // synchronized to the already-analyzed video timeline.
+        scope.launch {
+            while (isActive) {
+                maybeSkipSilence()
+                delay(35L)
+            }
+        }
 
         val activityIntent = Intent(this, MainActivity::class.java)
         val sessionActivity = PendingIntent.getActivity(
@@ -126,6 +183,8 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        analysisJob?.cancel()
+        scope.cancel()
         val currentSession = mediaSession
         val currentBundle = bundle
         mediaSession = null
@@ -140,21 +199,139 @@ class PlaybackService : MediaSessionService() {
     }
 
     fun setSkipSilenceEnabled(enabled: Boolean) {
-        bundle?.player?.skipSilenceEnabled = enabled
+        requestedSkipSilence = enabled
+        syncNativeSilence()
+    }
+
+    private fun syncNativeSilence() {
+        // Never combine native stream shortening and timestamp-based seeks:
+        // doing both skips audio twice and desynchronizes the counters.
+        bundle?.player?.skipSilenceEnabled = requestedSkipSilence && !analysisReady
     }
 
     fun skippedSeconds(): Float {
-        val current = bundle ?: return carriedSkippedSeconds
+        val current = bundle ?: return timelineSkipSeconds
+        if (analysisReady || !requestedSkipSilence) return timelineSkipSeconds
         val sampleRate = current.player.audioFormat?.sampleRate?.takeIf { it > 0 } ?: 48_000
-        return carriedSkippedSeconds +
-            current.silenceProcessor.skippedFrames.toFloat() / sampleRate.toFloat()
+        return timelineSkipSeconds + carriedSkippedSeconds +
+            current.silenceProcessor.skippedFrames.toFloat() / sampleRate
+    }
+
+    private fun maybeSkipSilence() {
+        if (!requestedSkipSilence || !analysisReady) return
+        val player = bundle?.player ?: return
+        if (!player.isPlaying || analyzedUri != player.currentMediaItem?.localConfiguration?.uri) {
+            return
+        }
+        val position = player.currentPosition
+        val range = AdaptiveSilenceDetector.containingRange(
+            PlaybackRuntime.silenceRanges, position
+        ) ?: return
+        if (range.endMs - position < 65L) return
+
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastAutomaticSeekAtMs < 170L) return
+        if (
+            lastAutomaticSeekTargetMs == range.endMs &&
+            now - lastAutomaticSeekAtMs < 600L
+        ) return
+
+        val target = if (player.duration > 0 && player.duration != C.TIME_UNSET) {
+            range.endMs.coerceAtMost(player.duration)
+        } else {
+            range.endMs
+        }
+        if (target <= position + 65L) return
+        lastAutomaticSeekAtMs = now
+        lastAutomaticSeekTargetMs = range.endMs
+        timelineSkipSeconds += (target - position) / 1000f
+        player.seekTo(target)
+    }
+
+    private fun startAnalysis(player: ExoPlayer, resetForNewMedia: Boolean) {
+        val uri = player.currentMediaItem?.localConfiguration?.uri
+        analysisJob?.cancel()
+        analysisRevision++
+        val revision = analysisRevision
+
+        if (resetForNewMedia) {
+            timelineSkipSeconds = 0f
+            carriedSkippedSeconds = 0f
+            lastAutomaticSeekAtMs = 0L
+            lastAutomaticSeekTargetMs = -1L
+        }
+
+        analyzedUri = uri
+        analysisReady = false
+        syncNativeSilence()
+        PlaybackRuntime.publishAnalysis(
+            emptyList(),
+            if (uri == null) "No local media to analyze" else "Analyzing audio…",
+            currentConfig.thresholdDb,
+            uri != null
+        )
+        if (uri == null) return
+
+        val config = currentConfig
+        analysisJob = scope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    AndroidSilenceAnalyzer.analyzeDetailed(
+                        context = this@PlaybackService,
+                        uri = uri,
+                        thresholdDb = config.thresholdDb,
+                        minimumSilenceSeconds = config.minimumSilenceSeconds,
+                        edgePaddingSeconds = config.edgePaddingSeconds,
+                        adaptive = config.adaptiveEnabled
+                    )
+                }
+                if (
+                    revision != analysisRevision ||
+                    bundle?.player?.currentMediaItem?.localConfiguration?.uri != uri
+                ) return@launch
+
+                // Preserve native fallback time already skipped before analysis.
+                timelineSkipSeconds = skippedSeconds()
+                carriedSkippedSeconds = 0f
+                analysisReady = true
+                syncNativeSilence()
+                PlaybackRuntime.publishAnalysis(
+                    result.ranges,
+                    if (result.ranges.isEmpty()) "No sustained silence found" else
+                        "${result.ranges.size} silent segments · " +
+                            if (result.adaptive) "adaptive ${result.thresholdDb.toInt()} dB"
+                            else "fixed ${result.thresholdDb.toInt()} dB",
+                    result.thresholdDb,
+                    false
+                )
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (revision != analysisRevision) return@launch
+                analysisReady = false
+                syncNativeSilence()
+                PlaybackRuntime.publishAnalysis(
+                    emptyList(),
+                    "Analysis unavailable; using native fallback: " +
+                        (error.localizedMessage ?: "unknown decoder error"),
+                    config.thresholdDb,
+                    false
+                )
+            }
+        }
     }
 
     fun reconfigureSilence(config: SilenceConfig) {
+        if (config == currentConfig) return
+        currentConfig = config
         val oldBundle = bundle ?: return
         val old = oldBundle.player
 
-        carriedSkippedSeconds = skippedSeconds()
+        val wasAnalyzed = analysisReady
+        val priorSkipped = skippedSeconds()
+        timelineSkipSeconds = priorSkipped
+        carriedSkippedSeconds = 0f
+        analysisReady = false
 
         val items = buildList {
             for (index in 0 until old.mediaItemCount) {
@@ -169,7 +346,7 @@ class PlaybackService : MediaSessionService() {
         val oldShuffle = old.shuffleModeEnabled
         val trackSelectionParameters = old.trackSelectionParameters
         val volume = old.volume
-        val skipSilence = old.skipSilenceEnabled
+        val skipSilence = requestedSkipSilence
 
         val replacement = createPlayer(config)
         replacement.player.apply {
@@ -194,8 +371,10 @@ class PlaybackService : MediaSessionService() {
         attachListeners(replacement.player)
         mediaSession?.setPlayer(replacement.player)
         bundle = replacement
+        syncNativeSilence()
         old.release()
         PlaybackRuntime.playerReplaced()
+        startAnalysis(replacement.player, resetForNewMedia = false)
     }
 
     private fun createPlayer(config: SilenceConfig): PlayerBundle {
@@ -257,6 +436,10 @@ class PlaybackService : MediaSessionService() {
                 ) {
                     chapterMap.clear()
                     PlaybackRuntime.updateChapters(emptyList())
+                    startAnalysis(
+                        player,
+                        resetForNewMedia = true
+                    )
                 }
 
                 override fun onMetadata(metadata: Metadata) {
