@@ -94,7 +94,7 @@ object AndroidSilenceAnalyzer {
             decoder.configure(inputFormat, null, null, 0)
             decoder.start()
 
-            var outputFormat = inputFormat
+            var outputFormat = requireNotNull(inputFormat)
             var inputEnded = false
             var outputEnded = false
             var lastEndMs = 0L
