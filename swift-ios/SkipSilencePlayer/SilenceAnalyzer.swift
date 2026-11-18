@@ -25,6 +25,7 @@ actor SilenceAnalyzer {
     enum AnalyzerError: LocalizedError {
         case cannotRead
         case readerFailed
+        case ambiguousAudioTrack
 
         var errorDescription: String? {
             switch self {
@@ -32,6 +33,9 @@ actor SilenceAnalyzer {
                 return "Could not read the video's audio track."
             case .readerFailed:
                 return "Audio analysis failed."
+            case .ambiguousAudioTrack:
+                return "Selected audio track cannot be matched safely; " +
+                    "silence skipping is disabled for this track."
             }
         }
     }
@@ -42,6 +46,7 @@ actor SilenceAnalyzer {
         minimumSilence: Double = 0.45,
         edgePadding: Double = 0.08,
         adaptive: Bool = true,
+        preferredAudioLanguage: String? = nil,
         onProgress: (@Sendable (SilenceAnalysis) async -> Void)? = nil
     ) async throws -> SilenceAnalysis {
         let asset = AVURLAsset(url: url)
@@ -50,7 +55,7 @@ actor SilenceAnalyzer {
         let duration = durationValue.isFinite ? max(0, durationValue) : 0
         let tracks = try await asset.loadTracks(withMediaType: .audio)
 
-        guard let track = tracks.first else {
+        guard let first = tracks.first else {
             return SilenceAnalysis(
                 ranges: [],
                 hasAudio: false,
@@ -60,6 +65,29 @@ actor SilenceAnalyzer {
                 complete: true,
                 analyzedUntil: duration
             )
+        }
+
+        let track: AVAssetTrack
+        if tracks.count == 1 {
+            track = first
+        } else {
+            guard let wanted = Self.normalizedAudioLanguage(
+                preferredAudioLanguage
+            ) else {
+                throw AnalyzerError.ambiguousAudioTrack
+            }
+
+            var matches: [AVAssetTrack] = []
+            for candidate in tracks {
+                let code = try? await candidate.load(.languageCode)
+                if Self.normalizedAudioLanguage(code ?? nil) == wanted {
+                    matches.append(candidate)
+                }
+            }
+            guard matches.count == 1, let match = matches.first else {
+                throw AnalyzerError.ambiguousAudioTrack
+            }
+            track = match
         }
 
         let reader = try AVAssetReader(asset: asset)
@@ -180,6 +208,25 @@ actor SilenceAnalyzer {
             complete: true,
             analyzedUntil: duration
         )
+    }
+
+    static func normalizedAudioLanguage(_ input: String?) -> String? {
+        guard let tag = input?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "-")
+            .split(separator: "-")
+            .first.map(String.init),
+            tag != "und"
+        else { return nil }
+
+        let aliases: [String: String] = [
+            "eng": "en", "deu": "de", "ger": "de", "spa": "es",
+            "fra": "fr", "fre": "fr", "por": "pt", "ita": "it",
+            "nld": "nl", "dut": "nl", "jpn": "ja", "zho": "zh",
+            "chi": "zh", "kor": "ko", "rus": "ru", "hin": "hi"
+        ]
+        return aliases[tag] ?? tag
     }
 
     private struct Detection {
