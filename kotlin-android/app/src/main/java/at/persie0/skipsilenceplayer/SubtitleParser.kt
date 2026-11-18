@@ -2,6 +2,9 @@ package at.persie0.skipsilenceplayer
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
+import java.nio.charset.Charset
+import javax.xml.XMLConstants
 import org.w3c.dom.Element
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -16,12 +19,25 @@ data class SubtitleCue(
 
 object SubtitleParser {
     fun parse(context: Context, uri: Uri): List<SubtitleCue> {
-        val name = uri.lastPathSegment?.lowercase(Locale.US).orEmpty()
-        return if (name.endsWith(".ttml") || name.endsWith(".xml")) {
+        val name = displayName(context, uri).lowercase(Locale.US)
+        val mime = context.contentResolver.getType(uri).orEmpty().lowercase(Locale.US)
+        return if (
+            name.endsWith(".ttml") ||
+            name.endsWith(".xml") ||
+            mime == "application/ttml+xml"
+        ) {
             parseTtml(context, uri)
         } else {
             val text = context.contentResolver.openInputStream(uri)?.use { input ->
-                BufferedReader(InputStreamReader(input)).readText()
+                val bytes = input.readBytes()
+                val encoding = when {
+                    bytes.size >= 2 && bytes[0] == 0xFF.toByte() &&
+                        bytes[1] == 0xFE.toByte() -> Charsets.UTF_16LE
+                    bytes.size >= 2 && bytes[0] == 0xFE.toByte() &&
+                        bytes[1] == 0xFF.toByte() -> Charsets.UTF_16BE
+                    else -> Charsets.UTF_8
+                }
+                String(bytes, encoding).trimStart('\uFEFF')
             }.orEmpty()
 
             when {
@@ -29,6 +45,21 @@ object SubtitleParser {
                 else -> parseSrtOrVtt(text)
             }
         }
+    }
+
+    private fun displayName(context: Context, uri: Uri): String {
+        return runCatching {
+            context.contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null, null, null
+            )?.use { cursor ->
+                val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (column >= 0 && cursor.moveToFirst()) cursor.getString(column)
+                else null
+            }
+        }.getOrNull().orEmpty()
+            .ifBlank { uri.lastPathSegment.orEmpty() }
     }
 
     private fun parseSrtOrVtt(input: String): List<SubtitleCue> {
@@ -86,8 +117,28 @@ object SubtitleParser {
     private fun parseTtml(context: Context, uri: Uri): List<SubtitleCue> {
         return runCatching {
             context.contentResolver.openInputStream(uri)?.use { input ->
-                val builder = DocumentBuilderFactory.newInstance().newDocumentBuilder()
-                val document = builder.parse(input)
+                val factory = DocumentBuilderFactory.newInstance().apply {
+                    setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
+                    setFeature(
+                        "http://apache.org/xml/features/disallow-doctype-decl",
+                        true
+                    )
+                    setFeature(
+                        "http://xml.org/sax/features/external-general-entities",
+                        false
+                    )
+                    setFeature(
+                        "http://xml.org/sax/features/external-parameter-entities",
+                        false
+                    )
+                    setFeature(
+                        "http://apache.org/xml/features/nonvalidating/load-external-dtd",
+                        false
+                    )
+                    isXIncludeAware = false
+                    setExpandEntityReferences(false)
+                }
+                val document = factory.newDocumentBuilder().parse(input)
                 val nodes = document.getElementsByTagName("p")
                 buildList {
                     for (index in 0 until nodes.length) {
