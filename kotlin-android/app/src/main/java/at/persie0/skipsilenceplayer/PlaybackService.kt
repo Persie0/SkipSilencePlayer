@@ -111,6 +111,10 @@ object PlaybackRuntime {
         service?.setSkipSilenceEnabled(enabled)
     }
 
+    fun setRepeatEndMs(endMs: Long?) {
+        service?.setRepeatEndMs(endMs)
+    }
+
     fun skippedSeconds(): Float = service?.skippedSeconds() ?: 0f
 }
 
@@ -128,6 +132,7 @@ class PlaybackService : MediaSessionService() {
     private var timelineSkipSeconds = 0f
     private var lastAutomaticSeekAtMs = 0L
     private var lastAutomaticSeekTargetMs = -1L
+    private var repeatEndMs: Long? = null
     private var currentConfig = SilenceConfig(-42f, 0.45f, 0.08f)
 
 
@@ -203,6 +208,10 @@ class PlaybackService : MediaSessionService() {
         syncNativeSilence()
     }
 
+    fun setRepeatEndMs(endMs: Long?) {
+        repeatEndMs = endMs
+    }
+
     private fun syncNativeSilence() {
         // Never combine native stream shortening and timestamp-based seeks:
         // doing both skips audio twice and desynchronizes the counters.
@@ -236,10 +245,12 @@ class PlaybackService : MediaSessionService() {
             now - lastAutomaticSeekAtMs < 600L
         ) return
 
+        val segmentEnd =
+            repeatEndMs?.let { minOf(range.endMs, it) } ?: range.endMs
         val target = if (player.duration > 0 && player.duration != C.TIME_UNSET) {
-            range.endMs.coerceAtMost(player.duration)
+            segmentEnd.coerceAtMost(player.duration)
         } else {
-            range.endMs
+            segmentEnd
         }
         if (target <= position + 65L) return
         lastAutomaticSeekAtMs = now
@@ -255,6 +266,7 @@ class PlaybackService : MediaSessionService() {
         val revision = analysisRevision
 
         if (resetForNewMedia) {
+            repeatEndMs = null
             timelineSkipSeconds = 0f
             carriedSkippedSeconds = 0f
             lastAutomaticSeekAtMs = 0L
@@ -327,7 +339,6 @@ class PlaybackService : MediaSessionService() {
         val oldBundle = bundle ?: return
         val old = oldBundle.player
 
-        val wasAnalyzed = analysisReady
         val priorSkipped = skippedSeconds()
         timelineSkipSeconds = priorSkipped
         carriedSkippedSeconds = 0f
