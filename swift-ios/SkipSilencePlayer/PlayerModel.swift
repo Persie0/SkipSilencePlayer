@@ -212,6 +212,7 @@ final class PlayerModel: NSObject, ObservableObject {
     private var selectedURL: URL?
     private var jumpingOverSilence = false
     private var skipSeekGeneration = 0
+    private var manualSeekPending = false
     private var completedVideoKey: String?
     private var persistTick = 0
     private var pendingLoad: PendingLoad?
@@ -555,13 +556,22 @@ final class PlayerModel: NSObject, ObservableObject {
         let upper = duration > 0 ? duration : max(currentTime, 0)
         let target = min(max(0, seconds), max(upper, 0))
         skipSeekGeneration += 1
+        let generation = skipSeekGeneration
         completedVideoKey = nil
         jumpingOverSilence = false
+        manualSeekPending = true
         player.seek(
             to: CMTime(seconds: target, preferredTimescale: 600),
             toleranceBefore: .zero,
             toleranceAfter: .zero
-        )
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self,
+                      self.skipSeekGeneration == generation
+                else { return }
+                self.manualSeekPending = false
+            }
+        }
         currentTime = target
         updateExternalSubtitle(at: target)
         updateNowPlaying()
@@ -978,6 +988,7 @@ final class PlayerModel: NSObject, ObservableObject {
         completedVideoKey = nil
         skipSeekGeneration += 1
         jumpingOverSilence = false
+        manualSeekPending = false
         hasSecurityScope = url.startAccessingSecurityScopedResource()
 
         let videoKey = Self.videoKey(url)
@@ -1733,6 +1744,7 @@ final class PlayerModel: NSObject, ObservableObject {
         completedVideoKey = key
         skipSeekGeneration += 1
         jumpingOverSilence = false
+        manualSeekPending = false
         defaults.set(0.0, forKey: "\(key).position")
     }
 
@@ -1898,6 +1910,7 @@ final class PlayerModel: NSObject, ObservableObject {
         updateExternalSubtitle(at: currentTime)
 
         if isPlaying,
+           !manualSeekPending,
            let abStart,
            let abEnd,
            abEnd > abStart,
@@ -1922,6 +1935,7 @@ final class PlayerModel: NSObject, ObservableObject {
             silenceEnabled,
             isPlaying,
             !jumpingOverSilence,
+            !manualSeekPending,
             let item = player.currentItem,
             let range = SilenceAnalyzer.range(
                 containing: currentTime,
