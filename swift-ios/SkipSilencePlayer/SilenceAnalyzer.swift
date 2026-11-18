@@ -21,6 +21,18 @@ struct SilenceAnalysis: Sendable {
     let analyzedUntil: Double
 }
 
+enum PlaybackResumePosition {
+    static func stored(
+        current: Double,
+        duration: Double,
+        completed: Bool
+    ) -> Double {
+        if completed { return 0 }
+        guard current.isFinite else { return 0 }
+        return max(0, current)
+    }
+}
+
 actor SilenceAnalyzer {
     enum AnalyzerError: LocalizedError {
         case cannotRead
@@ -226,6 +238,26 @@ actor SilenceAnalyzer {
             "chi": "zh", "kor": "ko", "rus": "ru", "hin": "hi"
         ]
         return aliases[tag] ?? tag
+    }
+
+    static func range(
+        containing position: Double,
+        in ranges: [SilenceRange]
+    ) -> SilenceRange? {
+        guard position.isFinite else { return nil }
+        var lower = 0
+        var upper = ranges.count
+        while lower < upper {
+            let mid = lower + (upper - lower) / 2
+            if ranges[mid].end <= position {
+                lower = mid + 1
+            } else {
+                upper = mid
+            }
+        }
+        guard lower < ranges.count else { return nil }
+        let candidate = ranges[lower]
+        return candidate.start <= position ? candidate : nil
     }
 
     private struct Detection {
