@@ -55,8 +55,15 @@ class SilenceAccumulator(
     }
 }
 
+internal fun analysisWindowMs(durationMs: Long): Int {
+    // Use 20 ms windows for normal media. Longer recordings adapt resolution
+    // to stay under a reasonable decoded-window memory budget.
+    if (durationMs <= 0L) return 20
+    return (durationMs / 450_000L).coerceIn(20L, 100L).toInt()
+}
+
 object AndroidSilenceAnalyzer {
-    private const val MAX_WINDOWS = 900_000 // Roughly five hours of 20 ms samples.
+    private const val MAX_WINDOWS = 900_000 // Hard cap for unknown/extreme durations.
 
     suspend fun analyze(
         context: Context,
@@ -109,6 +116,13 @@ object AndroidSilenceAnalyzer {
                 ?: return SilenceDetectionResult(emptyList(), thresholdDb, -100f, adaptive)
             val mime = format.getString(MediaFormat.KEY_MIME)
                 ?: throw IllegalArgumentException("Audio track has no decoder MIME type")
+
+            val mediaDurationUs = if (format.containsKey(MediaFormat.KEY_DURATION)) {
+                format.getLong(MediaFormat.KEY_DURATION)
+            } else {
+                0L
+            }
+            val windowMs = analysisWindowMs(mediaDurationUs / 1000L)
 
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(format, null, null, 0)
@@ -169,7 +183,8 @@ object AndroidSilenceAnalyzer {
                                 pcmWindows(
                                     source = output.slice().order(ByteOrder.nativeOrder()),
                                     timestampUs = bufferInfo.presentationTimeUs,
-                                    outputFormat = outputFormat
+                                    outputFormat = outputFormat,
+                                    windowDurationMs = windowMs
                                 )
                             )
                         }
@@ -180,9 +195,11 @@ object AndroidSilenceAnalyzer {
                         val analyzedUntil = windows.lastOrNull()?.endMs ?: 0L
                         val isFirstPreview =
                             lastPublishedMs == 0L && analyzedUntil >= 10_000L
+                        val intervalMs =
+                            if (analyzedUntil > 3_600_000L) 240_000L else 90_000L
                         val isNextPreview =
                             lastPublishedMs > 0L &&
-                                analyzedUntil - lastPublishedMs >= 90_000L
+                                analyzedUntil - lastPublishedMs >= intervalMs
                         if (onProgress != null && (isFirstPreview || isNextPreview)) {
                             lastPublishedMs = analyzedUntil
                             val partial = AdaptiveSilenceDetector.detect(
@@ -225,7 +242,8 @@ object AndroidSilenceAnalyzer {
     private fun pcmWindows(
         source: ByteBuffer,
         timestampUs: Long,
-        outputFormat: MediaFormat
+        outputFormat: MediaFormat,
+        windowDurationMs: Int
     ): List<AudioLoudnessWindow> {
         val rate = outputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             .coerceAtLeast(1)
@@ -247,7 +265,8 @@ object AndroidSilenceAnalyzer {
             if (encoding == AudioFormat.ENCODING_PCM_FLOAT) 4 else 2
         val bytesPerFrame = channels * bytesPerSample
         val totalFrames = source.remaining() / bytesPerFrame
-        val framesPerWindow = (rate / 50).coerceAtLeast(1)
+        val framesPerWindow =
+            (rate.toLong() * windowDurationMs / 1000L).toInt().coerceAtLeast(1)
         val baseUs = timestampUs.coerceAtLeast(0L)
         val result = ArrayList<AudioLoudnessWindow>(
             (totalFrames / framesPerWindow) + 1
