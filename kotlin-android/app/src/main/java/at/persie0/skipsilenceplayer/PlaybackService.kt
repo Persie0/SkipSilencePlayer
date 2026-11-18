@@ -221,9 +221,11 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun withinAnalyzedCoverage(positionMs: Long): Boolean =
-        analysisReady && (
-            analysisComplete ||
-                positionMs < (analysisCoverageEndMs - 250L).coerceAtLeast(0L)
+        analyzedCoverageContains(
+            positionMs = positionMs,
+            coverageEndMs = analysisCoverageEndMs,
+            analysisReady = analysisReady,
+            analysisComplete = analysisComplete
         )
 
     private fun syncNativeSilence() {
