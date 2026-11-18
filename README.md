@@ -57,6 +57,66 @@ Android uses a configurable Media3 `SilenceSkippingAudioProcessor` during playba
 
 iOS analyzes decoded PCM locally with `AVAssetReader`, detects sustained low-RMS ranges, and seeks across those ranges during `AVPlayer` playback. The analysis stays on-device.
 
+## Adaptive silence skipping and diagnostics
+
+Silence skipping now works from decoded **RMS audio windows** rather than
+assuming the peak amplitude of individual PCM samples represents perceived
+silence. The default **Adaptive noise floor** setting calibrates a conservative
+threshold for each recording and protects quiet speech when the voice/noise
+distributions overlap. Switch Adaptive off to enforce the manual dB threshold.
+
+- The silent regions shown on the seek bar are the same ranges used for
+  timestamp-based skipping on Android and iOS.
+- Both platforms publish provisional ranges after initial audio decoding and
+  refine the map as analysis continues. The displayed watch-time estimate is
+  provisional until analysis completes.
+- Android owns the analysis and seek loop in the media service, so background
+  playback does not depend on a Compose UI being mounted.
+- The native Media3 processor is only used as a fallback before a map becomes
+  available or when platform decoding fails. The two strategies are never
+  intentionally active at the same time.
+- Conservative minimum duration and edge padding are designed to avoid
+  clipping speech. A noise floor that cannot be reliably distinguished from
+  quiet dialogue is intentionally left unskipped.
+- Audio without clear quiet sections, music playing behind speech, or heavily
+  compressed/limited audio might not have detectable silence. Automatic
+  analysis is a loudness classifier, **not speech recognition or voice
+  activity detection**.
+- Changing silence settings reanalyzes the current file; old results are
+  cancelled and cannot overwrite a newer file's ranges.
+- Reopening completed videos starts at the beginning. Each video retains its
+  independent resume position and silence settings.
+
+## Additional reliability improvements
+
+- Android's per-video save uses the outgoing video's last known position
+  during automatic playlist transitions.
+- A–B repeat limits automatic silence seeks; loop boundaries reset when
+  switching videos.
+- Retry on iOS recreates failed AVPlayer items. Dismissed codec/media errors
+  do not immediately reappear unless a new error occurs.
+- Subtitle imports from Android document providers use the actual display name
+  or MIME information rather than opaque URIs. Folder subtitle matching is
+  confined to the video's own directory.
+- External subtitles support UTF-8/UTF-16 and common legacy encodings; large
+  subtitle input is bounded.
+- TTML document parsing blocks external entities and DTD loading.
+- iOS subtitle lookup uses binary search instead of scanning every cue on
+  every playback timer tick.
+
+### Tests
+
+The public Playground validation runs Android unit tests and an Android debug
+build; the iOS job compiles the simulator app and analyzes real generated WAV
+files containing digital silence, nonzero noisy pauses, and low-volume speech.
+The tests verify both fixed and adaptive thresholds and guard against
+false-positive skipping of quiet speech.
+
+**Device QA is still necessary:** Bluetooth/headset interruptions,
+vendor-specific hardware decoders, Android SAF providers, iOS external-file
+bookmarks, PiP, and real-world dialogue/background-music content cannot be
+fully validated by these CI builds alone.
+
 ## Resume, history, and navigation
 
 - Remember playback position per video.
