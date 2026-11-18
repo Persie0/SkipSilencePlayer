@@ -259,6 +259,32 @@ class PlaybackService : MediaSessionService() {
         player.seekTo(target)
     }
 
+    private fun publishSilenceMap(
+        result: SilenceDetectionResult,
+        scannedMs: Long,
+        complete: Boolean
+    ) {
+        if (!analysisReady) {
+            // Retain native audio time already skipped before the map became
+            // available. Future skips are timeline seeks only.
+            timelineSkipSeconds = skippedSeconds()
+            carriedSkippedSeconds = 0f
+            analysisReady = true
+            syncNativeSilence()
+        }
+        val mode = if (result.adaptive) "adaptive" else "fixed"
+        val progressText =
+            if (complete) "Analysis complete"
+            else "Analyzed ${scannedMs / 1000L}s; continuing"
+        PlaybackRuntime.publishAnalysis(
+            result.ranges,
+            "$progressText · ${result.ranges.size} silent segments · " +
+                "$mode ${result.thresholdDb.toInt()} dB",
+            result.thresholdDb,
+            !complete
+        )
+    }
+
     private fun startAnalysis(player: ExoPlayer, resetForNewMedia: Boolean) {
         val uri = player.currentMediaItem?.localConfiguration?.uri
         analysisJob?.cancel()
@@ -294,7 +320,18 @@ class PlaybackService : MediaSessionService() {
                         thresholdDb = config.thresholdDb,
                         minimumSilenceSeconds = config.minimumSilenceSeconds,
                         edgePaddingSeconds = config.edgePaddingSeconds,
-                        adaptive = config.adaptiveEnabled
+                        adaptive = config.adaptiveEnabled,
+                        onProgress = { partial, scannedMs ->
+                            withContext(Dispatchers.Main.immediate) {
+                                if (
+                                    revision == analysisRevision &&
+                                    bundle?.player?.currentMediaItem
+                                        ?.localConfiguration?.uri == uri
+                                ) {
+                                    publishSilenceMap(partial, scannedMs, false)
+                                }
+                            }
+                        }
                     )
                 }
                 if (
@@ -302,19 +339,10 @@ class PlaybackService : MediaSessionService() {
                     bundle?.player?.currentMediaItem?.localConfiguration?.uri != uri
                 ) return@launch
 
-                // Preserve native fallback time already skipped before analysis.
-                timelineSkipSeconds = skippedSeconds()
-                carriedSkippedSeconds = 0f
-                analysisReady = true
-                syncNativeSilence()
-                PlaybackRuntime.publishAnalysis(
-                    result.ranges,
-                    if (result.ranges.isEmpty()) "No sustained silence found" else
-                        "${result.ranges.size} silent segments · " +
-                            if (result.adaptive) "adaptive ${result.thresholdDb.toInt()} dB"
-                            else "fixed ${result.thresholdDb.toInt()} dB",
-                    result.thresholdDb,
-                    false
+                publishSilenceMap(
+                    result,
+                    result.ranges.lastOrNull()?.endMs ?: 0L,
+                    result.complete
                 )
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
