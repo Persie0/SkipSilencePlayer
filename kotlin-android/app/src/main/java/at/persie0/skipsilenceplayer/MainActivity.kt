@@ -127,7 +127,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
@@ -1271,7 +1270,7 @@ private fun SkipSilencePlayerScreen(
 
                 if (
                     anySheetOpen ||
-                    event.type != KeyEventType.KeyDown ||
+                    event.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN ||
                     event.nativeKeyEvent.repeatCount > 0
                 ) {
                     false
