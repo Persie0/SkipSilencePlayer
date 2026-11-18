@@ -121,18 +121,20 @@ object PlaybackRuntime {
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var bundle: PlayerBundle? = null
-    private var carriedSkippedSeconds = 0f
+    private var observedNativeSavedSeconds = 0f
+    private var lastObservedNativeFrames = 0L
+    private val seekCoordinator = SilenceSeekCoordinator()
     private val chapterMap = linkedMapOf<Long, ChapterInfo>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var analysisJob: Job? = null
     private var analysisRevision = 0
     private var analyzedUri: Uri? = null
     private var analysisReady = false
+    private var analysisComplete = false
+    private var analysisCoverageEndMs = 0L
     private var requestedSkipSilence = true
     private var timelineSkipSeconds = 0f
-    private var lastAutomaticSeekAtMs = 0L
-    private var lastAutomaticSeekTargetMs = -1L
-    private var repeatEndMs: Long? = null
+     private var repeatEndMs: Long? = null
     private var currentConfig = SilenceConfig(-42f, 0.45f, 0.08f)
 
 
@@ -199,6 +201,12 @@ class PlaybackService : MediaSessionService() {
         currentBundle?.player?.release()
 
         PlaybackRuntime.updateChapters(emptyList())
+        PlaybackRuntime.publishAnalysis(
+            emptyList(),
+            "Open a local video to analyze silence",
+            currentConfig.thresholdDb,
+            false
+        )
         PlaybackRuntime.detach(this)
         super.onDestroy()
     }
@@ -212,39 +220,57 @@ class PlaybackService : MediaSessionService() {
         repeatEndMs = endMs
     }
 
+    private fun withinAnalyzedCoverage(positionMs: Long): Boolean =
+        analysisReady && (
+            analysisComplete ||
+                positionMs < (analysisCoverageEndMs - 250L).coerceAtLeast(0L)
+        )
+
     private fun syncNativeSilence() {
-        // Never combine native stream shortening and timestamp-based seeks:
-        // doing both skips audio twice and desynchronizes the counters.
-        bundle?.player?.skipSilenceEnabled = requestedSkipSilence && !analysisReady
+        val player = bundle?.player ?: return
+        // Once the analyzed map falls behind a seek or playback, native
+        // skipping resumes until analysis catches up.
+        val nativeRequired =
+            requestedSkipSilence && !withinAnalyzedCoverage(player.currentPosition)
+        if (player.skipSilenceEnabled != nativeRequired) {
+            sampleNativeSkippedSeconds()
+            player.skipSilenceEnabled = nativeRequired
+        }
     }
 
-    fun skippedSeconds(): Float {
-        val current = bundle ?: return timelineSkipSeconds
-        if (analysisReady || !requestedSkipSilence) return timelineSkipSeconds
-        val sampleRate = current.player.audioFormat?.sampleRate?.takeIf { it > 0 } ?: 48_000
-        return timelineSkipSeconds + carriedSkippedSeconds +
-            current.silenceProcessor.skippedFrames.toFloat() / sampleRate
+    private fun sampleNativeSkippedSeconds(): Float {
+        val current = bundle ?: return observedNativeSavedSeconds
+        val frames = current.silenceProcessor.skippedFrames
+        // Media3 may reset its processor counter when its stream is flushed.
+        if (frames >= lastObservedNativeFrames) {
+            val sampleRate =
+                current.player.audioFormat?.sampleRate?.takeIf { it > 0 } ?: 48_000
+            observedNativeSavedSeconds +=
+                (frames - lastObservedNativeFrames).toFloat() / sampleRate
+        }
+        lastObservedNativeFrames = frames
+        return observedNativeSavedSeconds
     }
+
+    fun skippedSeconds(): Float = timelineSkipSeconds + sampleNativeSkippedSeconds()
 
     private fun maybeSkipSilence() {
-        if (!requestedSkipSilence || !analysisReady) return
         val player = bundle?.player ?: return
-        if (!player.isPlaying || analyzedUri != player.currentMediaItem?.localConfiguration?.uri) {
+        syncNativeSilence()
+        if (!requestedSkipSilence || !withinAnalyzedCoverage(player.currentPosition)) {
             return
         }
+        if (
+            !player.isPlaying ||
+            analyzedUri != player.currentMediaItem?.localConfiguration?.uri
+        ) {
+            return
+        }
+
         val position = player.currentPosition
         val range = AdaptiveSilenceDetector.containingRange(
             PlaybackRuntime.silenceRanges, position
         ) ?: return
-        if (range.endMs - position < 65L) return
-
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastAutomaticSeekAtMs < 170L) return
-        if (
-            lastAutomaticSeekTargetMs == range.endMs &&
-            now - lastAutomaticSeekAtMs < 600L
-        ) return
-
         val segmentEnd =
             repeatEndMs?.let { minOf(range.endMs, it) } ?: range.endMs
         val target = if (player.duration > 0 && player.duration != C.TIME_UNSET) {
@@ -252,10 +278,19 @@ class PlaybackService : MediaSessionService() {
         } else {
             segmentEnd
         }
-        if (target <= position + 65L) return
-        lastAutomaticSeekAtMs = now
-        lastAutomaticSeekTargetMs = range.endMs
-        timelineSkipSeconds += (target - position) / 1000f
+
+        if (!analysisComplete && target > analysisCoverageEndMs - 150L) return
+        val mediaId = player.currentMediaItem?.mediaId.orEmpty()
+        if (
+            !seekCoordinator.propose(
+                mediaId = mediaId,
+                positionMs = position,
+                targetMs = target,
+                nowMs = SystemClock.elapsedRealtime()
+            )
+        ) {
+            return
+        }
         player.seekTo(target)
     }
 
@@ -264,14 +299,10 @@ class PlaybackService : MediaSessionService() {
         scannedMs: Long,
         complete: Boolean
     ) {
-        if (!analysisReady) {
-            // Retain native audio time already skipped before the map became
-            // available. Future skips are timeline seeks only.
-            timelineSkipSeconds = skippedSeconds()
-            carriedSkippedSeconds = 0f
-            analysisReady = true
-            syncNativeSilence()
-        }
+        analysisReady = true
+        analysisComplete = complete
+        analysisCoverageEndMs = scannedMs
+        syncNativeSilence()
         val mode = if (result.adaptive) "adaptive" else "fixed"
         val progressText =
             if (complete) "Analysis complete"
@@ -291,16 +322,19 @@ class PlaybackService : MediaSessionService() {
         analysisRevision++
         val revision = analysisRevision
 
+        seekCoordinator.reset()
         if (resetForNewMedia) {
             repeatEndMs = null
             timelineSkipSeconds = 0f
-            carriedSkippedSeconds = 0f
-            lastAutomaticSeekAtMs = 0L
-            lastAutomaticSeekTargetMs = -1L
+            observedNativeSavedSeconds = 0f
+            lastObservedNativeFrames =
+                bundle?.silenceProcessor?.skippedFrames ?: 0L
         }
 
         analyzedUri = uri
         analysisReady = false
+        analysisComplete = false
+        analysisCoverageEndMs = 0L
         syncNativeSilence()
         PlaybackRuntime.publishAnalysis(
             emptyList(),
@@ -341,20 +375,23 @@ class PlaybackService : MediaSessionService() {
 
                 publishSilenceMap(
                     result,
-                    result.ranges.lastOrNull()?.endMs ?: 0L,
+                    result.analyzedUntilMs,
                     result.complete
                 )
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 if (revision != analysisRevision) return@launch
-                analysisReady = false
+                // Keep the verified initial coverage instead of discarding
+                // successful earlier segments when a later decoder chunk fails.
+                analysisComplete = false
                 syncNativeSilence()
                 PlaybackRuntime.publishAnalysis(
-                    emptyList(),
-                    "Analysis unavailable; using native fallback: " +
-                        (error.localizedMessage ?: "unknown decoder error"),
-                    config.thresholdDb,
+                    PlaybackRuntime.silenceRanges,
+                    "Analysis stopped at ${analysisCoverageEndMs / 1000L}s; " +
+                        "native fallback beyond coverage: " +
+                        (error.localizedMessage ?: "decoder error"),
+                    PlaybackRuntime.effectiveThresholdDb,
                     false
                 )
             }
@@ -369,8 +406,12 @@ class PlaybackService : MediaSessionService() {
 
         val priorSkipped = skippedSeconds()
         timelineSkipSeconds = priorSkipped
-        carriedSkippedSeconds = 0f
+        observedNativeSavedSeconds = 0f
+        lastObservedNativeFrames = 0L
+        seekCoordinator.reset()
         analysisReady = false
+        analysisComplete = false
+        analysisCoverageEndMs = 0L
 
         val items = buildList {
             for (index in 0 until old.mediaItemCount) {
@@ -410,6 +451,7 @@ class PlaybackService : MediaSessionService() {
         attachListeners(replacement.player)
         mediaSession?.setPlayer(replacement.player)
         bundle = replacement
+        lastObservedNativeFrames = replacement.silenceProcessor.skippedFrames
         syncNativeSilence()
         old.release()
         PlaybackRuntime.playerReplaced()
@@ -469,6 +511,33 @@ class PlaybackService : MediaSessionService() {
     private fun attachListeners(player: ExoPlayer) {
         player.addListener(
             object : Player.Listener {
+                override fun onPositionDiscontinuity(
+                    oldPosition: Player.PositionInfo,
+                    newPosition: Player.PositionInfo,
+                    reason: Int
+                ) {
+                    if (bundle?.player !== player) return
+                    if (oldPosition.mediaItemIndex != newPosition.mediaItemIndex) {
+                        seekCoordinator.cancel()
+                        return
+                    }
+                    val countedMs = seekCoordinator.onDiscontinuity(
+                        mediaId = player.currentMediaItem?.mediaId.orEmpty(),
+                        oldPositionMs = oldPosition.positionMs,
+                        newPositionMs = newPosition.positionMs,
+                        isSeek = reason == Player.DISCONTINUITY_REASON_SEEK
+                    )
+                    if (countedMs > 0L) {
+                        timelineSkipSeconds += countedMs / 1000f
+                    }
+                }
+
+                override fun onPlayerError(
+                    error: androidx.media3.common.PlaybackException
+                ) {
+                    seekCoordinator.cancel()
+                }
+
                 override fun onMediaItemTransition(
                     mediaItem: MediaItem?,
                     reason: Int
