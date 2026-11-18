@@ -724,7 +724,19 @@ final class PlayerModel: NSObject, ObservableObject {
         }
 
         do {
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let data = try Data(contentsOf: url, options: .mappedIfSafe)
+            guard data.count <= 20 * 1024 * 1024 else {
+                playbackError = "Subtitle file is too large (over 20 MB)."
+                return
+            }
+            guard let text =
+                String(data: data, encoding: .utf8) ??
+                String(data: data, encoding: .utf16) ??
+                String(data: data, encoding: .windowsCP1252)
+            else {
+                playbackError = "Unsupported subtitle text encoding."
+                return
+            }
             let cues = Self.parseSubtitleText(text, extension: url.pathExtension)
             guard !cues.isEmpty else {
                 playbackError = "No subtitle cues were found in \(url.lastPathComponent)."
@@ -1581,14 +1593,26 @@ final class PlayerModel: NSObject, ObservableObject {
             )
         else { return }
 
-        guard let match = candidates.first(where: { candidate in
+        let matches = candidates.filter { candidate in
             guard supported.contains(candidate.pathExtension.lowercased()) else {
                 return false
             }
-            return candidate.deletingPathExtension()
-                .lastPathComponent
-                .lowercased() == baseName
-        }) else { return }
+            let candidateBase = candidate.deletingPathExtension()
+                .lastPathComponent.lowercased()
+            return candidateBase == baseName ||
+                candidateBase.hasPrefix(baseName + ".")
+        }
+
+        guard let match = matches.sorted(by: { lhs, rhs in
+            let lhsExact = lhs.deletingPathExtension()
+                .lastPathComponent.lowercased() == baseName
+            let rhsExact = rhs.deletingPathExtension()
+                .lastPathComponent.lowercased() == baseName
+            if lhsExact != rhsExact { return lhsExact }
+            return lhs.lastPathComponent.localizedStandardCompare(
+                rhs.lastPathComponent
+            ) == .orderedAscending
+        }).first else { return }
 
         loadExternalSubtitle(url: match)
     }
@@ -1849,9 +1873,25 @@ final class PlayerModel: NSObject, ObservableObject {
 
     private func updateExternalSubtitle(at time: Double) {
         let subtitleTime = time - subtitleOffset
-        let text = externalSubtitleCues.first {
-            $0.start <= subtitleTime && subtitleTime < $0.end
-        }?.text ?? ""
+        var low = 0
+        var high = externalSubtitleCues.count
+
+        while low < high {
+            let middle = low + (high - low) / 2
+            if externalSubtitleCues[middle].start <= subtitleTime {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+
+        let index = low - 1
+        let text: String
+        if index >= 0, subtitleTime < externalSubtitleCues[index].end {
+            text = externalSubtitleCues[index].text
+        } else {
+            text = ""
+        }
 
         if text != externalSubtitleText {
             externalSubtitleText = text
