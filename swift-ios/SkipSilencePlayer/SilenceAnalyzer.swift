@@ -17,6 +17,8 @@ struct SilenceAnalysis: Sendable {
     let duration: Double
     let effectiveThresholdDB: Double
     let noiseFloorDB: Double
+    let complete: Bool
+    let analyzedUntil: Double
 }
 
 actor SilenceAnalyzer {
@@ -39,7 +41,8 @@ actor SilenceAnalyzer {
         thresholdDB: Double = -42.0,
         minimumSilence: Double = 0.45,
         edgePadding: Double = 0.08,
-        adaptive: Bool = true
+        adaptive: Bool = true,
+        onProgress: (@Sendable (SilenceAnalysis) async -> Void)? = nil
     ) async throws -> SilenceAnalysis {
         let asset = AVURLAsset(url: url)
         let durationTime = try await asset.load(.duration)
@@ -53,7 +56,9 @@ actor SilenceAnalyzer {
                 hasAudio: false,
                 duration: duration,
                 effectiveThresholdDB: thresholdDB,
-                noiseFloorDB: -100
+                noiseFloorDB: -100,
+                complete: true,
+                analyzedUntil: duration
             )
         }
 
@@ -79,6 +84,7 @@ actor SilenceAnalyzer {
         }
 
         var windows: [PCMWindow] = []
+        var lastPublishedAt = 0.0
         while let sampleBuffer = output.copyNextSampleBuffer() {
             if Task.isCancelled {
                 reader.cancelReading()
@@ -96,6 +102,34 @@ actor SilenceAnalyzer {
                 continue
             }
             windows.append(contentsOf: sampleWindows)
+
+            if let onProgress, let last = windows.last {
+                let scannedUntil = last.end
+                let shouldPublish =
+                    (lastPublishedAt == 0 && scannedUntil >= 10) ||
+                    (lastPublishedAt > 0 && scannedUntil - lastPublishedAt >= 90)
+                if shouldPublish {
+                    lastPublishedAt = scannedUntil
+                    let partial = Self.detect(
+                        windows: windows,
+                        manualThresholdDB: thresholdDB,
+                        minimumSilence: minimumSilence,
+                        edgePadding: edgePadding,
+                        adaptive: adaptive
+                    )
+                    await onProgress(
+                        SilenceAnalysis(
+                            ranges: partial.ranges,
+                            hasAudio: true,
+                            duration: duration,
+                            effectiveThresholdDB: partial.threshold,
+                            noiseFloorDB: partial.floor,
+                            complete: false,
+                            analyzedUntil: scannedUntil
+                        )
+                    )
+                }
+            }
         }
 
         if reader.status == .failed {
@@ -114,7 +148,9 @@ actor SilenceAnalyzer {
             hasAudio: true,
             duration: duration,
             effectiveThresholdDB: detection.threshold,
-            noiseFloorDB: detection.floor
+            noiseFloorDB: detection.floor,
+            complete: true,
+            analyzedUntil: duration
         )
     }
 
