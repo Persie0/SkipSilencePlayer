@@ -79,25 +79,50 @@ actor SilenceAnalyzer {
                 throw CancellationError()
             }
 
-            let start = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
-            let sampleDuration = Self.durationSeconds(of: sampleBuffer)
-            let end = max(start, start + sampleDuration)
-            lastEnd = max(lastEnd, end)
-
-            let db = Self.decibels(of: sampleBuffer)
-            if db <= thresholdDB {
-                if silenceStart == nil {
-                    silenceStart = start
-                }
-            } else if let began = silenceStart {
-                Self.appendRange(
-                    from: began,
-                    to: start,
-                    minimumSilence: minimumSilence,
-                    edgePadding: edgePadding,
-                    into: &ranges
+            let windows = Self.pcmWindows(of: sampleBuffer)
+            if windows.isEmpty {
+                let start = CMTimeGetSeconds(
+                    CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
                 )
-                silenceStart = nil
+                let sampleDuration = Self.durationSeconds(of: sampleBuffer)
+                let end = max(start, start + sampleDuration)
+                lastEnd = max(lastEnd, end)
+
+                let db = Self.decibels(of: sampleBuffer)
+                if db <= thresholdDB {
+                    if silenceStart == nil {
+                        silenceStart = start
+                    }
+                } else if let began = silenceStart {
+                    Self.appendRange(
+                        from: began,
+                        to: start,
+                        minimumSilence: minimumSilence,
+                        edgePadding: edgePadding,
+                        into: &ranges
+                    )
+                    silenceStart = nil
+                }
+                continue
+            }
+
+            for window in windows {
+                lastEnd = max(lastEnd, window.end)
+
+                if window.db <= thresholdDB {
+                    if silenceStart == nil {
+                        silenceStart = window.start
+                    }
+                } else if let began = silenceStart {
+                    Self.appendRange(
+                        from: began,
+                        to: window.start,
+                        minimumSilence: minimumSilence,
+                        edgePadding: edgePadding,
+                        into: &ranges
+                    )
+                    silenceStart = nil
+                }
             }
         }
 
@@ -120,6 +145,116 @@ actor SilenceAnalyzer {
             hasAudio: true,
             duration: duration
         )
+    }
+
+    private struct PCMWindow {
+        let start: Double
+        let end: Double
+        let db: Double
+    }
+
+    private static func pcmWindows(
+        of sampleBuffer: CMSampleBuffer,
+        targetDuration: Double = 0.02
+    ) -> [PCMWindow] {
+        guard
+            let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer),
+            let description = CMSampleBufferGetFormatDescription(sampleBuffer),
+            let stream =
+                CMAudioFormatDescriptionGetStreamBasicDescription(description)
+        else {
+            return []
+        }
+
+        let sampleRate = stream.pointee.mSampleRate
+        let channels = Int(stream.pointee.mChannelsPerFrame)
+        guard sampleRate > 0, channels > 0 else {
+            return []
+        }
+
+        var lengthAtOffset = 0
+        var totalLength = 0
+        var dataPointer: UnsafeMutablePointer<Int8>?
+
+        let status = CMBlockBufferGetDataPointer(
+            dataBuffer,
+            atOffset: 0,
+            lengthAtOffsetOut: &lengthAtOffset,
+            totalLengthOut: &totalLength,
+            dataPointerOut: &dataPointer
+        )
+
+        guard
+            status == kCMBlockBufferNoErr,
+            let dataPointer,
+            totalLength >= MemoryLayout<Int16>.size * channels
+        else {
+            return []
+        }
+
+        let reportedFrames = CMSampleBufferGetNumSamples(sampleBuffer)
+        let availableSamples = totalLength / MemoryLayout<Int16>.size
+        let availableFrames = availableSamples / channels
+        let frameCount = min(reportedFrames, availableFrames)
+        guard frameCount > 0 else {
+            return []
+        }
+
+        let presentation = CMTimeGetSeconds(
+            CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        )
+        guard presentation.isFinite else {
+            return []
+        }
+
+        let windowFrames = max(1, Int((sampleRate * targetDuration).rounded()))
+        var result: [PCMWindow] = []
+
+        dataPointer.withMemoryRebound(
+            to: Int16.self,
+            capacity: availableSamples
+        ) { samples in
+            var frameStart = 0
+
+            while frameStart < frameCount {
+                let frameEnd = min(frameStart + windowFrames, frameCount)
+                let sampleStart = frameStart * channels
+                let sampleEnd = frameEnd * channels
+                var sumSquares = 0.0
+
+                for index in sampleStart..<sampleEnd {
+                    let normalized =
+                        Double(samples[index]) / Double(Int16.max)
+                    sumSquares += normalized * normalized
+                }
+
+                let count = sampleEnd - sampleStart
+                let rms =
+                    count > 0
+                        ? sqrt(sumSquares / Double(count))
+                        : 0
+                let db =
+                    rms > 0
+                        ? 20.0 * log10(rms)
+                        : -.infinity
+
+                let start =
+                    presentation + Double(frameStart) / sampleRate
+                let end =
+                    presentation + Double(frameEnd) / sampleRate
+
+                result.append(
+                    PCMWindow(
+                        start: start,
+                        end: end,
+                        db: db
+                    )
+                )
+                frameStart = frameEnd
+            }
+        }
+
+        return result
     }
 
     private static func durationSeconds(of sampleBuffer: CMSampleBuffer) -> Double {
