@@ -1276,10 +1276,14 @@ final class PlayerModel: NSObject, ObservableObject {
         let minimum = minimumSilence
         let padding = edgePadding
         let adaptive = adaptiveSilenceEnabled
-        let preferredAudioLanguage = selectedAudioIndex.flatMap { index in
-            guard audioOptions.indices.contains(index) else { return nil }
-            return audioOptions[index].extendedLanguageTag ??
+        let preferredAudioLanguage: String?
+        if let index = selectedAudioIndex,
+           audioOptions.indices.contains(index) {
+            preferredAudioLanguage =
+                audioOptions[index].extendedLanguageTag ??
                 audioOptions[index].locale?.identifier
+        } else {
+            preferredAudioLanguage = nil
         }
         let analyzer = SilenceAnalyzer()
 
