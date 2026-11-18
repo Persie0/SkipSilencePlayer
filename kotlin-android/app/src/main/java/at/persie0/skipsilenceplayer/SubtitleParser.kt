@@ -6,8 +6,10 @@ import android.provider.OpenableColumns
 import java.nio.charset.Charset
 import javax.xml.XMLConstants
 import org.w3c.dom.Element
-import java.io.BufferedReader
-import java.io.InputStreamReader
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.io.IOException
 import java.util.Locale
 import javax.xml.parsers.DocumentBuilderFactory
 
@@ -29,7 +31,7 @@ object SubtitleParser {
             parseTtml(context, uri)
         } else {
             val text = context.contentResolver.openInputStream(uri)?.use { input ->
-                val bytes = input.readBytes()
+                val bytes = readBounded(input)
                 val encoding = when {
                     bytes.size >= 2 && bytes[0] == 0xFF.toByte() &&
                         bytes[1] == 0xFE.toByte() -> Charsets.UTF_16LE
@@ -37,14 +39,48 @@ object SubtitleParser {
                         bytes[1] == 0xFF.toByte() -> Charsets.UTF_16BE
                     else -> Charsets.UTF_8
                 }
-                String(bytes, encoding).trimStart('\uFEFF')
-            }.orEmpty()
+                val decoded = String(bytes, encoding)
+                if (encoding == Charsets.UTF_8 && '\uFFFD' in decoded) {
+                    String(bytes, java.nio.charset.Charset.forName("windows-1252"))
+                } else {
+                    decoded
+                }
+            }.orEmpty().trimStart('\uFEFF')
 
-            when {
-                name.endsWith(".ass") || name.endsWith(".ssa") -> parseAss(text)
-                else -> parseSrtOrVtt(text)
-            }
+            parsePlainText(name, mime, text)
         }
+    }
+
+    internal fun parsePlainText(
+        name: String,
+        mime: String,
+        text: String
+    ): List<SubtitleCue> {
+        return when {
+            name.endsWith(".ass") ||
+                name.endsWith(".ssa") ||
+                mime.contains("ssa") ||
+                mime.contains("x-ass") ||
+                text.lineSequence().any {
+                    it.trimStart().startsWith("Dialogue:", ignoreCase = true)
+                } -> parseAss(text)
+            else -> parseSrtOrVtt(text)
+        }
+    }
+
+    private fun readBounded(input: InputStream): ByteArray {
+        val maximum = 20 * 1024 * 1024
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        while (true) {
+            val bytes = input.read(buffer)
+            if (bytes < 0) break
+            if (output.size() + bytes > maximum) {
+                throw IOException("Subtitle file exceeds 20 MB")
+            }
+            output.write(buffer, 0, bytes)
+        }
+        return output.toByteArray()
     }
 
     private fun displayName(context: Context, uri: Uri): String {
@@ -138,7 +174,9 @@ object SubtitleParser {
                     isXIncludeAware = false
                     setExpandEntityReferences(false)
                 }
-                val document = factory.newDocumentBuilder().parse(input)
+                val document = factory.newDocumentBuilder().parse(
+                    ByteArrayInputStream(readBounded(input))
+                )
                 val nodes = document.getElementsByTagName("p")
                 buildList {
                     for (index in 0 until nodes.length) {
