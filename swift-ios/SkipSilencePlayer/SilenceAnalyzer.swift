@@ -145,16 +145,19 @@ actor SilenceAnalyzer {
             return sorted[index]
         }
 
-        let quiet20 = percentile(0.20)
-        let quiet35 = percentile(0.35)
-        let speech75 = percentile(0.75)
-        let floor =
-            quiet20 < -75 &&
-            quiet35 - quiet20 > 18 &&
-            quiet35 + 12 < speech75
-            ? quiet35 : quiet20
+        let digitalShare =
+            Double(sorted.filter { $0 <= -80 }.count) / Double(sorted.count)
+        let audible = sorted.filter { $0 > -80 }
+        let audibleFloor = audible.isEmpty
+            ? -100.0
+            : audible[Int(Double(audible.count - 1) * 0.25)]
+        let floor = digitalShare > 0.10 && audible.count >= 10
+            ? audibleFloor : percentile(0.20)
+        let upper = percentile(0.95)
+        let speechCap = upper - floor >= 14
+            ? upper - 12 : floor - 6
         let candidate = adaptive
-            ? min(max(manualThresholdDB - 10, floor + 8), speech75 - 12)
+            ? min(max(manualThresholdDB - 10, floor + 8), speechCap)
             : manualThresholdDB
         let threshold = min(-20.0, max(-60.0, candidate))
 
