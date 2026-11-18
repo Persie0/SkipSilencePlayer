@@ -211,6 +211,8 @@ final class PlayerModel: NSObject, ObservableObject {
     private var hasPlaylistSecurityScope = false
     private var selectedURL: URL?
     private var jumpingOverSilence = false
+    private var skipSeekGeneration = 0
+    private var completedVideoKey: String?
     private var persistTick = 0
     private var pendingLoad: PendingLoad?
     private var dismissedErrorDescription: String?
@@ -519,6 +521,10 @@ final class PlayerModel: NSObject, ObservableObject {
     }
 
     func play() {
+        if let selectedURL,
+           completedVideoKey == Self.videoKey(selectedURL) {
+            seek(to: 0)
+        }
         player.defaultRate = Float(playbackSpeed)
         player.play()
         player.rate = Float(playbackSpeed)
@@ -548,6 +554,8 @@ final class PlayerModel: NSObject, ObservableObject {
     func seek(to seconds: Double) {
         let upper = duration > 0 ? duration : max(currentTime, 0)
         let target = min(max(0, seconds), max(upper, 0))
+        skipSeekGeneration += 1
+        completedVideoKey = nil
         jumpingOverSilence = false
         player.seek(
             to: CMTime(seconds: target, preferredTimescale: 600),
@@ -560,6 +568,10 @@ final class PlayerModel: NSObject, ObservableObject {
     }
 
     func setSilenceEnabled(_ enabled: Bool) {
+        if !enabled {
+            skipSeekGeneration += 1
+            jumpingOverSilence = false
+        }
         silenceEnabled = enabled
         defaults.set(enabled, forKey: "silenceEnabled")
         saveCurrentVideoState()
@@ -584,6 +596,8 @@ final class PlayerModel: NSObject, ObservableObject {
     }
 
     func applySilenceSettings() {
+        skipSeekGeneration += 1
+        jumpingOverSilence = false
         silenceThresholdDB = silenceThresholdDB.rounded()
         minimumSilence = (minimumSilence * 20).rounded() / 20
         edgePadding = (edgePadding * 100).rounded() / 100
@@ -852,6 +866,8 @@ final class PlayerModel: NSObject, ObservableObject {
     }
 
     func clearAB() {
+        skipSeekGeneration += 1
+        jumpingOverSilence = false
         abStart = nil
         abEnd = nil
     }
@@ -959,6 +975,9 @@ final class PlayerModel: NSObject, ObservableObject {
 
         securityURL = url
         selectedURL = url
+        completedVideoKey = nil
+        skipSeekGeneration += 1
+        jumpingOverSilence = false
         hasSecurityScope = url.startAccessingSecurityScopedResource()
 
         let videoKey = Self.videoKey(url)
@@ -1710,14 +1729,25 @@ final class PlayerModel: NSObject, ObservableObject {
 
     private func markCurrentCompleted() {
         guard let selectedURL else { return }
-        defaults.set(0.0, forKey: "\(Self.videoKey(selectedURL)).position")
+        let key = Self.videoKey(selectedURL)
+        completedVideoKey = key
+        skipSeekGeneration += 1
+        jumpingOverSilence = false
+        defaults.set(0.0, forKey: "\(key).position")
     }
 
     private func saveCurrentVideoState() {
         guard let selectedURL else { return }
 
         let key = Self.videoKey(selectedURL)
-        defaults.set(currentTime, forKey: "\(key).position")
+        defaults.set(
+            PlaybackResumePosition.stored(
+                current: currentTime,
+                duration: duration,
+                completed: completedVideoKey == key
+            ),
+            forKey: "\(key).position"
+        )
         defaults.set(silenceEnabled, forKey: "\(key).skip")
         defaults.set(adaptiveSilenceEnabled, forKey: "\(key).adaptive")
         defaults.set(silenceThresholdDB, forKey: "\(key).threshold")
@@ -1867,8 +1897,13 @@ final class PlayerModel: NSObject, ObservableObject {
         }
         updateExternalSubtitle(at: currentTime)
 
-        if let abStart, let abEnd, abEnd > abStart, currentTime >= abEnd {
+        if isPlaying,
+           let abStart,
+           let abEnd,
+           abEnd > abStart,
+           currentTime >= abEnd {
             seek(to: abStart)
+            return
         }
 
         if let sleepDeadline, Date() >= sleepDeadline {
@@ -1887,15 +1922,19 @@ final class PlayerModel: NSObject, ObservableObject {
             silenceEnabled,
             isPlaying,
             !jumpingOverSilence,
-            let range = silenceRanges.first(where: {
-                $0.start <= currentTime && currentTime < $0.end
-            })
+            let item = player.currentItem,
+            let range = SilenceAnalyzer.range(
+                containing: currentTime,
+                in: silenceRanges
+            )
         else { return }
 
         let segmentEnd = abEnd.map { min(range.end, $0) } ?? range.end
         guard segmentEnd - currentTime > 0.065 else { return }
 
         let beforeSeek = currentTime
+        skipSeekGeneration += 1
+        let generation = skipSeekGeneration
         jumpingOverSilence = true
 
         player.seek(
@@ -1904,11 +1943,18 @@ final class PlayerModel: NSObject, ObservableObject {
             toleranceAfter: .zero
         ) { [weak self] completed in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self,
+                      self.skipSeekGeneration == generation,
+                      self.player.currentItem === item
+                else { return }
                 self.jumpingOverSilence = false
-                if completed {
-                    self.skippedTime += max(0, segmentEnd - beforeSeek)
-                }
+                guard completed, self.silenceEnabled else { return }
+                let reached = CMTimeGetSeconds(self.player.currentTime())
+                guard reached.isFinite,
+                      abs(reached - segmentEnd) <= 0.30,
+                      reached > beforeSeek
+                else { return }
+                self.skippedTime += reached - beforeSeek
             }
         }
     }
