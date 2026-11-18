@@ -156,6 +156,8 @@ final class PlayerModel: NSObject, ObservableObject {
     @Published private(set) var estimatedWatchTime = 0.0
 
     @Published private(set) var silenceEnabled: Bool
+    @Published private(set) var adaptiveSilenceEnabled: Bool
+    @Published private(set) var effectiveSilenceThresholdDB = -42.0
     @Published private(set) var silenceThresholdDB: Double
     @Published private(set) var minimumSilence: Double
     @Published private(set) var edgePadding: Double
@@ -224,6 +226,9 @@ final class PlayerModel: NSObject, ObservableObject {
     override init() {
         silenceEnabled =
             (UserDefaults.standard.object(forKey: "silenceEnabled") as? Bool) ?? true
+        adaptiveSilenceEnabled =
+            (UserDefaults.standard.object(forKey: "adaptiveSilenceEnabled") as? Bool)
+                ?? true
         silenceThresholdDB = Self.savedDouble("silenceThresholdDB", fallback: -42)
         minimumSilence = Self.savedDouble("minimumSilence", fallback: 0.45)
         edgePadding = Self.savedDouble("edgePadding", fallback: 0.08)
@@ -555,6 +560,12 @@ final class PlayerModel: NSObject, ObservableObject {
         silenceEnabled = enabled
         defaults.set(enabled, forKey: "silenceEnabled")
         saveCurrentVideoState()
+        recalculateEstimatedWatchTime()
+    }
+
+    func setAdaptiveSilenceEnabled(_ enabled: Bool) {
+        adaptiveSilenceEnabled = enabled
+        applySilenceSettings()
     }
 
     func setSilenceThreshold(_ value: Double) {
@@ -577,6 +588,7 @@ final class PlayerModel: NSObject, ObservableObject {
         defaults.set(silenceThresholdDB, forKey: "silenceThresholdDB")
         defaults.set(minimumSilence, forKey: "minimumSilence")
         defaults.set(edgePadding, forKey: "edgePadding")
+        defaults.set(adaptiveSilenceEnabled, forKey: "adaptiveSilenceEnabled")
         saveCurrentVideoState()
 
         guard let selectedURL else { return }
@@ -855,6 +867,7 @@ final class PlayerModel: NSObject, ObservableObject {
     func resetSettings() {
         silenceEnabled = true
         silenceThresholdDB = -42
+        adaptiveSilenceEnabled = true
         minimumSilence = 0.45
         edgePadding = 0.08
         playbackSpeed = 1
@@ -872,6 +885,7 @@ final class PlayerModel: NSObject, ObservableObject {
 
         defaults.set(true, forKey: "silenceEnabled")
         defaults.set(-42.0, forKey: "silenceThresholdDB")
+        defaults.set(true, forKey: "adaptiveSilenceEnabled")
         defaults.set(0.45, forKey: "minimumSilence")
         defaults.set(0.08, forKey: "edgePadding")
         defaults.set(1.0, forKey: "playbackSpeed")
@@ -939,6 +953,12 @@ final class PlayerModel: NSObject, ObservableObject {
             key: videoKey,
             suffix: "threshold",
             fallback: Self.savedDouble("silenceThresholdDB", fallback: -42)
+        )
+        adaptiveSilenceEnabled = savedVideoBool(
+            key: videoKey,
+            suffix: "adaptive",
+            fallback: (defaults.object(forKey: "adaptiveSilenceEnabled") as? Bool)
+                ?? true
         )
         minimumSilence = savedVideoDouble(
             key: videoKey,
@@ -1213,16 +1233,18 @@ final class PlayerModel: NSObject, ObservableObject {
     private func startSilenceAnalysis(url: URL) {
         analysisTask?.cancel()
         silenceRanges = []
-        analysisStatus = String(
-            format: "Analyzing at %.0f dB · %.2f s min · %.0f ms edge…",
-            silenceThresholdDB,
-            minimumSilence,
-            edgePadding * 1000
-        )
+        analysisStatus = adaptiveSilenceEnabled
+            ? "Analyzing adaptive noise floor…"
+            : String(
+                format: "Analyzing at %.0f dB · %.2f s min…",
+                silenceThresholdDB,
+                minimumSilence
+            )
 
         let threshold = silenceThresholdDB
         let minimum = minimumSilence
         let padding = edgePadding
+        let adaptive = adaptiveSilenceEnabled
         let analyzer = SilenceAnalyzer()
 
         analysisTask = Task { [weak self] in
@@ -1231,7 +1253,8 @@ final class PlayerModel: NSObject, ObservableObject {
                     url: url,
                     thresholdDB: threshold,
                     minimumSilence: minimum,
-                    edgePadding: padding
+                    edgePadding: padding,
+                    adaptive: adaptive
                 )
 
                 guard !Task.isCancelled, let self, self.selectedURL == url else {
@@ -1239,6 +1262,7 @@ final class PlayerModel: NSObject, ObservableObject {
                 }
 
                 duration = result.duration
+                effectiveSilenceThresholdDB = result.effectiveThresholdDB
                 silenceRanges = result.ranges
                 totalSkippableTime = result.ranges.reduce(0) { $0 + $1.duration }
                 recalculateEstimatedWatchTime()
@@ -1249,8 +1273,10 @@ final class PlayerModel: NSObject, ObservableObject {
                     analysisStatus = "No sustained silence found"
                 } else {
                     analysisStatus = String(
-                        format: "%d silent ranges · %@ skippable · est. %@ watch",
+                        format: "%d ranges · %.0f dB %@ · %@ skippable · est. %@ watch",
                         result.ranges.count,
+                        result.effectiveThresholdDB,
+                        adaptive ? "(adaptive)" : "(fixed)",
                         Self.format(seconds: totalSkippableTime),
                         Self.format(seconds: estimatedWatchTime)
                     )
@@ -1597,6 +1623,7 @@ final class PlayerModel: NSObject, ObservableObject {
         let key = Self.videoKey(selectedURL)
         defaults.set(currentTime, forKey: "\(key).position")
         defaults.set(silenceEnabled, forKey: "\(key).skip")
+        defaults.set(adaptiveSilenceEnabled, forKey: "\(key).adaptive")
         defaults.set(silenceThresholdDB, forKey: "\(key).threshold")
         defaults.set(minimumSilence, forKey: "\(key).minimum")
         defaults.set(edgePadding, forKey: "\(key).padding")
@@ -1736,7 +1763,9 @@ final class PlayerModel: NSObject, ObservableObject {
         }
 
         isPlaying = player.rate != 0
-        playbackError = player.currentItem?.error?.localizedDescription
+        if let mediaError = player.currentItem?.error {
+            playbackError = mediaError.localizedDescription
+        }
         updateExternalSubtitle(at: currentTime)
 
         if let abStart, let abEnd, abEnd > abStart, currentTime >= abEnd {
@@ -1761,21 +1790,26 @@ final class PlayerModel: NSObject, ObservableObject {
             !jumpingOverSilence,
             let range = silenceRanges.first(where: {
                 $0.start <= currentTime && currentTime < $0.end
-            }),
-            range.end - currentTime > 0.04
+            })
         else { return }
 
-        let skipped = max(0, range.end - currentTime)
-        skippedTime += skipped
+        let segmentEnd = abEnd.map { min(range.end, $0) } ?? range.end
+        guard segmentEnd - currentTime > 0.065 else { return }
+
+        let beforeSeek = currentTime
         jumpingOverSilence = true
 
         player.seek(
-            to: CMTime(seconds: range.end, preferredTimescale: 600),
+            to: CMTime(seconds: segmentEnd, preferredTimescale: 600),
             toleranceBefore: .zero,
             toleranceAfter: .zero
-        ) { [weak self] _ in
+        ) { [weak self] completed in
             Task { @MainActor in
-                self?.jumpingOverSilence = false
+                guard let self else { return }
+                self.jumpingOverSilence = false
+                if completed {
+                    self.skippedTime += max(0, segmentEnd - beforeSeek)
+                }
             }
         }
     }
