@@ -19,6 +19,30 @@ data class SubtitleCue(
     val text: String
 )
 
+/**
+ * Subtitle cues are sorted by start time by all parsers. Locate a cue with
+ * binary search rather than rescanning every subtitle on each playback tick.
+ */
+internal fun activeSubtitleCue(
+    cues: List<SubtitleCue>,
+    positionMs: Long
+): SubtitleCue? {
+    var low = 0
+    var high = cues.size
+    while (low < high) {
+        val mid = low + (high - low) / 2
+        if (cues[mid].startMs <= positionMs) {
+            low = mid + 1
+        } else {
+            high = mid
+        }
+    }
+    val index = low - 1
+    if (index < 0) return null
+    val cue = cues[index]
+    return cue.takeIf { positionMs < it.endMs }
+}
+
 object SubtitleParser {
     fun parse(context: Context, uri: Uri): List<SubtitleCue> {
         val name = displayName(context, uri).lowercase(Locale.US)
