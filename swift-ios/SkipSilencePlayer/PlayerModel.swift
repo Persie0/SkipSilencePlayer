@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import Combine
+import CoreMedia
 import Foundation
 @preconcurrency import MediaPlayer
 import UniformTypeIdentifiers
@@ -34,6 +35,17 @@ struct PlaylistEntry: Identifiable, Equatable {
     let id: String
     let url: URL
     let name: String
+}
+
+private struct PersistedPlaylistEntry: Codable {
+    let id: String
+    let name: String
+    let bookmarkBase64: String
+}
+
+private struct PersistedPlaylistState: Codable {
+    let entries: [PersistedPlaylistEntry]
+    let selectedID: String?
 }
 
 enum ResumeMode: String, CaseIterable, Identifiable {
@@ -255,6 +267,11 @@ final class PlayerModel: NSObject, ObservableObject {
             Task { @MainActor in
                 self?.tick(time)
             }
+        }
+
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.restoreLastPlaylist()
         }
     }
 
@@ -607,6 +624,10 @@ final class PlayerModel: NSObject, ObservableObject {
         player.volume = Float(clamped)
     }
 
+    func toggleMute() {
+        setVolume(volume > 0.01 ? 0 : 0.5)
+    }
+
     func setAspectMode(_ mode: VideoAspectMode) {
         aspectMode = mode
         defaults.set(mode.rawValue, forKey: "aspectMode")
@@ -823,6 +844,7 @@ final class PlayerModel: NSObject, ObservableObject {
     func clearHistory() {
         recentVideos = []
         defaults.removeObject(forKey: "recentVideos")
+        defaults.removeObject(forKey: "lastPlaylistState")
 
         for key in defaults.dictionaryRepresentation().keys
         where key.hasPrefix("video.") && key.hasSuffix(".position") {
@@ -876,7 +898,8 @@ final class PlayerModel: NSObject, ObservableObject {
         entries: [PlaylistEntry],
         index: Int,
         position: Double,
-        savePrevious: Bool = true
+        savePrevious: Bool = true,
+        autoPlay: Bool = true
     ) {
         if savePrevious {
             saveCurrentVideoState()
@@ -885,10 +908,14 @@ final class PlayerModel: NSObject, ObservableObject {
 
         playlist = entries
         playlistIndex = min(max(index, 0), entries.count - 1)
-        loadCurrentPlaylistEntry(position: position)
+        persistPlaylistState()
+        loadCurrentPlaylistEntry(position: position, autoPlay: autoPlay)
     }
 
-    private func loadCurrentPlaylistEntry(position: Double) {
+    private func loadCurrentPlaylistEntry(
+        position: Double,
+        autoPlay: Bool = true
+    ) {
         guard playlist.indices.contains(playlistIndex) else { return }
 
         if hasSecurityScope {
@@ -967,7 +994,11 @@ final class PlayerModel: NSObject, ObservableObject {
         loadChapters(asset: item.asset)
         startSilenceAnalysis(url: url)
 
-        play()
+        if autoPlay {
+            play()
+        } else {
+            pause()
+        }
     }
 
     private func configureAudioSession() {
@@ -1343,19 +1374,78 @@ final class PlayerModel: NSObject, ObservableObject {
         Task { [weak self] in
             let asset = AVURLAsset(url: url)
             var parts: [String] = []
+            var warnings: [String] = []
 
             if !sizeText.isEmpty {
                 parts.append(sizeText)
             }
 
+            let playable = (try? await asset.load(.isPlayable)) ?? true
+            if !playable {
+                warnings.append("This media asset is not playable on this device")
+            }
+
             if
                 let tracks = try? await asset.loadTracks(withMediaType: .video),
-                let track = tracks.first,
-                let size = try? await track.load(.naturalSize),
-                size.width > 0,
-                size.height > 0
+                let track = tracks.first
             {
-                parts.append("\(Int(abs(size.width)))×\(Int(abs(size.height)))")
+                let decodable = (try? await track.load(.isDecodable)) ?? true
+                if !decodable {
+                    warnings.append("Video codec is not decodable on this device")
+                }
+
+                if
+                    let descriptions = try? await track.load(.formatDescriptions),
+                    let description = descriptions.first
+                {
+                    let code = Self.fourCC(
+                        CMFormatDescriptionGetMediaSubType(description)
+                    )
+                    parts.append(Self.codecName(code))
+                }
+
+                if let size = try? await track.load(.naturalSize),
+                   size.width > 0,
+                   size.height > 0 {
+                    parts.append("\(Int(abs(size.width)))×\(Int(abs(size.height)))")
+                }
+
+                if let fps = try? await track.load(.nominalFrameRate), fps > 0 {
+                    parts.append(String(format: "%.0f fps", fps))
+                }
+            }
+
+            if
+                let tracks = try? await asset.loadTracks(withMediaType: .audio),
+                let track = tracks.first
+            {
+                let decodable = (try? await track.load(.isDecodable)) ?? true
+                if !decodable {
+                    warnings.append("Audio codec is not decodable on this device")
+                }
+
+                if
+                    let descriptions = try? await track.load(.formatDescriptions),
+                    let description = descriptions.first
+                {
+                    let code = Self.fourCC(
+                        CMFormatDescriptionGetMediaSubType(description)
+                    )
+                    parts.append(Self.codecName(code))
+
+                    if let stream =
+                        CMAudioFormatDescriptionGetStreamBasicDescription(description)
+                    {
+                        let rate = stream.pointee.mSampleRate
+                        let channels = stream.pointee.mChannelsPerFrame
+                        if rate > 0 {
+                            parts.append(String(format: "%.1f kHz", rate / 1000))
+                        }
+                        if channels > 0 {
+                            parts.append("\(channels)ch")
+                        }
+                    }
+                }
             }
 
             if let durationTime = try? await asset.load(.duration) {
@@ -1366,7 +1456,13 @@ final class PlayerModel: NSObject, ObservableObject {
             }
 
             guard let self, selectedURL == url else { return }
-            fileInfo = parts.joined(separator: " · ")
+            fileInfo = parts
+                .filter { !$0.isEmpty }
+                .joined(separator: " · ")
+
+            if !warnings.isEmpty {
+                playbackError = warnings.joined(separator: " · ")
+            }
         }
     }
 
@@ -1505,6 +1601,120 @@ final class PlayerModel: NSObject, ObservableObject {
         defaults.set(minimumSilence, forKey: "\(key).minimum")
         defaults.set(edgePadding, forKey: "\(key).padding")
         defaults.set(playbackSpeed, forKey: "\(key).speed")
+        persistPlaylistState()
+    }
+
+    private func persistPlaylistState() {
+        guard !playlist.isEmpty else { return }
+
+        let persisted = playlist.compactMap { entry -> PersistedPlaylistEntry? in
+            guard
+                let data = try? entry.url.bookmarkData(
+                    options: [],
+                    includingResourceValuesForKeys: nil,
+                    relativeTo: nil
+                )
+            else { return nil }
+
+            return PersistedPlaylistEntry(
+                id: entry.id,
+                name: entry.name,
+                bookmarkBase64: data.base64EncodedString()
+            )
+        }
+
+        guard !persisted.isEmpty else { return }
+
+        let selectedID =
+            playlist.indices.contains(playlistIndex)
+                ? playlist[playlistIndex].id
+                : nil
+        let state = PersistedPlaylistState(
+            entries: persisted,
+            selectedID: selectedID
+        )
+
+        if let data = try? JSONEncoder().encode(state) {
+            defaults.set(data, forKey: "lastPlaylistState")
+        }
+    }
+
+    private func restoreLastPlaylist() {
+        guard
+            player.currentItem == nil,
+            let data = defaults.data(forKey: "lastPlaylistState"),
+            let state = try? JSONDecoder().decode(
+                PersistedPlaylistState.self,
+                from: data
+            )
+        else { return }
+
+        let restored = state.entries.compactMap { persisted -> PlaylistEntry? in
+            guard let url = Self.resolveBookmark(persisted.bookmarkBase64) else {
+                return nil
+            }
+            return PlaylistEntry(
+                id: persisted.id,
+                url: url,
+                name: persisted.name
+            )
+        }
+
+        guard !restored.isEmpty else {
+            defaults.removeObject(forKey: "lastPlaylistState")
+            return
+        }
+
+        let index = state.selectedID.flatMap { selectedID in
+            restored.firstIndex { $0.id == selectedID }
+        } ?? 0
+        let url = restored[index].url
+        let position = defaults.double(
+            forKey: "\(Self.videoKey(url)).position"
+        )
+
+        performLoad(
+            entries: restored,
+            index: index,
+            position: position,
+            savePrevious: false,
+            autoPlay: false
+        )
+    }
+
+    private static func fourCC(_ value: FourCharCode) -> String {
+        let bytes: [UInt8] = [
+            UInt8((value >> 24) & 0xff),
+            UInt8((value >> 16) & 0xff),
+            UInt8((value >> 8) & 0xff),
+            UInt8(value & 0xff)
+        ]
+        return String(bytes: bytes, encoding: .ascii)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? String(format: "0x%08X", value)
+    }
+
+    private static func codecName(_ code: String) -> String {
+        switch code.lowercased() {
+        case "avc1", "avc3":
+            return "H.264"
+        case "hvc1", "hev1":
+            return "HEVC"
+        case "av01":
+            return "AV1"
+        case "vp09", "vp9 ":
+            return "VP9"
+        case "vp08", "vp8 ":
+            return "VP8"
+        case "mp4a":
+            return "AAC"
+        case "opus":
+            return "Opus"
+        case "flac":
+            return "FLAC"
+        default:
+            return code
+        }
     }
 
     private func tick(_ time: CMTime) {
