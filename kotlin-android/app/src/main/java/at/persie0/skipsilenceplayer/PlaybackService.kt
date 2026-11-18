@@ -15,6 +15,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Metadata
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
+import androidx.media3.common.Tracks
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -132,6 +133,7 @@ class PlaybackService : MediaSessionService() {
     private var analysisReady = false
     private var analysisComplete = false
     private var analysisCoverageEndMs = 0L
+    private var selectedAudioSignature = ""
     private var requestedSkipSilence = true
     private var timelineSkipSeconds = 0f
      private var repeatEndMs: Long? = null
@@ -322,6 +324,25 @@ class PlaybackService : MediaSessionService() {
         )
     }
 
+    private fun selectedAudioInfo(tracks: Tracks): Pair<String, String?> {
+        for (group in tracks.groups) {
+            if (group.type != C.TRACK_TYPE_AUDIO) continue
+            for (index in 0 until group.length) {
+                if (!group.isTrackSelected(index)) continue
+                val format = group.getTrackFormat(index)
+                val signature = listOf(
+                    format.id.orEmpty(),
+                    format.language.orEmpty(),
+                    format.sampleMimeType.orEmpty(),
+                    format.label.orEmpty(),
+                    index.toString()
+                ).joinToString("|")
+                return signature to format.language
+            }
+        }
+        return "" to null
+    }
+
     private fun startAnalysis(player: ExoPlayer, resetForNewMedia: Boolean) {
         val uri = player.currentMediaItem?.localConfiguration?.uri
         analysisJob?.cancel()
@@ -351,6 +372,7 @@ class PlaybackService : MediaSessionService() {
         if (uri == null) return
 
         val config = currentConfig
+        val preferredAudioLanguage = selectedAudioInfo(player.currentTracks).second
         analysisJob = scope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
@@ -361,6 +383,7 @@ class PlaybackService : MediaSessionService() {
                         minimumSilenceSeconds = config.minimumSilenceSeconds,
                         edgePaddingSeconds = config.edgePaddingSeconds,
                         adaptive = config.adaptiveEnabled,
+                        preferredAudioLanguage = preferredAudioLanguage,
                         onProgress = { partial, scannedMs ->
                             withContext(Dispatchers.Main.immediate) {
                                 if (
@@ -545,11 +568,21 @@ class PlaybackService : MediaSessionService() {
                     seekCoordinator.cancel()
                 }
 
+                override fun onTracksChanged(tracks: Tracks) {
+                    if (bundle?.player !== player) return
+                    val selection = selectedAudioInfo(tracks).first
+                    if (selection != selectedAudioSignature) {
+                        selectedAudioSignature = selection
+                        startAnalysis(player, resetForNewMedia = false)
+                    }
+                }
+
                 override fun onMediaItemTransition(
                     mediaItem: MediaItem?,
                     reason: Int
                 ) {
                     chapterMap.clear()
+                    selectedAudioSignature = ""
                     PlaybackRuntime.updateChapters(emptyList())
                     startAnalysis(
                         player,
