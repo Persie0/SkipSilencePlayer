@@ -193,7 +193,10 @@ object AndroidSilenceAnalyzer {
                                 paddingMs =
                                     (edgePaddingSeconds.coerceIn(0.02f, 0.20f) * 1000).toLong(),
                                 adaptive = adaptive
-                            ).copy(complete = false)
+                            ).copy(
+                                complete = false,
+                                analyzedUntilMs = analyzedUntil
+                            )
                             onProgress(partial, analyzedUntil)
                         }
                     }
@@ -208,7 +211,10 @@ object AndroidSilenceAnalyzer {
                 paddingMs =
                     (edgePaddingSeconds.coerceIn(0.02f, 0.20f) * 1000).toLong(),
                 adaptive = adaptive
-            ).copy(complete = outputEnded)
+            ).copy(
+                complete = outputEnded,
+                analyzedUntilMs = windows.lastOrNull()?.endMs ?: 0L
+            )
         } finally {
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
