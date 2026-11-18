@@ -57,6 +57,30 @@ Android uses a configurable Media3 `SilenceSkippingAudioProcessor` during playba
 
 iOS analyzes decoded PCM locally with `AVAssetReader`, detects sustained low-RMS ranges, and seeks across those ranges during `AVPlayer` playback. The analysis stays on-device.
 
+## Playback-state follow-up (November 2026)
+
+- iOS silence-range lookup now uses binary search rather than scanning every
+  detected interval on each playback tick. Android external subtitle display
+  also uses binary search over ordered cues.
+- Automatic iOS skip completions are generation-checked against the current
+  media item and the actual reached playback timestamp; superseded or
+  unsuccessful seeks do not inflate the saved-time counter.
+- Manual seeking and timeline scrubbing temporarily block conflicting
+  automatic silence and A–B loop seeks. Rapid scrubbing uses a separate
+  completion generation so stale callbacks cannot change the current state.
+- A–B repeat no longer repeatedly seeks when iOS playback is paused.
+- A completed iOS video persists a zero resume position even if a periodic
+  persistence tick occurs after the end-of-item event. Pressing Play at the
+  end restarts it from the beginning.
+- Android estimated watch time now treats skip-silence being disabled as
+  zero future skip savings, while historical actual saved time remains
+  separately available.
+
+These improvements are covered by Android JUnit boundary tests and Swift
+real-media-harness checks for silence lookup and completed resume behavior.
+Audio session interruptions, hardware decoder quirks and long-duration
+real-world playback remain device-QA requirements.
+
 ## Playback reliability audit: seeks, long media and alternate audio
 
 - Android confirms silence-related position discontinuities before crediting saved
