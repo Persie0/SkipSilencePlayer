@@ -38,6 +38,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -120,11 +121,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -267,7 +274,8 @@ class MainActivity : ComponentActivity() {
 
 private data class VideoEntry(
     val uri: Uri,
-    val name: String
+    val name: String,
+    val subtitleUri: Uri? = null
 )
 
 private data class RecentVideo(
@@ -406,6 +414,13 @@ private fun SkipSilencePlayerScreen(
     var recentVideos by remember {
         mutableStateOf(loadRecentVideos(preferences))
     }
+    var currentQueueEntries by remember {
+        mutableStateOf<List<VideoEntry>>(emptyList())
+    }
+    var silencePreviewRanges by remember {
+        mutableStateOf<List<SilenceRangeMs>>(emptyList())
+    }
+    var silenceAnalysisRevision by remember { mutableIntStateOf(0) }
 
     var controlsVisible by remember { mutableStateOf(true) }
     var isFullscreen by remember { mutableStateOf(false) }
@@ -484,6 +499,7 @@ private fun SkipSilencePlayerScreen(
     val latestVolume = rememberUpdatedState(volume)
     val latestDoubleTap = rememberUpdatedState(doubleTapSeconds)
     val latestGestureLocked = rememberUpdatedState(gestureLocked)
+    val rootFocusRequester = remember { FocusRequester() }
 
     val transformState = rememberTransformableState { zoomChange, _, _ ->
         if (!latestGestureLocked.value) {
@@ -509,6 +525,21 @@ private fun SkipSilencePlayerScreen(
         )
     }
 
+    fun persistQueue(entries: List<VideoEntry>, currentUri: Uri?) {
+        if (entries.isEmpty()) return
+        val encoded = QueueCodec.encode(
+            entries.map {
+                QueueRecord(
+                    uri = it.uri.toString(),
+                    name = it.name,
+                    subtitleUri = it.subtitleUri?.toString()
+                )
+            },
+            currentUri?.toString()
+        )
+        preferences.edit().putString("last_queue", encoded).apply()
+    }
+
     fun saveCurrentState() {
         val uri = activeUri ?: return
         val key = mediaKey(uri)
@@ -521,6 +552,9 @@ private fun SkipSilencePlayerScreen(
             .putBoolean("${key}_skip", skipSilence)
             .putString("${key}_subtitle", selectedSubtitleUri?.toString())
             .apply()
+        if (currentQueueEntries.isNotEmpty()) {
+            persistQueue(currentQueueEntries, uri)
+        }
     }
 
     fun loadExternalSubtitle(uri: Uri?) {
@@ -587,14 +621,19 @@ private fun SkipSilencePlayerScreen(
     fun commitOpen(
         entries: List<VideoEntry>,
         startIndex: Int,
-        positionMs: Long
+        positionMs: Long,
+        autoPlay: Boolean = true
     ) {
         if (entries.isEmpty()) return
         saveCurrentState()
 
         val index = startIndex.coerceIn(0, entries.lastIndex)
         val selected = entries[index]
+        currentQueueEntries = entries
         applyVideoPreferences(selected.uri)
+        if (selectedSubtitleUri == null && selected.subtitleUri != null) {
+            loadExternalSubtitle(selected.subtitleUri)
+        }
 
         val mediaItems = entries.map {
             MediaItem.Builder()
@@ -611,7 +650,12 @@ private fun SkipSilencePlayerScreen(
 
         player.setMediaItems(mediaItems, index, positionMs.coerceAtLeast(0L))
         player.prepare()
-        player.play()
+        if (autoPlay) {
+            player.play()
+        } else {
+            player.pause()
+        }
+        persistQueue(entries, selected.uri)
         controlsVisible = true
 
         val updated = entries.map {
@@ -657,6 +701,7 @@ private fun SkipSilencePlayerScreen(
                 edgePadding
             )
         )
+        silenceAnalysisRevision++
     }
 
     fun seekBy(deltaMs: Long) {
@@ -718,6 +763,48 @@ private fun SkipSilencePlayerScreen(
         }
     }
 
+    LaunchedEffect(player) {
+        val restored = QueueCodec.decode(
+            preferences.getString("last_queue", null)
+        )
+        if (restored != null) {
+            val available = restored.entries.mapNotNull { record ->
+                val uri = Uri.parse(record.uri)
+                if (canReadUri(context, uri)) {
+                    VideoEntry(
+                        uri = uri,
+                        name = record.name,
+                        subtitleUri = record.subtitleUri?.let(Uri::parse)
+                    )
+                } else {
+                    null
+                }
+            }
+            currentQueueEntries = available
+
+            if (
+                available.isNotEmpty() &&
+                player.mediaItemCount == 0 &&
+                activity.incomingUri == null
+            ) {
+                val restoredIndex = available.indexOfFirst {
+                    it.uri.toString() == restored.currentUri
+                }.let { if (it >= 0) it else 0 }
+                val restoredUri = available[restoredIndex].uri
+                val position = preferences.getLong(
+                    "${mediaKey(restoredUri)}_position",
+                    0L
+                )
+                commitOpen(
+                    entries = available,
+                    startIndex = restoredIndex,
+                    positionMs = position,
+                    autoPlay = false
+                )
+            }
+        }
+    }
+
     LaunchedEffect(player, PlaybackRuntime.generation) {
         PlaybackRuntime.setSkipSilenceEnabled(skipSilence)
         player.setPlaybackSpeed(playbackSpeed)
@@ -741,9 +828,16 @@ private fun SkipSilencePlayerScreen(
                 if (rawDuration != C.TIME_UNSET && rawDuration > 0) rawDuration else 0L
             isPlaying = player.isPlaying
             currentTracks = player.currentTracks
+            val diagnostics = buildMediaDiagnostics(currentTracks)
             playerError = player.playerError?.let {
-                "${it.errorCodeName}: ${it.localizedMessage ?: "Playback failed"}"
-            }
+                buildString {
+                    append("${it.errorCodeName}: ${it.localizedMessage ?: "Playback failed"}")
+                    diagnostics.unsupportedSummary?.let { warning ->
+                        append(" · ")
+                        append(warning)
+                    }
+                }
+            } ?: diagnostics.unsupportedSummary
 
             val currentItem = player.currentMediaItem
             val uri = currentItem?.localConfiguration?.uri
@@ -755,12 +849,19 @@ private fun SkipSilencePlayerScreen(
                 fileName = currentItem.mediaMetadata.title?.toString()
                     ?: queryDisplayName(context, uri)
                 fileInfo = queryFileSize(context, uri)
-                bookmarks = loadBookmarks(preferences, uri)
+                applyVideoPreferences(uri)
 
-                val storedSubtitle =
-                    preferences.getString("${mediaKey(uri)}_subtitle", null)
-                        ?.let(Uri::parse)
-                loadExternalSubtitle(storedSubtitle)
+                if (selectedSubtitleUri == null) {
+                    val automaticSubtitle = currentQueueEntries
+                        .firstOrNull { it.uri == uri }
+                        ?.subtitleUri
+                    if (automaticSubtitle != null) {
+                        loadExternalSubtitle(automaticSubtitle)
+                    }
+                }
+                if (currentQueueEntries.isNotEmpty()) {
+                    persistQueue(currentQueueEntries, uri)
+                }
 
                 if (resumeMode == ResumeMode.ALWAYS && currentMs < 2_000L) {
                     val saved = preferences.getLong(
@@ -773,22 +874,19 @@ private fun SkipSilencePlayerScreen(
                 }
             }
 
-            val videoSize = player.videoSize
-            val resolution =
-                if (videoSize.width > 0 && videoSize.height > 0) {
-                    "${videoSize.width}×${videoSize.height}"
-                } else {
-                    ""
-                }
             val sizeText = activeUri?.let { queryFileSize(context, it) }.orEmpty()
             fileInfo = listOf(
                 sizeText,
-                resolution,
-                if (durationMs > 0) formatTime(durationMs) else ""
+                if (durationMs > 0) formatTime(durationMs) else "",
+                diagnostics.summary
             ).filter { it.isNotBlank() }.joinToString(" · ")
 
             skippedSeconds = PlaybackRuntime.skippedSeconds()
-            if (durationMs > 0 && currentMs > 30_000L) {
+            val analyzedSkippedSeconds =
+                silencePreviewRanges.sumOf { it.durationMs }.toFloat() / 1000f
+            if (analyzedSkippedSeconds > 0f) {
+                estimatedSkippedSeconds = analyzedSkippedSeconds
+            } else if (durationMs > 0 && currentMs > 30_000L) {
                 val predicted =
                     skippedSeconds * (durationMs.toFloat() / currentMs.toFloat())
                 estimatedSkippedSeconds = predicted.coerceIn(
@@ -843,6 +941,25 @@ private fun SkipSilencePlayerScreen(
                 saveCurrentState()
             }
             delay(200)
+        }
+    }
+
+    LaunchedEffect(activeUri, silenceAnalysisRevision) {
+        val uri = activeUri
+        if (uri == null) {
+            silencePreviewRanges = emptyList()
+        } else {
+            silencePreviewRanges = withContext(Dispatchers.IO) {
+                runCatching {
+                    AndroidSilenceAnalyzer.analyze(
+                        context = context,
+                        uri = uri,
+                        thresholdDb = silenceThresholdDb,
+                        minimumSilenceSeconds = minimumSilence,
+                        edgePaddingSeconds = edgePadding
+                    )
+                }.getOrDefault(emptyList())
+            }
         }
     }
 
@@ -1132,10 +1249,72 @@ private fun SkipSilencePlayerScreen(
                 .transformable(transformState)
         }
 
+    LaunchedEffect(rootFocusRequester) {
+        rootFocusRequester.requestFocus()
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .focusRequester(rootFocusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                val anySheetOpen =
+                    showSpeedSheet ||
+                        showSilenceSheet ||
+                        showSubtitleSheet ||
+                        showAudioSheet ||
+                        showToolsSheet ||
+                        showPlaylistSheet ||
+                        showRecentSheet
+
+                if (
+                    anySheetOpen ||
+                    event.type != KeyEventType.KeyDown ||
+                    event.nativeKeyEvent.repeatCount > 0
+                ) {
+                    false
+                } else {
+                    when (event.nativeKeyEvent.keyCode) {
+                        android.view.KeyEvent.KEYCODE_SPACE,
+                        android.view.KeyEvent.KEYCODE_K -> {
+                            if (player.mediaItemCount > 0) {
+                                if (player.isPlaying) player.pause() else player.play()
+                                controlsVisible = true
+                                true
+                            } else {
+                                false
+                            }
+                        }
+
+                        android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+                        android.view.KeyEvent.KEYCODE_J -> {
+                            seekBy(-doubleTapSeconds * 1000L)
+                            true
+                        }
+
+                        android.view.KeyEvent.KEYCODE_DPAD_RIGHT,
+                        android.view.KeyEvent.KEYCODE_L -> {
+                            seekBy(doubleTapSeconds * 1000L)
+                            true
+                        }
+
+                        android.view.KeyEvent.KEYCODE_F -> {
+                            isFullscreen = !isFullscreen
+                            activity.setPlayerFullscreen(isFullscreen)
+                            true
+                        }
+
+                        android.view.KeyEvent.KEYCODE_M -> {
+                            setVolume(if (volume > 0.01f) 0f else 0.5f)
+                            true
+                        }
+
+                        else -> false
+                    }
+                }
+            }
     ) {
         AndroidView(
             factory = { viewContext ->
@@ -1598,6 +1777,7 @@ private fun SkipSilencePlayerScreen(
                     positionMs = currentMs,
                     durationMs = durationMs,
                     bookmarks = bookmarks,
+                    silenceRanges = silencePreviewRanges,
                     onSeek = { target -> player.seekTo(target) },
                     modifier = Modifier.padding(horizontal = 20.dp)
                 )
@@ -2669,6 +2849,7 @@ private fun PlayerSeekBar(
     positionMs: Long,
     durationMs: Long,
     bookmarks: List<BookmarkPoint>,
+    silenceRanges: List<SilenceRangeMs>,
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -2676,6 +2857,9 @@ private fun PlayerSeekBar(
         modifier = modifier
             .fillMaxWidth()
             .height(26.dp)
+            .semantics {
+                contentDescription = "Playback position and detected silence"
+            }
             .pointerInput(durationMs) {
                 detectTapGestures { offset ->
                     if (durationMs > 0) {
@@ -2712,6 +2896,25 @@ private fun PlayerSeekBar(
                 size = Size(size.width, barHeight),
                 cornerRadius = CornerRadius(barHeight / 2f)
             )
+
+            if (durationMs > 0) {
+                silenceRanges.forEach { range ->
+                    val start =
+                        (range.startMs.toFloat() / durationMs.toFloat())
+                            .coerceIn(0f, 1f)
+                    val end =
+                        (range.endMs.toFloat() / durationMs.toFloat())
+                            .coerceIn(start, 1f)
+                    val left = size.width * start
+                    val width = (size.width * (end - start)).coerceAtLeast(1.dp.toPx())
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = 0.42f),
+                        topLeft = Offset(left, barCy - barHeight),
+                        size = Size(width, barHeight * 2f),
+                        cornerRadius = CornerRadius(barHeight)
+                    )
+                }
+            }
 
             val progressWidth = (size.width * fraction).coerceAtLeast(barHeight)
             drawRoundRect(
@@ -3037,8 +3240,13 @@ private fun collectVideoDocuments(
     treeUri: Uri
 ): List<VideoEntry> {
     val resolver = context.contentResolver
-    val results = mutableListOf<VideoEntry>()
+    val videos = mutableListOf<Pair<Uri, String>>()
+    val subtitles = mutableListOf<Pair<Uri, String>>()
     val rootId = DocumentsContract.getTreeDocumentId(treeUri)
+    val videoExtensions = setOf(
+        "mkv", "webm", "mp4", "m4v", "mov", "avi", "ts", "mts", "m2ts"
+    )
+    val subtitleExtensions = setOf("srt", "vtt", "ass", "ssa", "ttml", "xml")
 
     fun walk(documentId: String) {
         val children = DocumentsContract.buildChildDocumentsUriUsingTree(
@@ -3070,26 +3278,17 @@ private fun collectVideoDocuments(
 
                     if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
                         walk(id)
-                    } else if (
-                        mime.startsWith("video/") ||
-                        name.substringAfterLast('.', "")
-                            .lowercase() in setOf(
-                            "mkv",
-                            "webm",
-                            "mp4",
-                            "m4v",
-                            "mov",
-                            "avi",
-                            "ts",
-                            "mts",
-                            "m2ts"
-                        )
-                    ) {
-                        val uri = DocumentsContract.buildDocumentUriUsingTree(
-                            treeUri,
-                            id
-                        )
-                        results += VideoEntry(uri, name)
+                        continue
+                    }
+
+                    val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, id)
+                    val extension = name.substringAfterLast('.', "").lowercase()
+
+                    when {
+                        mime.startsWith("video/") || extension in videoExtensions ->
+                            videos += uri to name
+                        extension in subtitleExtensions ->
+                            subtitles += uri to name
                     }
                 }
             }
@@ -3097,7 +3296,32 @@ private fun collectVideoDocuments(
     }
 
     walk(rootId)
-    return results.sortedBy { it.name.lowercase() }
+
+    return videos
+        .sortedBy { it.second.lowercase() }
+        .map { (videoUri, videoName) ->
+            val candidates = subtitles.filter {
+                subtitleMatchesVideo(videoName, it.second)
+            }
+            val exactBase = videoName.substringBeforeLast('.', videoName).lowercase()
+            val subtitle = candidates.minByOrNull { (_, subtitleName) ->
+                val subtitleBase =
+                    subtitleName.substringBeforeLast('.', subtitleName).lowercase()
+                if (subtitleBase == exactBase) 0 else 1
+            }?.first
+
+            VideoEntry(
+                uri = videoUri,
+                name = videoName,
+                subtitleUri = subtitle
+            )
+        }
+}
+
+private fun canReadUri(context: Context, uri: Uri): Boolean {
+    return runCatching {
+        context.contentResolver.openFileDescriptor(uri, "r")?.use { true } ?: false
+    }.getOrDefault(false)
 }
 
 private fun takePersistableReadPermission(activity: Activity, uri: Uri) {
