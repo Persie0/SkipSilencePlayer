@@ -78,7 +78,8 @@ object AndroidSilenceAnalyzer {
         thresholdDb: Float,
         minimumSilenceSeconds: Float,
         edgePaddingSeconds: Float,
-        adaptive: Boolean
+        adaptive: Boolean,
+        onProgress: (suspend (SilenceDetectionResult, Long) -> Unit)? = null
     ): SilenceDetectionResult {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
@@ -117,6 +118,7 @@ object AndroidSilenceAnalyzer {
             var outputEnded = false
             val bufferInfo = MediaCodec.BufferInfo()
             var stalled = 0
+            var lastPublishedMs = 0L
 
             while (!outputEnded && windows.size < MAX_WINDOWS) {
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
@@ -174,6 +176,26 @@ object AndroidSilenceAnalyzer {
                         outputEnded =
                             bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
                         codec.releaseOutputBuffer(outputIndex, false)
+
+                        val analyzedUntil = windows.lastOrNull()?.endMs ?: 0L
+                        val isFirstPreview =
+                            lastPublishedMs == 0L && analyzedUntil >= 10_000L
+                        val isNextPreview =
+                            lastPublishedMs > 0L &&
+                                analyzedUntil - lastPublishedMs >= 90_000L
+                        if (onProgress != null && (isFirstPreview || isNextPreview)) {
+                            lastPublishedMs = analyzedUntil
+                            val partial = AdaptiveSilenceDetector.detect(
+                                windows = windows,
+                                manualThresholdDb = thresholdDb,
+                                minimumSilenceMs =
+                                    (minimumSilenceSeconds.coerceIn(0.2f, 2f) * 1000).toLong(),
+                                paddingMs =
+                                    (edgePaddingSeconds.coerceIn(0.02f, 0.20f) * 1000).toLong(),
+                                adaptive = adaptive
+                            ).copy(complete = false)
+                            onProgress(partial, analyzedUntil)
+                        }
                     }
                 }
             }
@@ -186,7 +208,7 @@ object AndroidSilenceAnalyzer {
                 paddingMs =
                     (edgePaddingSeconds.coerceIn(0.02f, 0.20f) * 1000).toLong(),
                 adaptive = adaptive
-            )
+            ).copy(complete = outputEnded)
         } finally {
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
