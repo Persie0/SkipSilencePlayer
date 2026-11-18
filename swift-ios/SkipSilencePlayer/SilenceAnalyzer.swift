@@ -80,7 +80,7 @@ actor SilenceAnalyzer {
             var matches: [AVAssetTrack] = []
             for candidate in tracks {
                 let code = try? await candidate.load(.languageCode)
-                if Self.normalizedAudioLanguage(code ?? nil) == wanted {
+                if Self.normalizedAudioLanguage(code) == wanted {
                     matches.append(candidate)
                 }
             }
@@ -211,14 +211,13 @@ actor SilenceAnalyzer {
     }
 
     static func normalizedAudioLanguage(_ input: String?) -> String? {
-        guard let tag = input?
+        guard let input else { return nil }
+        let cleaned = input
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .replacingOccurrences(of: "_", with: "-")
-            .split(separator: "-")
-            .first.map(String.init),
-            tag != "und"
-        else { return nil }
+        let tag = String(cleaned.split(separator: "-").first ?? "")
+        guard !tag.isEmpty, tag != "und" else { return nil }
 
         let aliases: [String: String] = [
             "eng": "en", "deu": "de", "ger": "de", "spa": "es",
