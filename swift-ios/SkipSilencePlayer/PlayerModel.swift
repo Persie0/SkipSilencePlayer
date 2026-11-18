@@ -204,6 +204,7 @@ final class PlayerModel: NSObject, ObservableObject {
     private let defaults = UserDefaults.standard
     private var timeObserver: Any?
     private var analysisTask: Task<Void, Never>?
+    private var analysisRevision = 0
     private var securityURL: URL?
     private var hasSecurityScope = false
     private var playlistSecurityURL: URL?
@@ -1235,7 +1236,11 @@ final class PlayerModel: NSObject, ObservableObject {
 
     private func startSilenceAnalysis(url: URL) {
         analysisTask?.cancel()
+        analysisRevision += 1
+        let revision = analysisRevision
         silenceRanges = []
+        totalSkippableTime = 0
+        recalculateEstimatedWatchTime()
         analysisStatus = adaptiveSilenceEnabled
             ? "Analyzing adaptive noise floor…"
             : String(
@@ -1257,42 +1262,64 @@ final class PlayerModel: NSObject, ObservableObject {
                     thresholdDB: threshold,
                     minimumSilence: minimum,
                     edgePadding: padding,
-                    adaptive: adaptive
+                    adaptive: adaptive,
+                    onProgress: { [weak self] partial in
+                        await MainActor.run {
+                            guard
+                                let self,
+                                self.analysisRevision == revision,
+                                self.selectedURL == url
+                            else { return }
+                            self.displaySilenceAnalysis(partial)
+                        }
+                    }
                 )
 
-                guard !Task.isCancelled, let self, self.selectedURL == url else {
-                    return
-                }
+                guard
+                    !Task.isCancelled,
+                    let self,
+                    self.analysisRevision == revision,
+                    self.selectedURL == url
+                else { return }
 
-                duration = result.duration
-                effectiveSilenceThresholdDB = result.effectiveThresholdDB
-                silenceRanges = result.ranges
-                totalSkippableTime = result.ranges.reduce(0) { $0 + $1.duration }
-                recalculateEstimatedWatchTime()
-
-                if !result.hasAudio {
-                    analysisStatus = "This video has no audio track"
-                } else if result.ranges.isEmpty {
-                    analysisStatus = "No sustained silence found"
-                } else {
-                    analysisStatus = String(
-                        format: "%d ranges · %.0f dB %@ · %@ skippable · est. %@ watch",
-                        result.ranges.count,
-                        result.effectiveThresholdDB,
-                        adaptive ? "(adaptive)" : "(fixed)",
-                        Self.format(seconds: totalSkippableTime),
-                        Self.format(seconds: estimatedWatchTime)
-                    )
-                }
-
-                updateNowPlaying()
+                displaySilenceAnalysis(result)
             } catch is CancellationError {
                 return
             } catch {
-                guard !Task.isCancelled, let self else { return }
-                analysisStatus = error.localizedDescription
+                guard
+                    !Task.isCancelled,
+                    let self,
+                    self.analysisRevision == revision
+                else { return }
+                analysisStatus = "Audio analysis unavailable: " +
+                    error.localizedDescription
             }
         }
+    }
+
+    private func displaySilenceAnalysis(_ result: SilenceAnalysis) {
+        duration = result.duration
+        effectiveSilenceThresholdDB = result.effectiveThresholdDB
+        silenceRanges = result.ranges
+        totalSkippableTime = result.ranges.reduce(0) { $0 + $1.duration }
+        recalculateEstimatedWatchTime()
+
+        if !result.hasAudio {
+            analysisStatus = "This video has no audio track"
+        } else {
+            let prefix = result.complete
+                ? "Analysis complete"
+                : String(format: "Analyzed %.0fs; continuing", result.analyzedUntil)
+            analysisStatus = String(
+                format: "%@ · %d segments · %.0f dB %@ · %@ skippable",
+                prefix,
+                result.ranges.count,
+                result.effectiveThresholdDB,
+                adaptiveSilenceEnabled ? "(adaptive)" : "(fixed)",
+                Self.format(seconds: totalSkippableTime)
+            )
+        }
+        updateNowPlaying()
     }
 
     private func recalculateEstimatedWatchTime() {
