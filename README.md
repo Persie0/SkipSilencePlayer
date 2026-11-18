@@ -57,6 +57,29 @@ Android uses a configurable Media3 `SilenceSkippingAudioProcessor` during playba
 
 iOS analyzes decoded PCM locally with `AVAssetReader`, detects sustained low-RMS ranges, and seeks across those ranges during `AVPlayer` playback. The analysis stays on-device.
 
+## Playback reliability audit: seeks, long media and alternate audio
+
+- Android confirms silence-related position discontinuities before crediting saved
+  time. Failed, superseded, or manual seeks are not counted as automatic savings.
+- A pending automatic seek blocks duplicate seeks while Media3 processes it.
+  Analyzed ranges are used only within their verified decoded coverage.
+- When playback runs beyond a progressive analysis map, Android temporarily
+  returns to native Media3 silence skipping until the analyzed range catches up.
+- The Android and iOS loudness calibration uses a bounded 0.1 dB histogram
+  instead of sorting the entire recording at every progress update.
+- Audio analysis adapts its PCM window size for long recordings to constrain
+  memory usage. Recordings beyond the analysis cap report a terminal partial
+  map rather than claiming analysis is still continuing.
+- When several audio tracks exist, Android matches the selected track by
+  language to the decoded audio stream and reruns analysis after track changes.
+  iOS also reanalyzes the selected language. If an alternate stream cannot be
+  matched unambiguously, silence-map seeking is disabled for that stream
+  rather than risking skipped dialogue. Android can still use native fallback.
+- The test suite covers seek acknowledgment, duplicate suppression,
+  manual-seek isolation, analyzed coverage boundaries, audio-language matching,
+  and duration-aware analysis windows. Real-media audio regression tests still
+  run for digital silence, noisy pauses and quiet speech.
+
 ## Adaptive silence skipping and diagnostics
 
 Silence skipping now works from decoded **RMS audio windows** rather than
