@@ -14,7 +14,8 @@ data class SilenceDetectionResult(
     val ranges: List<SilenceRangeMs>,
     val thresholdDb: Float,
     val noiseFloorDb: Float,
-    val adaptive: Boolean
+    val adaptive: Boolean,
+    val complete: Boolean = true
 )
 
 /**
