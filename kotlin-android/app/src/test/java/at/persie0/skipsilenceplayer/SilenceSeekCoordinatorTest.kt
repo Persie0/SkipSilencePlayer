@@ -54,6 +54,23 @@ class SilenceSeekCoordinatorTest {
     }
 
     @Test
+    fun windowSizeBoundsLongVideoMemoryUse() {
+        assertEquals(20, analysisWindowMs(0L))
+        assertEquals(20, analysisWindowMs(3_600_000L))
+        assertEquals(40, analysisWindowMs(18_000_000L))
+        assertEquals(80, analysisWindowMs(36_000_000L))
+        assertEquals(100, analysisWindowMs(200_000_000L))
+    }
+
+    @Test
+    fun failedRequestNeverConfirmsAfterCancellation() {
+        val gate = SilenceSeekCoordinator()
+        assertTrue(gate.propose("movie", 3000L, 4200L, 1000L))
+        gate.cancel()
+        assertEquals(0L, gate.onDiscontinuity("movie", 3000L, 4200L, true))
+    }
+
+    @Test
     fun incompleteAnalysisUsesFallbackBeyondCoverage() {
         assertTrue(analyzedCoverageContains(5000L, 10000L, true, false))
         assertFalse(analyzedCoverageContains(9900L, 10000L, true, false))
