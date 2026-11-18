@@ -48,21 +48,29 @@ object AdaptiveSilenceDetector {
             return sorted[index]
         }
 
-        val quiet20 = percentile(0.20)
-        val quiet35 = percentile(0.35)
-        val speech75 = percentile(0.75)
-        val floor = if (
-            quiet20 < -75.0 &&
-            quiet35 - quiet20 > 18.0 &&
-            quiet35 + 12.0 < speech75
-        ) quiet35 else quiet20
+        val digitalShare = sorted.count { it <= -80.0 }.toDouble() / sorted.size
+        val audible = sorted.filter { it > -80.0 }
+        val audibleFloor = if (audible.isNotEmpty()) {
+            audible[(audible.lastIndex * 0.25).toInt()]
+        } else {
+            -100.0
+        }
+        val floor = if (digitalShare > 0.10 && audible.size >= 10) {
+            audibleFloor
+        } else {
+            percentile(0.20)
+        }
+        val upper = percentile(0.95)
+        val speechCap = if (upper - floor >= 14.0) {
+            upper - 12.0
+        } else {
+            floor - 6.0 // No clear separation: never classify soft speech as silence.
+        }
 
         val threshold = if (adaptive) {
-            // -10 dB below the user's threshold is a safe floor for digital
-            // quiet; noise recordings can raise it if speech remains separated.
             min(
                 max(manualThresholdDb.toDouble() - 10.0, floor + 8.0),
-                speech75 - 12.0
+                speechCap
             ).coerceIn(-60.0, -20.0).toFloat()
         } else {
             manualThresholdDb.coerceIn(-60f, -20f)
