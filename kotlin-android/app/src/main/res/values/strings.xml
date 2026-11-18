@@ -12,6 +12,7 @@
   <string name="ui_prev">Prev</string>
   <string name="ui_next">Next</string>
   <string name="ui_skip_silence">Skip silence</string>
+  <string name="ui_adaptive_silence">Adaptive noise floor (recommended)</string>
   <string name="ui_audio_only">Audio only</string>
   <string name="ui_lock_gestures">Lock gestures</string>
   <string name="ui_subtitles">Subtitles</string>
