@@ -212,6 +212,7 @@ final class PlayerModel: NSObject, ObservableObject {
     private var jumpingOverSilence = false
     private var persistTick = 0
     private var pendingLoad: PendingLoad?
+    private var dismissedErrorDescription: String?
 
     private var audioGroup: AVMediaSelectionGroup?
     private var subtitleGroup: AVMediaSelectionGroup?
@@ -475,6 +476,7 @@ final class PlayerModel: NSObject, ObservableObject {
     }
 
     func dismissPlaybackError() {
+        dismissedErrorDescription = playbackError
         playbackError = nil
     }
 
@@ -530,12 +532,12 @@ final class PlayerModel: NSObject, ObservableObject {
     }
 
     func retryPlayback() {
+        guard selectedURL != nil else { return }
+        dismissedErrorDescription = nil
         playbackError = nil
-        player.currentItem?.seek(
-            to: .zero,
-            completionHandler: nil
-        )
-        player.play()
+        // AVPlayerItem.failed cannot recover by seeking to zero.
+        // Replace the item so AVFoundation gets a fresh decoder/file handle.
+        loadCurrentPlaylistEntry(position: currentTime)
     }
 
     func seek(by seconds: Double) {
@@ -985,6 +987,7 @@ final class PlayerModel: NSObject, ObservableObject {
         silenceRanges = []
         externalSubtitleText = ""
         playbackError = nil
+        dismissedErrorDescription = nil
         jumpingOverSilence = false
         analysisStatus = "Analyzing audio for silence…"
         abStart = nil
@@ -1764,7 +1767,10 @@ final class PlayerModel: NSObject, ObservableObject {
 
         isPlaying = player.rate != 0
         if let mediaError = player.currentItem?.error {
-            playbackError = mediaError.localizedDescription
+            let description = mediaError.localizedDescription
+            if description != dismissedErrorDescription {
+                playbackError = description
+            }
         }
         updateExternalSubtitle(at: currentTime)
 
