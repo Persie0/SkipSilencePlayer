@@ -1294,7 +1294,7 @@ final class PlayerModel: NSObject, ObservableObject {
                     self.selectedURL == url
                 else { return }
 
-                displaySilenceAnalysis(result)
+                displaySilenceAnalysis(result, isFinalUpdate: true)
             } catch is CancellationError {
                 return
             } catch {
@@ -1309,7 +1309,10 @@ final class PlayerModel: NSObject, ObservableObject {
         }
     }
 
-    private func displaySilenceAnalysis(_ result: SilenceAnalysis) {
+    private func displaySilenceAnalysis(
+        _ result: SilenceAnalysis,
+        isFinalUpdate: Bool = false
+    ) {
         duration = result.duration
         effectiveSilenceThresholdDB = result.effectiveThresholdDB
         silenceRanges = result.ranges
@@ -1319,9 +1322,20 @@ final class PlayerModel: NSObject, ObservableObject {
         if !result.hasAudio {
             analysisStatus = "This video has no audio track"
         } else {
-            let prefix = result.complete
-                ? "Analysis complete"
-                : String(format: "Analyzed %.0fs; continuing", result.analyzedUntil)
+            let prefix: String
+            if result.complete {
+                prefix = "Analysis complete"
+            } else if isFinalUpdate {
+                prefix = String(
+                    format: "Analysis capped at %.0fs; no further ranges",
+                    result.analyzedUntil
+                )
+            } else {
+                prefix = String(
+                    format: "Analyzed %.0fs; continuing",
+                    result.analyzedUntil
+                )
+            }
             analysisStatus = String(
                 format: "%@ · %d segments · %.0f dB %@ · %@ skippable",
                 prefix,
