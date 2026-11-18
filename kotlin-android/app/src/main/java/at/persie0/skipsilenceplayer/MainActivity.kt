@@ -931,26 +931,25 @@ private fun SkipSilencePlayerScreen(
             skippedSeconds = PlaybackRuntime.skippedSeconds()
             val analyzedSkippedSeconds =
                 silencePreviewRanges.sumOf { it.durationMs }.toFloat() / 1000f
-            if (analyzedSkippedSeconds > 0f) {
-                estimatedSkippedSeconds = analyzedSkippedSeconds
-            } else if (durationMs > 0 && currentMs > 30_000L) {
-                val predicted =
-                    skippedSeconds * (durationMs.toFloat() / currentMs.toFloat())
-                estimatedSkippedSeconds = predicted.coerceIn(
-                    skippedSeconds,
-                    durationMs / 1000f
-                )
-            } else {
-                estimatedSkippedSeconds = skippedSeconds
+            estimatedSkippedSeconds = when {
+                !skipSilence -> 0f
+                analyzedSkippedSeconds > 0f -> analyzedSkippedSeconds
+                durationMs > 0 && currentMs > 30_000L -> {
+                    val predicted =
+                        skippedSeconds * (durationMs.toFloat() / currentMs.toFloat())
+                    predicted.coerceIn(skippedSeconds, durationMs / 1000f)
+                }
+                else -> skippedSeconds
             }
             estimatedWatchSeconds =
                 ((durationMs / 1000f - estimatedSkippedSeconds)
                     .coerceAtLeast(0f) / playbackSpeed.coerceAtLeast(0.5f))
 
             val subtitleClock = currentMs - subtitleOffsetMs
-            externalSubtitleText = externalSubtitleCues.firstOrNull {
-                it.startMs <= subtitleClock && subtitleClock < it.endMs
-            }?.text.orEmpty()
+            externalSubtitleText = activeSubtitleCue(
+                externalSubtitleCues,
+                subtitleClock
+            )?.text.orEmpty()
 
             val a = abStartMs
             val b = abEndMs
