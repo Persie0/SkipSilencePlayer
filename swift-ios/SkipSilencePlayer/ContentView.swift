@@ -31,6 +31,7 @@ struct ContentView: View {
     @State private var hideGeneration = 0
     @State private var subtitleSearch = ""
     @State private var pinchStartZoom = 1.0
+    @FocusState private var playerKeyboardFocus: Bool
 
     @State private var showSpeedSheet = false
     @State private var showSilenceSheet = false
@@ -106,6 +107,54 @@ struct ContentView: View {
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(isFullscreen)
+        .focusable()
+        .focused($playerKeyboardFocus)
+        .onAppear {
+            playerKeyboardFocus = true
+        }
+        .onKeyPress(.space) {
+            guard hasVideo else { return .ignored }
+            model.togglePlayback()
+            showControls()
+            return .handled
+        }
+        .onKeyPress(.leftArrow) {
+            guard hasVideo else { return .ignored }
+            model.seek(by: -Double(model.doubleTapSeconds))
+            showHUD("−\(model.doubleTapSeconds) s")
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            guard hasVideo else { return .ignored }
+            model.seek(by: Double(model.doubleTapSeconds))
+            showHUD("+\(model.doubleTapSeconds) s")
+            return .handled
+        }
+        .onKeyPress("j") {
+            guard hasVideo else { return .ignored }
+            model.seek(by: -Double(model.doubleTapSeconds))
+            return .handled
+        }
+        .onKeyPress("k") {
+            guard hasVideo else { return .ignored }
+            model.togglePlayback()
+            return .handled
+        }
+        .onKeyPress("l") {
+            guard hasVideo else { return .ignored }
+            model.seek(by: Double(model.doubleTapSeconds))
+            return .handled
+        }
+        .onKeyPress("f") {
+            guard hasVideo else { return .ignored }
+            setFullscreen(!isFullscreen)
+            return .handled
+        }
+        .onKeyPress("m") {
+            guard hasVideo else { return .ignored }
+            model.toggleMute()
+            return .handled
+        }
         .onOpenURL { url in
             model.openExternalURL(url)
             showControls()
@@ -650,7 +699,8 @@ struct ContentView: View {
             SeekBar(
                 position: model.currentTime,
                 duration: model.duration,
-                bookmarkSeconds: model.bookmarks.map(\.seconds)
+                bookmarkSeconds: model.bookmarks.map(\.seconds),
+                silenceRanges: model.silenceRanges
             ) { target in
                 model.seek(to: target)
             }
@@ -665,6 +715,7 @@ struct ContentView: View {
                 }
                 .disabled(!model.hasPrevious)
                 .foregroundStyle(.white)
+                .accessibilityLabel("Previous video")
 
                 Button {
                     model.seek(by: -Double(model.doubleTapSeconds))
@@ -679,6 +730,7 @@ struct ContentView: View {
                     }
                 }
                 .foregroundStyle(.white)
+                .accessibilityLabel("Seek backward \(model.doubleTapSeconds) seconds")
 
                 Button {
                     model.togglePlayback()
@@ -690,6 +742,7 @@ struct ContentView: View {
                         .frame(width: 58, height: 58)
                         .background(Circle().fill(PlayerColors.accent))
                 }
+                .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
 
                 Button {
                     model.seek(by: Double(model.doubleTapSeconds))
@@ -704,6 +757,7 @@ struct ContentView: View {
                     }
                 }
                 .foregroundStyle(.white)
+                .accessibilityLabel("Seek forward \(model.doubleTapSeconds) seconds")
 
                 Button {
                     model.next()
@@ -713,6 +767,7 @@ struct ContentView: View {
                 }
                 .disabled(!model.hasNext)
                 .foregroundStyle(.white)
+                .accessibilityLabel("Next video")
             }
             .buttonStyle(.plain)
 
@@ -1399,6 +1454,7 @@ private struct SeekBar: View {
     let position: Double
     let duration: Double
     let bookmarkSeconds: [Double]
+    let silenceRanges: [SilenceRange]
     let onSeek: (Double) -> Void
 
     @State private var scrubFraction: Double?
@@ -1418,6 +1474,22 @@ private struct SeekBar: View {
                 Capsule()
                     .fill(Color.white.opacity(0.28))
                     .frame(height: 4)
+
+                if duration > 0 {
+                    ForEach(silenceRanges.indices, id: \.self) { index in
+                        let range = silenceRanges[index]
+                        let start = min(max(range.start / duration, 0), 1)
+                        let end = min(max(range.end / duration, start), 1)
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.white.opacity(0.42))
+                            .frame(
+                                width: max(width * (end - start), 1),
+                                height: 8
+                            )
+                            .offset(x: width * start)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
 
                 Capsule()
                     .fill(PlayerColors.accent)
@@ -1458,6 +1530,12 @@ private struct SeekBar: View {
             )
         }
         .frame(height: 26)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Playback position and detected silence")
+        .accessibilityValue(
+            PlayerModel.format(seconds: position) +
+                " of " + PlayerModel.format(seconds: duration)
+        )
     }
 }
 
