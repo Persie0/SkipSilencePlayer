@@ -6,6 +6,7 @@
   <string name="ui_unlock_gestures">Unlock gestures</string>
   <string name="ui_playback_error">Playback error</string>
   <string name="ui_retry">Retry</string>
+  <string name="ui_dismiss">Dismiss</string>
   <string name="ui_open">Open</string>
   <string name="ui_folder">Folder</string>
   <string name="ui_pip">PiP</string>
