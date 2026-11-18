@@ -91,6 +91,19 @@ Custom timing offset and positioning apply to imported external subtitles. Embed
 - Silence-skipped and estimated viewing-time statistics.
 - Reset player settings.
 
+## Production hardening
+
+- Restores the last local queue/playlist and selected item across app restarts without unexpectedly auto-playing.
+- Skips stale Android queue entries that can no longer be opened; iOS restores only entries whose file bookmarks still resolve.
+- Shows codec/media diagnostics such as video/audio codec, resolution, frame rate, channel count, and sample rate when available.
+- Reports device decode/playability problems instead of only surfacing a generic playback error.
+- Draws detected silent regions directly on the seek bar.
+- Android folder playback automatically pairs same-name subtitles, including language variants such as `movie.en.srt`.
+- Keyboard playback controls are available for external keyboards: Space/K play-pause, J/Left seek back, L/Right seek forward, F fullscreen, and M mute.
+- Accessibility labels and seek-position semantics are provided for core playback controls.
+- Android unit tests cover queue persistence, subtitle-name matching, and silence-range rules.
+- iOS CI includes a generated PCM WAV fixture with known tone/silence intervals and verifies the real AVFoundation decoder/analyzer result.
+
 ## Requirements
 
 Android:
