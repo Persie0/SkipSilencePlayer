@@ -8,8 +8,7 @@ import android.media.MediaFormat
 import android.net.Uri
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import kotlin.math.log10
-import kotlin.math.sqrt
+import kotlinx.coroutines.ensureActive
 
 data class SilenceRangeMs(
     val startMs: Long,
@@ -57,149 +56,204 @@ class SilenceAccumulator(
 }
 
 object AndroidSilenceAnalyzer {
-    fun analyze(
+    private const val MAX_WINDOWS = 900_000 // Roughly five hours of 20 ms samples.
+
+    suspend fun analyze(
         context: Context,
         uri: Uri,
         thresholdDb: Float,
         minimumSilenceSeconds: Float,
-        edgePaddingSeconds: Float
+        edgePaddingSeconds: Float,
+        adaptive: Boolean = true
     ): List<SilenceRangeMs> {
-        val extractor = MediaExtractor()
-        var decoder: MediaCodec? = null
+        return analyzeDetailed(
+            context, uri, thresholdDb, minimumSilenceSeconds,
+            edgePaddingSeconds, adaptive
+        ).ranges
+    }
 
+    suspend fun analyzeDetailed(
+        context: Context,
+        uri: Uri,
+        thresholdDb: Float,
+        minimumSilenceSeconds: Float,
+        edgePaddingSeconds: Float,
+        adaptive: Boolean
+    ): SilenceDetectionResult {
+        val extractor = MediaExtractor()
+        var codec: MediaCodec? = null
+        val windows = ArrayList<AudioLoudnessWindow>()
         try {
             context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
-                if (afd.length >= 0) {
-                    extractor.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                if (afd.length >= 0L) {
+                    extractor.setDataSource(
+                        afd.fileDescriptor, afd.startOffset, afd.length
+                    )
                 } else {
                     extractor.setDataSource(afd.fileDescriptor)
                 }
-            } ?: return emptyList()
+            } ?: throw java.io.FileNotFoundException("Media is no longer accessible.")
 
-            var audioTrack = -1
-            var inputFormat: MediaFormat? = null
+            var audioFormat: MediaFormat? = null
             for (index in 0 until extractor.trackCount) {
                 val format = extractor.getTrackFormat(index)
                 if (format.getString(MediaFormat.KEY_MIME).orEmpty().startsWith("audio/")) {
-                    audioTrack = index
-                    inputFormat = format
+                    extractor.selectTrack(index)
+                    audioFormat = format
                     break
                 }
             }
-            if (audioTrack < 0 || inputFormat == null) return emptyList()
 
-            extractor.selectTrack(audioTrack)
-            val mime = inputFormat.getString(MediaFormat.KEY_MIME) ?: return emptyList()
-            decoder = MediaCodec.createDecoderByType(mime)
-            decoder.configure(inputFormat, null, null, 0)
-            decoder.start()
+            val format = audioFormat
+                ?: return SilenceDetectionResult(emptyList(), thresholdDb, -100f, adaptive)
+            val mime = format.getString(MediaFormat.KEY_MIME)
+                ?: throw IllegalArgumentException("Audio track has no decoder MIME type")
 
-            var outputFormat = requireNotNull(inputFormat)
+            codec = MediaCodec.createDecoderByType(mime)
+            codec.configure(format, null, null, 0)
+            codec.start()
+            var outputFormat = format
             var inputEnded = false
             var outputEnded = false
-            var lastEndMs = 0L
-            val info = MediaCodec.BufferInfo()
-            val accumulator = SilenceAccumulator(
-                thresholdDb = thresholdDb,
-                minimumSilenceMs = (minimumSilenceSeconds * 1000f).toLong(),
-                paddingMs = (edgePaddingSeconds * 1000f).toLong()
-            )
+            val bufferInfo = MediaCodec.BufferInfo()
+            var stalled = 0
 
-            while (!outputEnded) {
+            while (!outputEnded && windows.size < MAX_WINDOWS) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+
                 if (!inputEnded) {
-                    val inputIndex = decoder.dequeueInputBuffer(10_000)
+                    val inputIndex = codec.dequeueInputBuffer(10_000L)
                     if (inputIndex >= 0) {
-                        val input = decoder.getInputBuffer(inputIndex)
-                        val size = if (input != null) extractor.readSampleData(input, 0) else -1
+                        val input = codec.getInputBuffer(inputIndex)
+                        input?.clear()
+                        val size =
+                            if (input == null) -1 else extractor.readSampleData(input, 0)
                         if (size < 0) {
-                            decoder.queueInputBuffer(
-                                inputIndex,
-                                0,
-                                0,
-                                0,
+                            codec.queueInputBuffer(
+                                inputIndex, 0, 0, 0L,
                                 MediaCodec.BUFFER_FLAG_END_OF_STREAM
                             )
                             inputEnded = true
                         } else {
-                            decoder.queueInputBuffer(
-                                inputIndex,
-                                0,
-                                size,
-                                extractor.sampleTime.coerceAtLeast(0L),
-                                0
+                            codec.queueInputBuffer(
+                                inputIndex, 0, size,
+                                extractor.sampleTime.coerceAtLeast(0L), 0
                             )
                             extractor.advance()
                         }
                     }
                 }
 
-                when (val outputIndex = decoder.dequeueOutputBuffer(info, 10_000)) {
-                    MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> outputFormat = decoder.outputFormat
-                    MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
-                    else -> if (outputIndex >= 0) {
-                        val buffer = decoder.getOutputBuffer(outputIndex)
-                        if (buffer != null && info.size > 0) {
-                            buffer.position(info.offset)
-                            buffer.limit(info.offset + info.size)
+                when (val outputIndex = codec.dequeueOutputBuffer(bufferInfo, 10_000L)) {
+                    MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        outputFormat = codec.outputFormat
+                        stalled = 0
+                    }
 
-                            val rate = outputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-                                .coerceAtLeast(1)
-                            val channels = outputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-                                .coerceAtLeast(1)
-                            val encoding = if (
-                                outputFormat.containsKey(MediaFormat.KEY_PCM_ENCODING)
-                            ) {
-                                outputFormat.getInteger(MediaFormat.KEY_PCM_ENCODING)
-                            } else {
-                                AudioFormat.ENCODING_PCM_16BIT
-                            }
-                            val bytesPerSample =
-                                if (encoding == AudioFormat.ENCODING_PCM_FLOAT) 4 else 2
-                            val frames = info.size.toLong() /
-                                (bytesPerSample * channels).coerceAtLeast(1)
-                            val durationMs = frames * 1000L / rate
-                            val startMs = info.presentationTimeUs.coerceAtLeast(0L) / 1000L
-                            val endMs = startMs + durationMs
-                            lastEndMs = maxOf(lastEndMs, endMs)
-                            accumulator.accept(startMs, endMs, pcmDb(buffer, encoding))
+                    MediaCodec.INFO_TRY_AGAIN_LATER -> {
+                        stalled++
+                        if (inputEnded && stalled > 150) {
+                            throw java.io.IOException("Audio decoder stopped producing output")
                         }
+                    }
 
+                    else -> if (outputIndex >= 0) {
+                        stalled = 0
+                        val output = codec.getOutputBuffer(outputIndex)
+                        if (output != null && bufferInfo.size > 0) {
+                            output.position(bufferInfo.offset)
+                            output.limit(bufferInfo.offset + bufferInfo.size)
+                            windows.addAll(
+                                pcmWindows(
+                                    source = output.slice().order(ByteOrder.nativeOrder()),
+                                    timestampUs = bufferInfo.presentationTimeUs,
+                                    outputFormat = outputFormat
+                                )
+                            )
+                        }
                         outputEnded =
-                            info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
-                        decoder.releaseOutputBuffer(outputIndex, false)
+                            bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
+                        codec.releaseOutputBuffer(outputIndex, false)
                     }
                 }
             }
 
-            return accumulator.finish(lastEndMs)
+            return AdaptiveSilenceDetector.detect(
+                windows = windows,
+                manualThresholdDb = thresholdDb,
+                minimumSilenceMs =
+                    (minimumSilenceSeconds.coerceIn(0.2f, 2f) * 1000).toLong(),
+                paddingMs =
+                    (edgePaddingSeconds.coerceIn(0.02f, 0.20f) * 1000).toLong(),
+                adaptive = adaptive
+            )
         } finally {
-            runCatching { decoder?.stop() }
-            runCatching { decoder?.release() }
-            runCatching { extractor.release() }
+            runCatching { codec?.stop() }
+            runCatching { codec?.release() }
+            extractor.release()
         }
     }
 
-    private fun pcmDb(source: ByteBuffer, encoding: Int): Double {
-        val buffer = source.slice().order(ByteOrder.nativeOrder())
-        var squares = 0.0
-        var count = 0
-
-        if (encoding == AudioFormat.ENCODING_PCM_FLOAT) {
-            while (buffer.remaining() >= 4) {
-                val sample = buffer.float.toDouble().coerceIn(-1.0, 1.0)
-                squares += sample * sample
-                count++
-            }
+    private fun pcmWindows(
+        source: ByteBuffer,
+        timestampUs: Long,
+        outputFormat: MediaFormat
+    ): List<AudioLoudnessWindow> {
+        val rate = outputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            .coerceAtLeast(1)
+        val channels = outputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            .coerceAtLeast(1)
+        val encoding = if (outputFormat.containsKey(MediaFormat.KEY_PCM_ENCODING)) {
+            outputFormat.getInteger(MediaFormat.KEY_PCM_ENCODING)
         } else {
-            while (buffer.remaining() >= 2) {
-                val sample = buffer.short.toDouble() / Short.MAX_VALUE.toDouble()
-                squares += sample * sample
-                count++
-            }
+            AudioFormat.ENCODING_PCM_16BIT
+        }
+        if (
+            encoding != AudioFormat.ENCODING_PCM_16BIT &&
+            encoding != AudioFormat.ENCODING_PCM_FLOAT
+        ) {
+            throw IllegalArgumentException("Unsupported decoded PCM format: $encoding")
         }
 
-        if (count == 0) return Double.NEGATIVE_INFINITY
-        val rms = sqrt(squares / count)
-        return if (rms <= 0.0) Double.NEGATIVE_INFINITY else 20.0 * log10(rms)
+        val bytesPerSample =
+            if (encoding == AudioFormat.ENCODING_PCM_FLOAT) 4 else 2
+        val bytesPerFrame = channels * bytesPerSample
+        val totalFrames = source.remaining() / bytesPerFrame
+        val framesPerWindow = (rate / 50).coerceAtLeast(1)
+        val baseUs = timestampUs.coerceAtLeast(0L)
+        val result = ArrayList<AudioLoudnessWindow>(
+            (totalFrames / framesPerWindow) + 1
+        )
+
+        var processedFrames = 0
+        while (processedFrames < totalFrames) {
+            val currentFrames = minOf(
+                framesPerWindow, totalFrames - processedFrames
+            )
+            var sumSquares = 0.0
+            for (index in 0 until currentFrames * channels) {
+                val value = if (encoding == AudioFormat.ENCODING_PCM_FLOAT) {
+                    source.float.toDouble().takeIf { it.isFinite() }
+                        ?.coerceIn(-1.0, 1.0) ?: 0.0
+                } else {
+                    source.short.toDouble() / Short.MAX_VALUE.toDouble()
+                }
+                sumSquares += value * value
+            }
+
+            val samples = (currentFrames * channels).coerceAtLeast(1)
+            val rms = kotlin.math.sqrt(sumSquares / samples)
+            val db = if (rms > 0) 20.0 * kotlin.math.log10(rms) else -100.0
+            val start = (baseUs + processedFrames * 1_000_000L / rate) / 1000L
+            val end = (
+                baseUs + (processedFrames + currentFrames) * 1_000_000L / rate
+            ) / 1000L
+
+            if (end > start) {
+                result.add(AudioLoudnessWindow(start, end, db))
+            }
+            processedFrames += currentFrames
+        }
+        return result
     }
 }
