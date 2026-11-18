@@ -9,6 +9,15 @@ struct SilenceAnalyzerHarness {
             exit(2)
         }
 
+        guard
+            SilenceAnalyzer.normalizedAudioLanguage("en-US") == "en",
+            SilenceAnalyzer.normalizedAudioLanguage("eng") == "en",
+            SilenceAnalyzer.normalizedAudioLanguage("deu") == "de",
+            SilenceAnalyzer.normalizedAudioLanguage("und") == nil
+        else {
+            throw HarnessError("audio-language matching regression")
+        }
+
         let url = URL(fileURLWithPath: CommandLine.arguments[1])
         let mode = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "digital"
         let analyzer = SilenceAnalyzer()
