@@ -3295,8 +3295,14 @@ private fun collectVideoDocuments(
     treeUri: Uri
 ): List<VideoEntry> {
     val resolver = context.contentResolver
-    val videos = mutableListOf<Pair<Uri, String>>()
-    val subtitles = mutableListOf<Pair<Uri, String>>()
+    data class LocatedDocument(
+        val uri: Uri,
+        val name: String,
+        val parentId: String
+    )
+
+    val videos = mutableListOf<LocatedDocument>()
+    val subtitles = mutableListOf<LocatedDocument>()
     val rootId = DocumentsContract.getTreeDocumentId(treeUri)
     val videoExtensions = setOf(
         "mkv", "webm", "mp4", "m4v", "mov", "avi", "ts", "mts", "m2ts"
@@ -3341,9 +3347,9 @@ private fun collectVideoDocuments(
 
                     when {
                         mime.startsWith("video/") || extension in videoExtensions ->
-                            videos += uri to name
+                            videos += LocatedDocument(uri, name, documentId)
                         extension in subtitleExtensions ->
-                            subtitles += uri to name
+                            subtitles += LocatedDocument(uri, name, documentId)
                     }
                 }
             }
@@ -3353,21 +3359,22 @@ private fun collectVideoDocuments(
     walk(rootId)
 
     return videos
-        .sortedBy { it.second.lowercase() }
-        .map { (videoUri, videoName) ->
+        .sortedBy { it.name.lowercase() }
+        .map { video ->
             val candidates = subtitles.filter {
-                subtitleMatchesVideo(videoName, it.second)
+                it.parentId == video.parentId &&
+                    subtitleMatchesVideo(video.name, it.name)
             }
-            val exactBase = videoName.substringBeforeLast('.', videoName).lowercase()
-            val subtitle = candidates.minByOrNull { (_, subtitleName) ->
+            val exactBase = video.name.substringBeforeLast('.', video.name).lowercase()
+            val subtitle = candidates.minByOrNull { candidate ->
                 val subtitleBase =
-                    subtitleName.substringBeforeLast('.', subtitleName).lowercase()
+                    candidate.name.substringBeforeLast('.', candidate.name).lowercase()
                 if (subtitleBase == exactBase) 0 else 1
-            }?.first
+            }?.uri
 
             VideoEntry(
-                uri = videoUri,
-                name = videoName,
+                uri = video.uri,
+                name = video.name,
                 subtitleUri = subtitle
             )
         }
