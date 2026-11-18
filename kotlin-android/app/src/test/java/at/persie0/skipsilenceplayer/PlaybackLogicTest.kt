@@ -60,6 +60,24 @@ class PlaybackLogicTest {
     }
 
     @Test
+    fun activeSubtitleCueUsesCorrectBoundaries() {
+        val cues = listOf(
+            SubtitleCue(1000L, 1900L, "First"),
+            SubtitleCue(5000L, 6000L, "Second"),
+            SubtitleCue(9000L, 9800L, "Third")
+        )
+
+        assertNull(activeSubtitleCue(cues, 999L))
+        assertEquals("First", activeSubtitleCue(cues, 1000L)?.text)
+        assertNull(activeSubtitleCue(cues, 1900L))
+        assertNull(activeSubtitleCue(cues, 4900L))
+        assertEquals("Second", activeSubtitleCue(cues, 5500L)?.text)
+        assertEquals("Third", activeSubtitleCue(cues, 9000L)?.text)
+        assertNull(activeSubtitleCue(cues, 9800L))
+        assertNull(activeSubtitleCue(emptyList(), 2000L))
+    }
+
+    @Test
     fun malformedQueueDoesNotCrash() {
         assertNull(QueueCodec.decode("{not-json"))
         assertNull(QueueCodec.decode(null))
