@@ -697,6 +697,9 @@ final class PlayerModel: NSObject, ObservableObject {
 
         item.select(audioOptions[index], in: group)
         selectedAudioIndex = index
+        if let selectedURL {
+            startSilenceAnalysis(url: selectedURL)
+        }
     }
 
     func selectSubtitle(index: Int?) {
@@ -999,6 +1002,14 @@ final class PlayerModel: NSObject, ObservableObject {
         estimatedWatchTime = 0
         silenceRanges = []
         externalSubtitleText = ""
+        audioGroup = nil
+        audioOptions = []
+        audioTrackNames = []
+        selectedAudioIndex = nil
+        subtitleGroup = nil
+        subtitleOptions = []
+        subtitleTrackNames = []
+        selectedSubtitleIndex = nil
         playbackError = nil
         dismissedErrorDescription = nil
         jumpingOverSilence = false
@@ -1265,6 +1276,11 @@ final class PlayerModel: NSObject, ObservableObject {
         let minimum = minimumSilence
         let padding = edgePadding
         let adaptive = adaptiveSilenceEnabled
+        let preferredAudioLanguage = selectedAudioIndex.flatMap { index in
+            guard audioOptions.indices.contains(index) else { return nil }
+            return audioOptions[index].extendedLanguageTag ??
+                audioOptions[index].locale?.identifier
+        }
         let analyzer = SilenceAnalyzer()
 
         analysisTask = Task { [weak self] in
@@ -1275,6 +1291,7 @@ final class PlayerModel: NSObject, ObservableObject {
                     minimumSilence: minimum,
                     edgePadding: padding,
                     adaptive: adaptive,
+                    preferredAudioLanguage: preferredAudioLanguage,
                     onProgress: { [weak self] partial in
                         await MainActor.run {
                             guard
@@ -1388,6 +1405,13 @@ final class PlayerModel: NSObject, ObservableObject {
                 selectedSubtitleIndex = subtitleOptions.firstIndex(of: selected)
             } else {
                 selectedSubtitleIndex = nil
+            }
+
+            if audioOptions.count > 1, let selectedURL {
+                // The initial decoder analysis may have started before AVKit
+                // resolved the selected audible language. Re-analyze once the
+                // actual media selection is known.
+                startSilenceAnalysis(url: selectedURL)
             }
         }
     }
