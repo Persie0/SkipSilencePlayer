@@ -170,24 +170,44 @@ actor SilenceAnalyzer {
         guard !windows.isEmpty else {
             return Detection(ranges: [], threshold: manualThresholdDB, floor: -100)
         }
-        let sorted = windows.map {
-            $0.db.isNaN ? 0.0 : min(0, max(-100, $0.db))
-        }.sorted()
-        func percentile(_ fraction: Double) -> Double {
-            let index = min(
-                sorted.count - 1,
-                max(0, Int(Double(sorted.count - 1) * fraction))
-            )
-            return sorted[index]
+        // Bounded 0.1 dB histogram avoids resorting every decoded window
+        // on each progressive update of a long recording.
+        var bins = [Int](repeating: 0, count: 1001)
+        var digitalCount = 0
+        var audibleCount = 0
+        for window in windows {
+            let db = window.db.isNaN
+                ? 0.0 : min(0.0, max(-100.0, window.db))
+            let bucket = min(1000, max(0, Int((db + 100) * 10)))
+            bins[bucket] += 1
+            if db <= -80 {
+                digitalCount += 1
+            } else {
+                audibleCount += 1
+            }
         }
 
-        let digitalShare =
-            Double(sorted.filter { $0 <= -80 }.count) / Double(sorted.count)
-        let audible = sorted.filter { $0 > -80 }
-        let audibleFloor = audible.isEmpty
-            ? -100.0
-            : audible[Int(Double(audible.count - 1) * 0.25)]
-        let floor = digitalShare > 0.10 && audible.count >= 10
+        func percentile(
+            _ fraction: Double,
+            firstBucket: Int = 0
+        ) -> Double {
+            let total = firstBucket == 0 ? windows.count : audibleCount
+            guard total > 0 else { return -100 }
+            let rank = Int(Double(total - 1) * fraction)
+            var seen = 0
+            for bucket in firstBucket...1000 {
+                seen += bins[bucket]
+                if seen > rank {
+                    return -100 + Double(bucket) / 10
+                }
+            }
+            return 0
+        }
+
+        let digitalShare = Double(digitalCount) / Double(windows.count)
+        let audibleFloor = audibleCount >= 10
+            ? percentile(0.25, firstBucket: 201) : -100
+        let floor = digitalShare > 0.10 && audibleCount >= 10
             ? audibleFloor : percentile(0.20)
         let upper = percentile(0.95)
         let speechCap = upper - floor >= 14
