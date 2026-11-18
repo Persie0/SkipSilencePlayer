@@ -41,23 +41,36 @@ object AdaptiveSilenceDetector {
             )
         }
 
-        val sorted = windows.map { sample ->
-            if (sample.db.isNaN()) 0.0 else sample.db.coerceIn(-100.0, 0.0)
-        }.sorted()
-
-        fun percentile(p: Double): Double {
-            val index = ((sorted.lastIndex) * p).toInt().coerceIn(0, sorted.lastIndex)
-            return sorted[index]
+        // A 0.1 dB histogram avoids sorting hundreds of thousands of
+        // samples again after every long-video progress update.
+        val bins = IntArray(1001)
+        var digitalCount = 0
+        var audibleCount = 0
+        for (sample in windows) {
+            val db =
+                if (sample.db.isNaN()) 0.0 else sample.db.coerceIn(-100.0, 0.0)
+            val bucket = ((db + 100.0) * 10.0)
+                .toInt().coerceIn(0, 1000)
+            bins[bucket]++
+            if (db <= -80.0) digitalCount++ else audibleCount++
         }
 
-        val digitalShare = sorted.count { it <= -80.0 }.toDouble() / sorted.size
-        val audible = sorted.filter { it > -80.0 }
-        val audibleFloor = if (audible.isNotEmpty()) {
-            audible[(audible.lastIndex * 0.25).toInt()]
-        } else {
-            -100.0
+        fun percentile(fraction: Double, firstBucket: Int = 0): Double {
+            val total = if (firstBucket == 0) windows.size else audibleCount
+            if (total <= 0) return -100.0
+            val rank = ((total - 1) * fraction).toInt()
+            var seen = 0
+            for (bucket in firstBucket..1000) {
+                seen += bins[bucket]
+                if (seen > rank) return -100.0 + bucket / 10.0
+            }
+            return 0.0
         }
-        val floor = if (digitalShare > 0.10 && audible.size >= 10) {
+
+        val digitalShare = digitalCount.toDouble() / windows.size
+        val audibleFloor =
+            if (audibleCount >= 10) percentile(0.25, 201) else -100.0
+        val floor = if (digitalShare > 0.10 && audibleCount >= 10) {
             audibleFloor
         } else {
             percentile(0.20)
