@@ -18,6 +18,36 @@ struct SilenceAnalyzerHarness {
             throw HarnessError("audio-language matching regression")
         }
 
+        let ranges = [
+            SilenceRange(start: 1.0, end: 2.0),
+            SilenceRange(start: 5.0, end: 6.5),
+            SilenceRange(start: 10.0, end: 12.0)
+        ]
+        guard
+            SilenceAnalyzer.range(containing: 1.0, in: ranges) == ranges[0],
+            SilenceAnalyzer.range(containing: 5.5, in: ranges) == ranges[1],
+            SilenceAnalyzer.range(containing: 12.0, in: ranges) == nil,
+            SilenceAnalyzer.range(containing: 3.0, in: ranges) == nil,
+            SilenceAnalyzer.range(containing: .nan, in: ranges) == nil,
+            SilenceAnalyzer.range(containing: 1.0, in: []) == nil
+        else {
+            throw HarnessError("silence-range binary lookup regression")
+        }
+
+        guard
+            PlaybackResumePosition.stored(
+                current: 120.0, duration: 120.0, completed: true
+            ) == 0,
+            PlaybackResumePosition.stored(
+                current: 48.0, duration: 120.0, completed: false
+            ) == 48,
+            PlaybackResumePosition.stored(
+                current: .infinity, duration: 120.0, completed: false
+            ) == 0
+        else {
+            throw HarnessError("completed-video resume regression")
+        }
+
         let url = URL(fileURLWithPath: CommandLine.arguments[1])
         let mode = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "digital"
         let analyzer = SilenceAnalyzer()
