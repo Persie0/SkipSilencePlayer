@@ -381,6 +381,9 @@ private fun SkipSilencePlayerScreen(
     var edgePadding by remember {
         mutableFloatStateOf(preferences.getFloat("edge_padding", 0.08f))
     }
+    var adaptiveSilence by remember {
+        mutableStateOf(preferences.getBoolean("adaptive_silence", true))
+    }
     var playbackSpeed by remember {
         mutableFloatStateOf(preferences.getFloat("playback_speed", 1f))
     }
@@ -409,6 +412,8 @@ private fun SkipSilencePlayerScreen(
     var playerError by remember { mutableStateOf<String?>(null) }
     var activeUri by remember { mutableStateOf<Uri?>(null) }
     var activeMediaId by remember { mutableStateOf("") }
+    var lastKnownPositionMs by remember { mutableLongStateOf(0L) }
+    var subtitleLoadRevision by remember { mutableIntStateOf(0) }
 
     var recentVideos by remember {
         mutableStateOf(loadRecentVideos(preferences))
@@ -416,10 +421,7 @@ private fun SkipSilencePlayerScreen(
     var currentQueueEntries by remember {
         mutableStateOf<List<VideoEntry>>(emptyList())
     }
-    var silencePreviewRanges by remember {
-        mutableStateOf<List<SilenceRangeMs>>(emptyList())
-    }
-    var silenceAnalysisRevision by remember { mutableIntStateOf(0) }
+    val silencePreviewRanges = PlaybackRuntime.silenceRanges
 
     var controlsVisible by remember { mutableStateOf(true) }
     var isFullscreen by remember { mutableStateOf(false) }
@@ -542,13 +544,23 @@ private fun SkipSilencePlayerScreen(
     fun saveCurrentState() {
         val uri = activeUri ?: return
         val key = mediaKey(uri)
+        // During an automatic playlist transition the controller is already
+        // reporting the NEXT item's position. Never overwrite the previous
+        // video's resume position with that value.
+        val position =
+            if (player.currentMediaItem?.mediaId == activeMediaId) {
+                player.currentPosition.coerceAtLeast(0L)
+            } else {
+                lastKnownPositionMs
+            }
         preferences.edit()
-            .putLong("${key}_position", player.currentPosition.coerceAtLeast(0L))
+            .putLong("${key}_position", position)
             .putFloat("${key}_speed", playbackSpeed)
             .putFloat("${key}_threshold", silenceThresholdDb)
             .putFloat("${key}_minimum", minimumSilence)
             .putFloat("${key}_padding", edgePadding)
             .putBoolean("${key}_skip", skipSilence)
+            .putBoolean("${key}_adaptive", adaptiveSilence)
             .putString("${key}_subtitle", selectedSubtitleUri?.toString())
             .apply()
         if (currentQueueEntries.isNotEmpty()) {
@@ -557,8 +569,12 @@ private fun SkipSilencePlayerScreen(
     }
 
     fun loadExternalSubtitle(uri: Uri?) {
+        subtitleLoadRevision++
+        val revision = subtitleLoadRevision
         selectedSubtitleUri = uri
         subtitleName = uri?.let { queryDisplayName(context, it) }
+        externalSubtitleCues = emptyList()
+        externalSubtitleText = ""
 
         if (uri == null) {
             externalSubtitleCues = emptyList()
@@ -567,13 +583,18 @@ private fun SkipSilencePlayerScreen(
         }
 
         scope.launch {
-            externalSubtitleCues = withContext(Dispatchers.IO) {
-                SubtitleParser.parse(context, uri)
+            val cues = withContext(Dispatchers.IO) {
+                runCatching { SubtitleParser.parse(context, uri) }
+                    .getOrDefault(emptyList())
             }
-            gestureText = if (externalSubtitleCues.isEmpty()) {
-                "No subtitle cues found"
+            if (revision != subtitleLoadRevision || selectedSubtitleUri != uri) {
+                return@launch
+            }
+            externalSubtitleCues = cues
+            gestureText = if (cues.isEmpty()) {
+                "No subtitle cues found or subtitle cannot be read"
             } else {
-                "${externalSubtitleCues.size} subtitle cues loaded"
+                "${cues.size} subtitle cues loaded"
             }
         }
     }
@@ -596,6 +617,10 @@ private fun SkipSilencePlayerScreen(
         silenceThresholdDb = newThreshold
         minimumSilence = newMinimum
         edgePadding = newPadding
+        adaptiveSilence = preferences.getBoolean(
+            "${key}_adaptive",
+            preferences.getBoolean("adaptive_silence", true)
+        )
         playbackSpeed = preferences.getFloat(
             "${key}_speed",
             preferences.getFloat("playback_speed", 1f)
@@ -606,7 +631,7 @@ private fun SkipSilencePlayerScreen(
         )
 
         PlaybackRuntime.reconfigureSilence(
-            SilenceConfig(newThreshold, newMinimum, newPadding)
+            SilenceConfig(newThreshold, newMinimum, newPadding, adaptiveSilence)
         )
         player.setPlaybackSpeed(playbackSpeed)
         PlaybackRuntime.setSkipSilenceEnabled(skipSilence)
@@ -654,6 +679,9 @@ private fun SkipSilencePlayerScreen(
         } else {
             player.pause()
         }
+        activeMediaId = selected.uri.toString()
+        activeUri = selected.uri
+        lastKnownPositionMs = positionMs.coerceAtLeast(0L)
         persistQueue(entries, selected.uri)
         controlsVisible = true
 
@@ -691,16 +719,17 @@ private fun SkipSilencePlayerScreen(
             .putFloat("silence_threshold_db", silenceThresholdDb)
             .putFloat("minimum_silence", minimumSilence)
             .putFloat("edge_padding", edgePadding)
+            .putBoolean("adaptive_silence", adaptiveSilence)
             .apply()
         saveCurrentState()
         PlaybackRuntime.reconfigureSilence(
             SilenceConfig(
                 silenceThresholdDb,
                 minimumSilence,
-                edgePadding
+                edgePadding,
+                adaptiveSilence
             )
         )
-        silenceAnalysisRevision++
     }
 
     fun seekBy(deltaMs: Long) {
@@ -849,6 +878,7 @@ private fun SkipSilencePlayerScreen(
                     ?: queryDisplayName(context, uri)
                 fileInfo = queryFileSize(context, uri)
                 applyVideoPreferences(uri)
+                lastKnownPositionMs = currentMs
 
                 if (selectedSubtitleUri == null) {
                     val automaticSubtitle = currentQueueEntries
@@ -939,26 +969,8 @@ private fun SkipSilencePlayerScreen(
                 persistenceTick = 0
                 saveCurrentState()
             }
+            lastKnownPositionMs = currentMs
             delay(200)
-        }
-    }
-
-    LaunchedEffect(activeUri, silenceAnalysisRevision) {
-        val uri = activeUri
-        if (uri == null) {
-            silencePreviewRanges = emptyList()
-        } else {
-            silencePreviewRanges = withContext(Dispatchers.IO) {
-                runCatching {
-                    AndroidSilenceAnalyzer.analyze(
-                        context = context,
-                        uri = uri,
-                        thresholdDb = silenceThresholdDb,
-                        minimumSilenceSeconds = minimumSilence,
-                        edgePaddingSeconds = edgePadding
-                    )
-                }.getOrDefault(emptyList())
-            }
         }
     }
 
@@ -1990,6 +2002,22 @@ private fun SkipSilencePlayerScreen(
                                 .apply()
                             saveCurrentState()
                         }
+                    )
+
+                    SheetSwitchRow(
+                        label = stringResource(R.string.ui_adaptive_silence),
+                        checked = adaptiveSilence,
+                        onCheckedChange = {
+                            adaptiveSilence = it
+                            applySilenceSettings()
+                        }
+                    )
+
+                    Text(
+                        PlaybackRuntime.analysisStatus,
+                        fontSize = 12.sp,
+                        color = PlayerAccent,
+                        modifier = Modifier.padding(vertical = 8.dp)
                     )
 
                     ChoiceChips(
