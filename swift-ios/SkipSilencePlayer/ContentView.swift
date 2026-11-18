@@ -883,6 +883,16 @@ struct ContentView: View {
             )
             .tint(PlayerColors.accent)
 
+            Toggle(
+                "Adaptive noise floor (recommended)",
+                isOn: Binding(
+                    get: { model.adaptiveSilenceEnabled },
+                    set: { model.setAdaptiveSilenceEnabled($0) }
+                )
+            )
+            .tint(PlayerColors.accent)
+            .disabled(!model.silenceEnabled)
+
             SectionLabel(text: "Preset")
 
             ScrollView(.horizontal, showsIndicators: false) {
