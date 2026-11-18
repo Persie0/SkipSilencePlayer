@@ -86,6 +86,7 @@ object AndroidSilenceAnalyzer {
         minimumSilenceSeconds: Float,
         edgePaddingSeconds: Float,
         adaptive: Boolean,
+        preferredAudioLanguage: String? = null,
         onProgress: (suspend (SilenceDetectionResult, Long) -> Unit)? = null
     ): SilenceDetectionResult {
         val extractor = MediaExtractor()
@@ -102,18 +103,35 @@ object AndroidSilenceAnalyzer {
                 }
             } ?: throw java.io.FileNotFoundException("Media is no longer accessible.")
 
-            var audioFormat: MediaFormat? = null
+            val audioStreams = mutableListOf<AudioStreamCandidate>()
             for (index in 0 until extractor.trackCount) {
-                val format = extractor.getTrackFormat(index)
-                if (format.getString(MediaFormat.KEY_MIME).orEmpty().startsWith("audio/")) {
-                    extractor.selectTrack(index)
-                    audioFormat = format
-                    break
+                val candidate = extractor.getTrackFormat(index)
+                if (
+                    candidate.getString(MediaFormat.KEY_MIME)
+                        .orEmpty().startsWith("audio/")
+                ) {
+                    audioStreams += AudioStreamCandidate(
+                        index = index,
+                        language = if (candidate.containsKey(MediaFormat.KEY_LANGUAGE)) {
+                            candidate.getString(MediaFormat.KEY_LANGUAGE)
+                        } else {
+                            null
+                        }
+                    )
                 }
             }
 
-            val format = audioFormat
-                ?: return SilenceDetectionResult(emptyList(), thresholdDb, -100f, adaptive)
+            if (audioStreams.isEmpty()) {
+                return SilenceDetectionResult(emptyList(), thresholdDb, -100f, adaptive)
+            }
+            val selectedStream = chooseAudioStreamIndex(
+                audioStreams, preferredAudioLanguage
+            ) ?: throw IllegalStateException(
+                "Multiple audio tracks cannot be matched to the selected language. " +
+                    "Use native silence skipping for this video."
+            )
+            extractor.selectTrack(selectedStream)
+            val format = extractor.getTrackFormat(selectedStream)
             val mime = format.getString(MediaFormat.KEY_MIME)
                 ?: throw IllegalArgumentException("Audio track has no decoder MIME type")
 
