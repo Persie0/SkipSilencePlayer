@@ -15,6 +15,8 @@ struct SilenceAnalysis: Sendable {
     let ranges: [SilenceRange]
     let hasAudio: Bool
     let duration: Double
+    let effectiveThresholdDB: Double
+    let noiseFloorDB: Double
 }
 
 actor SilenceAnalyzer {
@@ -36,7 +38,8 @@ actor SilenceAnalyzer {
         url: URL,
         thresholdDB: Double = -42.0,
         minimumSilence: Double = 0.45,
-        edgePadding: Double = 0.08
+        edgePadding: Double = 0.08,
+        adaptive: Bool = true
     ) async throws -> SilenceAnalysis {
         let asset = AVURLAsset(url: url)
         let durationTime = try await asset.load(.duration)
@@ -45,7 +48,13 @@ actor SilenceAnalyzer {
         let tracks = try await asset.loadTracks(withMediaType: .audio)
 
         guard let track = tracks.first else {
-            return SilenceAnalysis(ranges: [], hasAudio: false, duration: duration)
+            return SilenceAnalysis(
+                ranges: [],
+                hasAudio: false,
+                duration: duration,
+                effectiveThresholdDB: thresholdDB,
+                noiseFloorDB: -100
+            )
         }
 
         let reader = try AVAssetReader(asset: asset)
@@ -69,82 +78,125 @@ actor SilenceAnalyzer {
             throw reader.error ?? AnalyzerError.cannotRead
         }
 
-        var ranges: [SilenceRange] = []
-        var silenceStart: Double?
-        var lastEnd = 0.0
-
+        var windows: [PCMWindow] = []
         while let sampleBuffer = output.copyNextSampleBuffer() {
             if Task.isCancelled {
                 reader.cancelReading()
                 throw CancellationError()
             }
 
-            let windows = Self.pcmWindows(of: sampleBuffer)
-            if windows.isEmpty {
-                let start = CMTimeGetSeconds(
-                    CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                )
-                let sampleDuration = Self.durationSeconds(of: sampleBuffer)
-                let end = max(start, start + sampleDuration)
-                lastEnd = max(lastEnd, end)
-
-                let db = Self.decibels(of: sampleBuffer)
-                if db <= thresholdDB {
-                    if silenceStart == nil {
-                        silenceStart = start
-                    }
-                } else if let began = silenceStart {
-                    Self.appendRange(
-                        from: began,
-                        to: start,
-                        minimumSilence: minimumSilence,
-                        edgePadding: edgePadding,
-                        into: &ranges
-                    )
-                    silenceStart = nil
+            let sampleWindows = Self.pcmWindows(of: sampleBuffer)
+            if sampleWindows.isEmpty {
+                // A decoded PCM buffer with samples but no accessible PCM data
+                // is NOT silence. Fail closed instead of skipping speech.
+                if CMSampleBufferGetNumSamples(sampleBuffer) > 0 {
+                    reader.cancelReading()
+                    throw AnalyzerError.cannotRead
                 }
                 continue
             }
-
-            for window in windows {
-                lastEnd = max(lastEnd, window.end)
-
-                if window.db <= thresholdDB {
-                    if silenceStart == nil {
-                        silenceStart = window.start
-                    }
-                } else if let began = silenceStart {
-                    Self.appendRange(
-                        from: began,
-                        to: window.start,
-                        minimumSilence: minimumSilence,
-                        edgePadding: edgePadding,
-                        into: &ranges
-                    )
-                    silenceStart = nil
-                }
-            }
-        }
-
-        if let began = silenceStart {
-            Self.appendRange(
-                from: began,
-                to: max(lastEnd, duration),
-                minimumSilence: minimumSilence,
-                edgePadding: edgePadding,
-                into: &ranges
-            )
+            windows.append(contentsOf: sampleWindows)
         }
 
         if reader.status == .failed {
             throw reader.error ?? AnalyzerError.readerFailed
         }
 
-        return SilenceAnalysis(
-            ranges: Self.mergeAdjacent(ranges),
-            hasAudio: true,
-            duration: duration
+        let detection = Self.detect(
+            windows: windows,
+            manualThresholdDB: thresholdDB,
+            minimumSilence: minimumSilence,
+            edgePadding: edgePadding,
+            adaptive: adaptive
         )
+        return SilenceAnalysis(
+            ranges: detection.ranges,
+            hasAudio: true,
+            duration: duration,
+            effectiveThresholdDB: detection.threshold,
+            noiseFloorDB: detection.floor
+        )
+    }
+
+    private struct Detection {
+        let ranges: [SilenceRange]
+        let threshold: Double
+        let floor: Double
+    }
+
+    private static func detect(
+        windows: [PCMWindow],
+        manualThresholdDB: Double,
+        minimumSilence: Double,
+        edgePadding: Double,
+        adaptive: Bool
+    ) -> Detection {
+        guard !windows.isEmpty else {
+            return Detection(ranges: [], threshold: manualThresholdDB, floor: -100)
+        }
+        let sorted = windows.map {
+            $0.db.isNaN ? 0.0 : min(0, max(-100, $0.db))
+        }.sorted()
+        func percentile(_ fraction: Double) -> Double {
+            let index = min(
+                sorted.count - 1,
+                max(0, Int(Double(sorted.count - 1) * fraction))
+            )
+            return sorted[index]
+        }
+
+        let quiet20 = percentile(0.20)
+        let quiet35 = percentile(0.35)
+        let speech75 = percentile(0.75)
+        let floor =
+            quiet20 < -75 &&
+            quiet35 - quiet20 > 18 &&
+            quiet35 + 12 < speech75
+            ? quiet35 : quiet20
+        let candidate = adaptive
+            ? min(max(manualThresholdDB - 10, floor + 8), speech75 - 12)
+            : manualThresholdDB
+        let threshold = min(-20.0, max(-60.0, candidate))
+
+        var ranges: [SilenceRange] = []
+        var quietStart: Double?
+        var quietEnd = 0.0
+
+        func appendQuietRange() {
+            guard let start = quietStart else { return }
+            let end = quietEnd
+            if
+                end - start >= max(0.1, minimumSilence),
+                end - start > edgePadding * 2 + 0.08
+            {
+                ranges.append(
+                    SilenceRange(
+                        start: start + edgePadding,
+                        end: end - edgePadding
+                    )
+                )
+            }
+            quietStart = nil
+        }
+
+        for window in windows {
+            if window.start < 0 || window.end <= window.start {
+                continue
+            }
+            if quietStart != nil && window.start > quietEnd + 0.06 {
+                appendQuietRange()
+            }
+            if window.db <= threshold {
+                if quietStart == nil {
+                    quietStart = window.start
+                }
+                quietEnd = max(quietEnd, window.end)
+            } else {
+                appendQuietRange()
+            }
+        }
+        appendQuietRange()
+        return Detection(ranges: ranges, threshold: threshold, floor: floor)
     }
 
     private struct PCMWindow {
