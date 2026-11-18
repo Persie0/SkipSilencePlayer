@@ -413,6 +413,8 @@ private fun SkipSilencePlayerScreen(
     var activeUri by remember { mutableStateOf<Uri?>(null) }
     var activeMediaId by remember { mutableStateOf("") }
     var lastKnownPositionMs by remember { mutableLongStateOf(0L) }
+    var lastKnownDurationMs by remember { mutableLongStateOf(0L) }
+    var dismissedError by remember { mutableStateOf<String?>(null) }
     var subtitleLoadRevision by remember { mutableIntStateOf(0) }
 
     var recentVideos by remember {
@@ -553,8 +555,12 @@ private fun SkipSilencePlayerScreen(
             } else {
                 lastKnownPositionMs
             }
+        val savedPosition = if (
+            lastKnownDurationMs > 0 &&
+            position >= lastKnownDurationMs - 1_500L
+        ) 0L else position
         preferences.edit()
-            .putLong("${key}_position", position)
+            .putLong("${key}_position", savedPosition)
             .putFloat("${key}_speed", playbackSpeed)
             .putFloat("${key}_threshold", silenceThresholdDb)
             .putFloat("${key}_minimum", minimumSilence)
@@ -654,6 +660,9 @@ private fun SkipSilencePlayerScreen(
         val index = startIndex.coerceIn(0, entries.lastIndex)
         val selected = entries[index]
         currentQueueEntries = entries
+        abStartMs = null
+        abEndMs = null
+        dismissedError = null
         applyVideoPreferences(selected.uri)
         if (selectedSubtitleUri == null && selected.subtitleUri != null) {
             loadExternalSubtitle(selected.subtitleUri)
@@ -682,6 +691,7 @@ private fun SkipSilencePlayerScreen(
         activeMediaId = selected.uri.toString()
         activeUri = selected.uri
         lastKnownPositionMs = positionMs.coerceAtLeast(0L)
+        lastKnownDurationMs = 0L
         persistQueue(entries, selected.uri)
         controlsVisible = true
 
@@ -833,6 +843,10 @@ private fun SkipSilencePlayerScreen(
         }
     }
 
+    LaunchedEffect(abEndMs) {
+        PlaybackRuntime.setRepeatEndMs(abEndMs)
+    }
+
     LaunchedEffect(player, PlaybackRuntime.generation) {
         PlaybackRuntime.setSkipSilenceEnabled(skipSilence)
         player.setPlaybackSpeed(playbackSpeed)
@@ -857,7 +871,7 @@ private fun SkipSilencePlayerScreen(
             isPlaying = player.isPlaying
             currentTracks = player.currentTracks
             val diagnostics = buildMediaDiagnostics(currentTracks)
-            playerError = player.playerError?.let {
+            val candidateError = player.playerError?.let {
                 buildString {
                     append("${it.errorCodeName}: ${it.localizedMessage ?: "Playback failed"}")
                     diagnostics.unsupportedSummary?.let { warning ->
@@ -866,6 +880,7 @@ private fun SkipSilencePlayerScreen(
                     }
                 }
             } ?: diagnostics.unsupportedSummary
+            playerError = candidateError?.takeUnless { it == dismissedError }
 
             val currentItem = player.currentMediaItem
             val uri = currentItem?.localConfiguration?.uri
@@ -874,6 +889,9 @@ private fun SkipSilencePlayerScreen(
                 saveCurrentState()
                 activeMediaId = mediaId
                 activeUri = uri
+                abStartMs = null
+                abEndMs = null
+                dismissedError = null
                 fileName = currentItem.mediaMetadata.title?.toString()
                     ?: queryDisplayName(context, uri)
                 fileInfo = queryFileSize(context, uri)
@@ -970,6 +988,7 @@ private fun SkipSilencePlayerScreen(
                 saveCurrentState()
             }
             lastKnownPositionMs = currentMs
+            lastKnownDurationMs = durationMs
             delay(200)
         }
     }
@@ -1127,6 +1146,7 @@ private fun SkipSilencePlayerScreen(
         playbackSpeed = 1f
         doubleTapSeconds = 10
         skipSilence = true
+        adaptiveSilence = true
         videoZoom = 1f
         aspectMode = AspectMode.FIT
         subtitleOffsetMs = 0L
@@ -1141,6 +1161,7 @@ private fun SkipSilencePlayerScreen(
             .putFloat("playback_speed", 1f)
             .putInt("double_tap_seconds", 10)
             .putBoolean("skip_silence", true)
+            .putBoolean("adaptive_silence", true)
             .putFloat("video_zoom", 1f)
             .putString("aspect_mode", AspectMode.FIT.name)
             .putLong("subtitle_offset_ms", 0L)
@@ -1500,14 +1521,21 @@ private fun SkipSilencePlayerScreen(
                     color = Color.White.copy(alpha = 0.8f),
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
-                Button(
-                    onClick = {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TextButton(onClick = {
+                        dismissedError = error
+                        playerError = null
+                    }) {
+                        Text(stringResource(R.string.ui_dismiss))
+                    }
+                    Button(onClick = {
+                        dismissedError = null
                         playerError = null
                         player.prepare()
                         player.play()
+                    }) {
+                        Text(stringResource(R.string.ui_retry))
                     }
-                ) {
-                    Text(stringResource(R.string.ui_retry))
                 }
             }
         }
