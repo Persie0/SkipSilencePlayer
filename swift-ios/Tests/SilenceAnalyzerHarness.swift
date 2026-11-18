@@ -4,18 +4,42 @@ import Foundation
 @main
 struct SilenceAnalyzerHarness {
     static func main() async throws {
-        guard CommandLine.arguments.count == 2 else {
-            fputs("usage: SilenceAnalyzerHarness <wav>\n", stderr)
+        guard CommandLine.arguments.count >= 2 else {
+            fputs("usage: SilenceAnalyzerHarness <wav> [digital|noisy|quiet-speech]\n", stderr)
             exit(2)
         }
 
         let url = URL(fileURLWithPath: CommandLine.arguments[1])
-        let result = try await SilenceAnalyzer().analyze(
+        let mode = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "digital"
+        let analyzer = SilenceAnalyzer()
+        let result = try await analyzer.analyze(
             url: url,
-            thresholdDB: -40,
+            thresholdDB: mode == "noisy" ? -48 : -40,
             minimumSilence: 0.4,
-            edgePadding: 0.05
+            edgePadding: 0.05,
+            adaptive: true
         )
+
+        if mode == "quiet-speech" {
+            guard result.ranges.isEmpty else {
+                throw HarnessError("uniform quiet speech was incorrectly removed")
+            }
+            print("Quiet-speech preservation passed")
+            return
+        }
+
+        if mode == "noisy" {
+            let fixed = try await analyzer.analyze(
+                url: url,
+                thresholdDB: -48,
+                minimumSilence: 0.4,
+                edgePadding: 0.05,
+                adaptive: false
+            )
+            guard fixed.ranges.isEmpty else {
+                throw HarnessError("fixed -48 dB should not skip the noisy pauses")
+            }
+        }
 
         guard result.hasAudio else {
             throw HarnessError("fixture unexpectedly has no audio")
