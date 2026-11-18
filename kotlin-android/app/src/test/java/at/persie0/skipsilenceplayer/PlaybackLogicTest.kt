@@ -27,6 +27,39 @@ class PlaybackLogicTest {
     }
 
     @Test
+    fun subtitleParserRecognizesAssDespiteOpaqueDocumentName() {
+        val ass = """
+            [Script Info]
+            Title: Sample
+            [Events]
+            Dialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,Hello\\Nworld
+        """.trimIndent()
+
+        val cues = SubtitleParser.parsePlainText(
+            name = "msf:713",
+            mime = "application/octet-stream",
+            text = ass
+        )
+        assertEquals(1, cues.size)
+        assertEquals(1000L, cues[0].startMs)
+        assertEquals(2500L, cues[0].endMs)
+        assertTrue(cues[0].text.contains("Hello"))
+    }
+
+    @Test
+    fun subtitleParserStillRecognizesStandardSrt() {
+        val srt = "1\\n00:00:01,250 --> 00:00:02,000\\nExample\\n"
+            .replace("\\n", "\n")
+        val cues = SubtitleParser.parsePlainText(
+            name = "clip.srt",
+            mime = "text/plain",
+            text = srt
+        )
+        assertEquals(1, cues.size)
+        assertEquals(1250L, cues[0].startMs)
+    }
+
+    @Test
     fun malformedQueueDoesNotCrash() {
         assertNull(QueueCodec.decode("{not-json"))
         assertNull(QueueCodec.decode(null))
