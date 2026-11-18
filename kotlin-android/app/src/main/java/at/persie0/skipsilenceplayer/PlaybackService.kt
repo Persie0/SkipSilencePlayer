@@ -299,22 +299,26 @@ class PlaybackService : MediaSessionService() {
     private fun publishSilenceMap(
         result: SilenceDetectionResult,
         scannedMs: Long,
-        complete: Boolean
+        complete: Boolean,
+        terminal: Boolean = false
     ) {
         analysisReady = true
         analysisComplete = complete
         analysisCoverageEndMs = scannedMs
         syncNativeSilence()
         val mode = if (result.adaptive) "adaptive" else "fixed"
-        val progressText =
-            if (complete) "Analysis complete"
-            else "Analyzed ${scannedMs / 1000L}s; continuing"
+        val progressText = when {
+            complete -> "Analysis complete"
+            terminal -> "Analysis capped at ${scannedMs / 1000L}s; " +
+                "native skip remains available beyond this point"
+            else -> "Analyzed ${scannedMs / 1000L}s; continuing"
+        }
         PlaybackRuntime.publishAnalysis(
             result.ranges,
             "$progressText · ${result.ranges.size} silent segments · " +
                 "$mode ${result.thresholdDb.toInt()} dB",
             result.thresholdDb,
-            !complete
+            !complete && !terminal
         )
     }
 
@@ -378,7 +382,8 @@ class PlaybackService : MediaSessionService() {
                 publishSilenceMap(
                     result,
                     result.analyzedUntilMs,
-                    result.complete
+                    result.complete,
+                    terminal = true
                 )
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
