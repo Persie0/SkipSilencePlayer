@@ -9,6 +9,17 @@ import kotlin.math.abs
  * Never credit a requested seek that failed, timed out or was superseded.
  * Manual seeks do not create proposals and therefore cannot inflate savings.
  */
+internal fun analyzedCoverageContains(
+    positionMs: Long,
+    coverageEndMs: Long,
+    analysisReady: Boolean,
+    analysisComplete: Boolean
+): Boolean =
+    analysisReady && (
+        analysisComplete ||
+            positionMs < (coverageEndMs - 250L).coerceAtLeast(0L)
+    )
+
 internal class SilenceSeekCoordinator {
     private data class Pending(
         val mediaId: String,
