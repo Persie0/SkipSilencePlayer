@@ -15,6 +15,7 @@ private enum PlayerColors {
 }
 
 struct ContentView: View {
+    @ScaledMetric(relativeTo: .body) private var subtitleBaseFontSize: CGFloat = 18
     @StateObject private var model = PlayerModel()
     @StateObject private var pipManager = PictureInPictureManager()
 
@@ -487,9 +488,8 @@ struct ContentView: View {
 
                 Text(model.externalSubtitleText)
                     .font(.system(
-                        size: 18 * model.subtitleFontScale,
-                        weight: .semibold,
-                        relativeTo: .body
+                        size: subtitleBaseFontSize * model.subtitleFontScale,
+                        weight: .semibold
                     ))
                     .multilineTextAlignment(.center)
                     .lineLimit(4)
