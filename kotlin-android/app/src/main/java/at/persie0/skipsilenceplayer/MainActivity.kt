@@ -1474,7 +1474,8 @@ private fun SkipSilencePlayerScreen(
                 modifier = Modifier
                     .align(alignment)
                     .padding(
-                        horizontal = 24.dp,
+                        start = 24.dp,
+                        end = 24.dp,
                         top = if (subtitlePosition == SubtitlePosition.TOP) 24.dp else 0.dp,
                         bottom = if (subtitlePosition == SubtitlePosition.BOTTOM) {
                             bottomReserved
