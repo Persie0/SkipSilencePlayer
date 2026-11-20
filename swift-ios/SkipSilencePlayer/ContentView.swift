@@ -334,18 +334,7 @@ struct ContentView: View {
                 if !gesturesLocked {
                     Color.clear
                         .contentShape(Rectangle())
-                        .simultaneousGesture(
-                            SpatialTapGesture(count: 1)
-                                .onEnded { _ in
-                                    if controlsVisible {
-                                        controlsVisible = false
-                                        hideGeneration += 1
-                                    } else {
-                                        showControls()
-                                    }
-                                }
-                        )
-                        .simultaneousGesture(
+                        .gesture(
                             SpatialTapGesture(count: 2)
                                 .onEnded { event in
                                     let seconds = Double(model.doubleTapSeconds)
@@ -357,6 +346,17 @@ struct ContentView: View {
                                         showHUD("+\(model.doubleTapSeconds) s")
                                     }
                                 }
+                                .exclusively(
+                                    before: SpatialTapGesture(count: 1)
+                                        .onEnded { _ in
+                                            if controlsVisible {
+                                                controlsVisible = false
+                                                hideGeneration += 1
+                                            } else {
+                                                showControls()
+                                            }
+                                        }
+                                )
                         )
                         .simultaneousGesture(
                             DragGesture(minimumDistance: 12)
@@ -381,11 +381,13 @@ struct ContentView: View {
                                         let delta =
                                             value.translation.width /
                                             max(geometry.size.width, 1) * 120
-                                        let target = max(0, dragStartTime + delta)
-                                        gestureHUD =
-                                            (delta >= 0 ? "Seek +" : "Seek ") +
-                                            String(Int(delta.rounded())) + " s"
-                                        model.seek(to: target)
+                                        let target = min(
+                                            max(0, dragStartTime + delta),
+                                            model.duration > 0 ? model.duration : .infinity
+                                        )
+                                        gestureSeekPreview = target
+                                        gestureHUD = "Seek to " +
+                                            PlayerModel.format(seconds: target)
                                     case .brightness:
                                         let delta =
                                             -value.translation.height /
@@ -407,6 +409,10 @@ struct ContentView: View {
                                     }
                                 }
                                 .onEnded { _ in
+                                    if dragControl == .seek, let target = gestureSeekPreview {
+                                        model.seek(to: target)
+                                    }
+                                    gestureSeekPreview = nil
                                     dragControl = nil
                                     dismissHUDLater()
                                     showControls()
@@ -451,8 +457,11 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private var subtitleOverlay: some View {
+    private func subtitleOverlay(availableHeight: CGFloat) -> some View {
         if !model.externalSubtitleText.isEmpty {
+            let bottomInset: CGFloat = controlsVisible && !gesturesLocked
+                ? min(bottomControlsHeight + 12, max(28, availableHeight * 0.55))
+                : 28
             VStack {
                 if model.subtitlePosition == .center {
                     Spacer()
@@ -462,8 +471,14 @@ struct ContentView: View {
                 }
 
                 Text(model.externalSubtitleText)
-                    .font(.system(size: 18 * model.subtitleFontScale, weight: .semibold))
+                    .font(.system(
+                        size: 18 * model.subtitleFontScale,
+                        weight: .semibold,
+                        relativeTo: .body
+                    ))
                     .multilineTextAlignment(.center)
+                    .lineLimit(4)
+                    .minimumScaleFactor(0.75)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
@@ -480,7 +495,8 @@ struct ContentView: View {
                     Spacer()
                 }
             }
-            .padding(.vertical, controlsVisible ? 170 : 28)
+            .padding(.top, 24)
+            .padding(.bottom, bottomInset)
             .allowsHitTesting(false)
         }
     }
@@ -1406,6 +1422,7 @@ struct ContentView: View {
                 ForEach(model.recentVideos) { recent in
                     Button {
                         model.openRecent(recent)
+                        showingLibrary = false
                         showRecentSheet = false
                         showControls()
                     } label: {
@@ -1519,6 +1536,14 @@ struct ContentView: View {
 }
 
 // MARK: - Reusable components
+
+private struct PlayerBottomControlsHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat { 0 }
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
 
 private struct HomeCard: View {
     let label: String
