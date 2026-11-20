@@ -439,6 +439,7 @@ private fun SkipSilencePlayerScreen(
 
     var controlsVisible by remember { mutableStateOf(true) }
     var showLibrary by remember { mutableStateOf(false) }
+    var libraryError by remember { mutableStateOf<String?>(null) }
     var rootHeightPx by remember { mutableIntStateOf(0) }
     var bottomControlsHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
@@ -682,6 +683,7 @@ private fun SkipSilencePlayerScreen(
         if (entries.isEmpty()) return
         saveCurrentState()
         showLibrary = false
+        libraryError = null
 
         val index = startIndex.coerceIn(0, entries.lastIndex)
         val selected = entries[index]
@@ -1072,8 +1074,9 @@ private fun SkipSilencePlayerScreen(
                     collectVideoDocuments(context, treeUri)
                 }
                 if (entries.isEmpty()) {
-                    gestureText = "No videos found in folder"
+                    libraryError = "No videos found in the selected folder"
                 } else {
+                    libraryError = null
                     requestOpen(entries)
                 }
             }
@@ -1118,8 +1121,9 @@ private fun SkipSilencePlayerScreen(
                 }.getOrDefault(emptyList())
             }
             if (entries.isEmpty()) {
-                gestureText = "Could not reopen folder or no videos found"
+                libraryError = "Could not reopen folder, or no videos were found"
             } else {
+                libraryError = null
                 requestOpen(entries)
             }
         }
@@ -1469,6 +1473,7 @@ private fun SkipSilencePlayerScreen(
                 recentVideos = recentVideos,
                 recentFolders = recentFolders,
                 onOpenRecentFolder = { reopenFolder(it) },
+                libraryError = libraryError,
                 currentVideoName = if (player.mediaItemCount > 0) fileName else null,
                 currentPositionMs = currentMs,
                 currentDurationMs = durationMs,
@@ -3008,6 +3013,7 @@ private fun HomeScreen(
     recentVideos: List<RecentVideo>,
     recentFolders: List<RecentVideo>,
     onOpenRecentFolder: (RecentVideo) -> Unit,
+    libraryError: String?,
     currentVideoName: String?,
     currentPositionMs: Long,
     currentDurationMs: Long,
@@ -3146,6 +3152,17 @@ private fun HomeScreen(
                 icon = Icons.Filled.Folder,
                 modifier = Modifier.weight(1f),
                 onClick = onOpenFolder
+            )
+        }
+
+        if (libraryError != null) {
+            Text(
+                libraryError,
+                color = MaterialTheme.colorScheme.error,
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
             )
         }
 
@@ -3951,12 +3968,14 @@ private fun takePersistableReadPermission(activity: Activity, uri: Uri) {
 }
 
 private fun takePersistableTreePermission(activity: Activity, uri: Uri) {
+    val read = Intent.FLAG_GRANT_READ_URI_PERMISSION
+    val write = Intent.FLAG_GRANT_WRITE_URI_PERMISSION
     runCatching {
-        activity.contentResolver.takePersistableUriPermission(
-            uri,
-            Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-        )
+        activity.contentResolver.takePersistableUriPermission(uri, read or write)
+    }.onFailure {
+        runCatching {
+            activity.contentResolver.takePersistableUriPermission(uri, read)
+        }
     }
 }
 
