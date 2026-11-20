@@ -2311,6 +2311,21 @@ private fun SkipSilencePlayerScreen(
                         includeOff = true
                     )
 
+                    SheetSliderRow(
+                        label = stringResource(R.string.ui_text_size),
+                        valueText = String.format("%.1f×", subtitleFontScale),
+                        value = subtitleFontScale,
+                        onValueChange = {
+                            subtitleFontScale = it.coerceIn(0.7f, 2f)
+                        },
+                        onValueChangeFinished = {
+                            preferences.edit()
+                                .putFloat("subtitle_font_scale", subtitleFontScale)
+                                .apply()
+                        },
+                        valueRange = 0.7f..2f
+                    )
+
                     if (selectedSubtitleUri != null) {
                         OutlinedButton(
                             onClick = { showAdvancedSubtitle = !showAdvancedSubtitle },
@@ -2339,23 +2354,6 @@ private fun SkipSilencePlayerScreen(
                             steps = 399
                         )
     
-                        SheetSliderRow(
-                            label = stringResource(R.string.ui_text_size),
-                            valueText = String.format("%.1f×", subtitleFontScale),
-                            value = subtitleFontScale,
-                            onValueChange = {
-                                subtitleFontScale = it.coerceIn(0.7f, 2f)
-                            },
-                            onValueChangeFinished = {
-                                preferences.edit()
-                                    .putFloat(
-                                        "subtitle_font_scale",
-                                        subtitleFontScale
-                                    )
-                                    .apply()
-                            },
-                            valueRange = 0.7f..2f
-                        )
     
                         SheetSliderRow(
                             label = stringResource(R.string.ui_background),
