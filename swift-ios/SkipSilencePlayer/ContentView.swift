@@ -40,6 +40,8 @@ struct ContentView: View {
     @State private var showToolsSheet = false
     @State private var showPlaylistSheet = false
     @State private var showRecentSheet = false
+    @State private var showAdvancedSilenceSettings = false
+    @State private var pendingDestructiveAction: String?
 
     private var hasVideo: Bool {
         model.fileName != "No video selected"
@@ -531,7 +533,7 @@ struct ContentView: View {
     // MARK: - Top bar
 
     private var topBar: some View {
-        HStack(alignment: .center, spacing: 16) {
+        HStack(alignment: .center, spacing: 6) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.fileName)
                     .font(.subheadline.weight(.semibold))
@@ -550,25 +552,19 @@ struct ContentView: View {
                 }
             }
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 4)
 
-            HStack(spacing: 10) {
-                playerIconButton("lock.fill") {
+            HStack(spacing: 4) {
+                playerIconButton("lock.fill", label: "Lock controls") {
                     gesturesLocked = true
                     controlsVisible = false
-                }
-
-                if PictureInPictureManager.isSupported {
-                    playerIconButton("pip.enter") {
-                        pipManager.toggle()
-                    }
-                    .disabled(!hasVideo)
                 }
 
                 playerIconButton(
                     isFullscreen
                         ? "arrow.down.right.and.arrow.up.left"
-                        : "arrow.up.left.and.arrow.down.right"
+                        : "arrow.up.left.and.arrow.down.right",
+                    label: "Toggle fullscreen"
                 ) {
                     setFullscreen(!isFullscreen)
                 }
@@ -588,6 +584,25 @@ struct ContentView: View {
                         showRecentSheet = true
                     } label: {
                         Label("Recent…", systemImage: "clock.arrow.circlepath")
+                    }
+                    if PictureInPictureManager.isSupported {
+                        Button {
+                            pipManager.toggle()
+                        } label: {
+                            Label("Picture in Picture", systemImage: "pip.enter")
+                        }
+                    }
+                    Button {
+                        showAudioSheet = true
+                    } label: {
+                        Label("Audio tracks", systemImage: "speaker.wave.2")
+                    }
+                    if model.playlist.count > 1 {
+                        Button {
+                            showPlaylistSheet = true
+                        } label: {
+                            Label("Playlist", systemImage: "list.number")
+                        }
                     }
                     Divider()
                     Menu {
@@ -636,9 +651,10 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 15, weight: .medium))
-                        .frame(width: 34, height: 34)
+                        .frame(width: 44, height: 44)
                         .background(Circle().fill(Color.white.opacity(0.12)))
                 }
+                .accessibilityLabel("More options")
                 .foregroundStyle(.white)
             }
         }
@@ -664,26 +680,6 @@ struct ContentView: View {
                     .monospacedDigit()
                     .font(.caption)
                 Spacer()
-                if model.silenceEnabled {
-                    Text(
-                        "Saved " + PlayerModel.format(seconds: model.skippedTime) +
-                            " · est. " +
-                            PlayerModel.format(seconds: model.estimatedWatchTime) +
-                            " watch"
-                    )
-                    .font(.caption2)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 3)
-                    .background(
-                        Capsule().fill(PlayerColors.accent.opacity(0.16))
-                    )
-                    .overlay(
-                        Capsule().strokeBorder(PlayerColors.accent.opacity(0.35))
-                    )
-                    .foregroundStyle(PlayerColors.accent)
-                    .lineLimit(1)
-                }
-                Spacer()
                 Text(
                     model.duration > 0
                         ? "−" + PlayerModel.format(
@@ -706,7 +702,42 @@ struct ContentView: View {
             }
             .padding(.horizontal, 20)
 
-            HStack(spacing: 36) {
+            HStack(spacing: 12) {
+                Button {
+                    showSilenceSheet = true
+                } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Label("Skip silence", systemImage: "waveform")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(model.silenceEnabled ? PlayerColors.accent : .white)
+                        if model.silenceEnabled {
+                            Text("Saved " + PlayerModel.format(seconds: model.skippedTime) +
+                                 " · Est. watch " + PlayerModel.format(seconds: model.estimatedWatchTime))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens silence skipping presets and advanced tuning")
+
+                Toggle(
+                    "Skip silence",
+                    isOn: Binding(
+                        get: { model.silenceEnabled },
+                        set: { model.setSilenceEnabled($0) }
+                    )
+                )
+                .labelsHidden()
+                .tint(PlayerColors.accent)
+                .accessibilityLabel("Skip silence")
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 3)
+
+            HStack(spacing: 0) {
                 Button {
                     model.previous()
                 } label: {
@@ -771,59 +802,27 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    PlayerChip(
-                        label: String(format: "%g×", model.playbackSpeed),
-                        systemImage: "gauge",
-                        selected: abs(model.playbackSpeed - 1) > 0.01
-                    ) {
-                        showSpeedSheet = true
-                    }
-
-                    PlayerChip(
-                        label: model.silenceEnabled ? "Silence on" : "Silence off",
-                        systemImage: "waveform",
-                        selected: model.silenceEnabled
-                    ) {
-                        showSilenceSheet = true
-                    }
-
-                    PlayerChip(
-                        label: "Subtitles",
-                        systemImage: "captions.bubble",
-                        selected: model.selectedSubtitleIndex != nil ||
-                            model.externalSubtitleName != nil
-                    ) {
-                        showSubtitleSheet = true
-                    }
-
-                    PlayerChip(
-                        label: model.selectedAudioName,
-                        systemImage: "speaker.wave.2",
-                        selected: model.selectedAudioIndex != nil
-                    ) {
-                        showAudioSheet = true
-                    }
-
-                    PlayerChip(
-                        label: "Tools",
-                        systemImage: "wrench.and.screwdriver"
-                    ) {
-                        showToolsSheet = true
-                    }
-
-                    if model.playlist.count > 1 {
-                        PlayerChip(
-                            label: "\(model.playlistIndex + 1)/\(model.playlist.count)",
-                            systemImage: "list.number"
-                        ) {
-                            showPlaylistSheet = true
-                        }
-                    }
+            HStack(spacing: 8) {
+                PlayerChip(
+                    label: String(format: "%g×", model.playbackSpeed),
+                    systemImage: "gauge",
+                    selected: abs(model.playbackSpeed - 1) > 0.01
+                ) {
+                    showSpeedSheet = true
                 }
-                .padding(.horizontal, 20)
+                PlayerChip(
+                    label: "Subtitles",
+                    systemImage: "captions.bubble",
+                    selected: model.selectedSubtitleIndex != nil ||
+                        model.externalSubtitleName != nil
+                ) {
+                    showSubtitleSheet = true
+                }
+                PlayerChip(label: "More", systemImage: "slider.horizontal.3") {
+                    showToolsSheet = true
+                }
             }
+            .padding(.horizontal, 20)
         }
         .padding(.top, 26)
         .padding(.bottom, 16)
@@ -1333,14 +1332,16 @@ struct ContentView: View {
 
     private func playerIconButton(
         _ systemImage: String,
+        label: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 15, weight: .medium))
-                .frame(width: 34, height: 34)
+                .frame(width: 44, height: 44)
                 .background(Circle().fill(Color.white.opacity(0.12)))
         }
+        .accessibilityLabel(label)
         .buttonStyle(.plain)
         .foregroundStyle(.white)
     }
@@ -1442,8 +1443,8 @@ private struct PlayerChip: View {
                     .font(.caption)
                     .lineLimit(1)
             }
-            .padding(.horizontal, 13)
-            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .padding(.horizontal, 8)
             .background(
                 Capsule().fill(
                     selected ? PlayerColors.accent.opacity(0.22) : Color.white.opacity(0.12)
