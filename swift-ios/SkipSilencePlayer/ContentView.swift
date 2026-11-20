@@ -40,6 +40,10 @@ struct ContentView: View {
     @State private var showToolsSheet = false
     @State private var showPlaylistSheet = false
     @State private var showRecentSheet = false
+    @State private var showAdvancedSilenceSettings = false
+    @State private var pendingDestructiveAction: String?
+    @State private var showingDestructiveConfirmation = false
+    @State private var confirmationQueuedAfterSheetDismiss = false
 
     private var hasVideo: Bool {
         model.fileName != "No video selected"
@@ -216,13 +220,13 @@ struct ContentView: View {
         .sheet(isPresented: $showAudioSheet) {
             audioSheet
         }
-        .sheet(isPresented: $showToolsSheet) {
+        .sheet(isPresented: $showToolsSheet, onDismiss: presentQueuedConfirmation) {
             toolsSheet
         }
         .sheet(isPresented: $showPlaylistSheet) {
             playlistSheet
         }
-        .sheet(isPresented: $showRecentSheet) {
+        .sheet(isPresented: $showRecentSheet, onDismiss: presentQueuedConfirmation) {
             recentSheet
         }
         .alert(
@@ -244,6 +248,34 @@ struct ContentView: View {
                     PlayerModel.format(seconds: model.resumePromptSeconds ?? 0) +
                     "?"
             )
+        }
+        .confirmationDialog(
+            pendingDestructiveAction == "history" ? "Clear playback history?" :
+                pendingDestructiveAction == "bookmarks" ? "Clear all bookmarks?" :
+                "Reset player settings?",
+            isPresented: $showingDestructiveConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Cancel", role: .cancel) {
+                pendingDestructiveAction = nil
+            }
+            Button(
+                pendingDestructiveAction == "settings" ? "Reset settings" : "Clear",
+                role: .destructive
+            ) {
+                let action = pendingDestructiveAction
+                pendingDestructiveAction = nil
+                switch action {
+                case "history": model.clearHistory()
+                case "bookmarks": model.clearBookmarks()
+                case "settings":
+                    model.resetSettings()
+                    showHUD("Defaults restored")
+                default: break
+                }
+            }
+        } message: {
+            Text("This action cannot be undone.")
         }
         .onChange(of: model.isPlaying) { _, playing in
             if playing {
@@ -531,7 +563,7 @@ struct ContentView: View {
     // MARK: - Top bar
 
     private var topBar: some View {
-        HStack(alignment: .center, spacing: 16) {
+        HStack(alignment: .center, spacing: 6) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.fileName)
                     .font(.subheadline.weight(.semibold))
@@ -550,25 +582,19 @@ struct ContentView: View {
                 }
             }
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 4)
 
-            HStack(spacing: 10) {
-                playerIconButton("lock.fill") {
+            HStack(spacing: 4) {
+                playerIconButton("lock.fill", label: "Lock controls") {
                     gesturesLocked = true
                     controlsVisible = false
-                }
-
-                if PictureInPictureManager.isSupported {
-                    playerIconButton("pip.enter") {
-                        pipManager.toggle()
-                    }
-                    .disabled(!hasVideo)
                 }
 
                 playerIconButton(
                     isFullscreen
                         ? "arrow.down.right.and.arrow.up.left"
-                        : "arrow.up.left.and.arrow.down.right"
+                        : "arrow.up.left.and.arrow.down.right",
+                    label: "Toggle fullscreen"
                 ) {
                     setFullscreen(!isFullscreen)
                 }
@@ -588,6 +614,25 @@ struct ContentView: View {
                         showRecentSheet = true
                     } label: {
                         Label("Recent…", systemImage: "clock.arrow.circlepath")
+                    }
+                    if PictureInPictureManager.isSupported {
+                        Button {
+                            pipManager.toggle()
+                        } label: {
+                            Label("Picture in Picture", systemImage: "pip.enter")
+                        }
+                    }
+                    Button {
+                        showAudioSheet = true
+                    } label: {
+                        Label("Audio tracks", systemImage: "speaker.wave.2")
+                    }
+                    if model.playlist.count > 1 {
+                        Button {
+                            showPlaylistSheet = true
+                        } label: {
+                            Label("Playlist", systemImage: "list.number")
+                        }
                     }
                     Divider()
                     Menu {
@@ -627,18 +672,20 @@ struct ContentView: View {
                     }
                     Divider()
                     Button("Clear history", role: .destructive) {
-                        model.clearHistory()
+                        pendingDestructiveAction = "history"
+                        showingDestructiveConfirmation = true
                     }
                     Button("Reset settings", role: .destructive) {
-                        model.resetSettings()
-                        showHUD("Defaults restored")
+                        pendingDestructiveAction = "settings"
+                        showingDestructiveConfirmation = true
                     }
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 15, weight: .medium))
-                        .frame(width: 34, height: 34)
+                        .frame(width: 44, height: 44)
                         .background(Circle().fill(Color.white.opacity(0.12)))
                 }
+                .accessibilityLabel("More options")
                 .foregroundStyle(.white)
             }
         }
@@ -664,26 +711,6 @@ struct ContentView: View {
                     .monospacedDigit()
                     .font(.caption)
                 Spacer()
-                if model.silenceEnabled {
-                    Text(
-                        "Saved " + PlayerModel.format(seconds: model.skippedTime) +
-                            " · est. " +
-                            PlayerModel.format(seconds: model.estimatedWatchTime) +
-                            " watch"
-                    )
-                    .font(.caption2)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 3)
-                    .background(
-                        Capsule().fill(PlayerColors.accent.opacity(0.16))
-                    )
-                    .overlay(
-                        Capsule().strokeBorder(PlayerColors.accent.opacity(0.35))
-                    )
-                    .foregroundStyle(PlayerColors.accent)
-                    .lineLimit(1)
-                }
-                Spacer()
                 Text(
                     model.duration > 0
                         ? "−" + PlayerModel.format(
@@ -706,12 +733,48 @@ struct ContentView: View {
             }
             .padding(.horizontal, 20)
 
-            HStack(spacing: 36) {
+            HStack(spacing: 12) {
+                Button {
+                    showSilenceSheet = true
+                } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Label("Skip silence", systemImage: "waveform")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(model.silenceEnabled ? PlayerColors.accent : .white)
+                        if model.silenceEnabled {
+                            Text("Saved " + PlayerModel.format(seconds: model.skippedTime) +
+                                 " · Est. watch " + PlayerModel.format(seconds: model.estimatedWatchTime))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens silence skipping presets and advanced tuning")
+
+                Toggle(
+                    "Skip silence",
+                    isOn: Binding(
+                        get: { model.silenceEnabled },
+                        set: { model.setSilenceEnabled($0) }
+                    )
+                )
+                .labelsHidden()
+                .tint(PlayerColors.accent)
+                .accessibilityLabel("Skip silence")
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 3)
+
+            HStack(spacing: 0) {
                 Button {
                     model.previous()
                 } label: {
                     Image(systemName: "backward.end.fill")
                         .font(.title3)
+                        .frame(minWidth: 44, minHeight: 44)
                 }
                 .disabled(!model.hasPrevious)
                 .foregroundStyle(.white)
@@ -728,6 +791,7 @@ struct ContentView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    .frame(minWidth: 44, minHeight: 44)
                 }
                 .foregroundStyle(.white)
                 .accessibilityLabel("Seek backward \(model.doubleTapSeconds) seconds")
@@ -755,6 +819,7 @@ struct ContentView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    .frame(minWidth: 44, minHeight: 44)
                 }
                 .foregroundStyle(.white)
                 .accessibilityLabel("Seek forward \(model.doubleTapSeconds) seconds")
@@ -764,6 +829,7 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "forward.end.fill")
                         .font(.title3)
+                        .frame(minWidth: 44, minHeight: 44)
                 }
                 .disabled(!model.hasNext)
                 .foregroundStyle(.white)
@@ -771,59 +837,29 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    PlayerChip(
-                        label: String(format: "%g×", model.playbackSpeed),
-                        systemImage: "gauge",
-                        selected: abs(model.playbackSpeed - 1) > 0.01
-                    ) {
-                        showSpeedSheet = true
-                    }
-
-                    PlayerChip(
-                        label: model.silenceEnabled ? "Silence on" : "Silence off",
-                        systemImage: "waveform",
-                        selected: model.silenceEnabled
-                    ) {
-                        showSilenceSheet = true
-                    }
-
-                    PlayerChip(
-                        label: "Subtitles",
-                        systemImage: "captions.bubble",
-                        selected: model.selectedSubtitleIndex != nil ||
-                            model.externalSubtitleName != nil
-                    ) {
-                        showSubtitleSheet = true
-                    }
-
-                    PlayerChip(
-                        label: model.selectedAudioName,
-                        systemImage: "speaker.wave.2",
-                        selected: model.selectedAudioIndex != nil
-                    ) {
-                        showAudioSheet = true
-                    }
-
-                    PlayerChip(
-                        label: "Tools",
-                        systemImage: "wrench.and.screwdriver"
-                    ) {
-                        showToolsSheet = true
-                    }
-
-                    if model.playlist.count > 1 {
-                        PlayerChip(
-                            label: "\(model.playlistIndex + 1)/\(model.playlist.count)",
-                            systemImage: "list.number"
-                        ) {
-                            showPlaylistSheet = true
-                        }
-                    }
+            HStack(spacing: 8) {
+                PlayerChip(
+                    label: String(format: "%g×", model.playbackSpeed),
+                    systemImage: "gauge",
+                    selected: abs(model.playbackSpeed - 1) > 0.01,
+                    stretch: true
+                ) {
+                    showSpeedSheet = true
                 }
-                .padding(.horizontal, 20)
+                PlayerChip(
+                    label: "Subtitles",
+                    systemImage: "captions.bubble",
+                    selected: model.selectedSubtitleIndex != nil ||
+                        model.externalSubtitleName != nil,
+                    stretch: true
+                ) {
+                    showSubtitleSheet = true
+                }
+                PlayerChip(label: "More", systemImage: "slider.horizontal.3", stretch: true) {
+                    showToolsSheet = true
+                }
             }
+            .padding(.horizontal, 20)
         }
         .padding(.top, 26)
         .padding(.bottom, 16)
@@ -893,6 +929,10 @@ struct ContentView: View {
             .tint(PlayerColors.accent)
             .disabled(!model.silenceEnabled)
 
+            Text("Adaptive mode calibrates for each video and protects quiet speech. Aggressive presets may skip more content.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             SectionLabel(text: "Preset")
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -906,54 +946,60 @@ struct ContentView: View {
                             showHUD(preset.label)
                         }
                     }
-                    PlayerChip(
-                        label: "Custom",
-                        selected: model.currentPreset == nil
-                    ) {
-                        showControls()
+                    if model.currentPreset == nil {
+                        Text("Custom")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 12)
                     }
-                    .disabled(true)
                 }
             }
 
-            SheetSliderRow(
-                label: "Threshold",
-                valueText: "\(Int(model.silenceThresholdDB.rounded())) dB",
-                value: Binding(
-                    get: { model.silenceThresholdDB },
-                    set: { model.setSilenceThreshold($0) }
-                ),
-                range: -60...(-20),
-                step: 1,
-                disabled: !model.silenceEnabled,
-                onCommit: { model.applySilenceSettings() }
-            )
-
-            SheetSliderRow(
-                label: "Min silence",
-                valueText: String(format: "%.2f s", model.minimumSilence),
-                value: Binding(
-                    get: { model.minimumSilence },
-                    set: { model.setMinimumSilence($0) }
-                ),
-                range: 0.2...2,
-                step: 0.05,
-                disabled: !model.silenceEnabled,
-                onCommit: { model.applySilenceSettings() }
-            )
-
-            SheetSliderRow(
-                label: "Edge padding",
-                valueText: "\(Int((model.edgePadding * 1000).rounded())) ms",
-                value: Binding(
-                    get: { model.edgePadding },
-                    set: { model.setEdgePadding($0) }
-                ),
-                range: 0.02...0.20,
-                step: 0.01,
-                disabled: !model.silenceEnabled,
-                onCommit: { model.applySilenceSettings() }
-            )
+            DisclosureGroup(isExpanded: $showAdvancedSilenceSettings) {
+                SheetSliderRow(
+                    label: "Threshold",
+                    valueText: "\(Int(model.silenceThresholdDB.rounded())) dB",
+                    value: Binding(
+                        get: { model.silenceThresholdDB },
+                        set: { model.setSilenceThreshold($0) }
+                    ),
+                    range: -60...(-20),
+                    step: 1,
+                    disabled: !model.silenceEnabled,
+                    onCommit: { model.applySilenceSettings() }
+                )
+    
+                SheetSliderRow(
+                    label: "Min silence",
+                    valueText: String(format: "%.2f s", model.minimumSilence),
+                    value: Binding(
+                        get: { model.minimumSilence },
+                        set: { model.setMinimumSilence($0) }
+                    ),
+                    range: 0.2...2,
+                    step: 0.05,
+                    disabled: !model.silenceEnabled,
+                    onCommit: { model.applySilenceSettings() }
+                )
+    
+                SheetSliderRow(
+                    label: "Edge padding",
+                    valueText: "\(Int((model.edgePadding * 1000).rounded())) ms",
+                    value: Binding(
+                        get: { model.edgePadding },
+                        set: { model.setEdgePadding($0) }
+                    ),
+                    range: 0.02...0.20,
+                    step: 0.01,
+                    disabled: !model.silenceEnabled,
+                    onCommit: { model.applySilenceSettings() }
+                )
+            } label: {
+                Text("Advanced tuning")
+                    .font(.subheadline.weight(.medium))
+            }
+            .tint(PlayerColors.accent)
+            .disabled(!model.silenceEnabled)
 
             Text(model.analysisStatus)
                 .font(.caption2)
@@ -1171,7 +1217,7 @@ struct ContentView: View {
                 }
 
                 Button("Clear bookmarks", role: .destructive) {
-                    model.clearBookmarks()
+                    requestConfirmationFromSheet("bookmarks", dismiss: "tools")
                 }
                 .buttonStyle(.bordered)
             }
@@ -1212,7 +1258,7 @@ struct ContentView: View {
                     ForEach([15, 30, 45, 60], id: \.self) { minutes in
                         PlayerChip(
                             label: "\(minutes) min",
-                            selected: model.sleepDeadline != nil
+                            selected: model.sleepTimerMinutes == minutes
                         ) {
                             model.setSleepTimer(minutes: Double(minutes))
                         }
@@ -1235,13 +1281,12 @@ struct ContentView: View {
 
             HStack(spacing: 10) {
                 Button("Clear history", role: .destructive) {
-                    model.clearHistory()
+                    requestConfirmationFromSheet("history", dismiss: "tools")
                 }
                 .buttonStyle(.bordered)
 
                 Button("Reset settings", role: .destructive) {
-                    model.resetSettings()
-                    showHUD("Defaults restored")
+                    requestConfirmationFromSheet("settings", dismiss: "tools")
                 }
                 .buttonStyle(.bordered)
             }
@@ -1321,7 +1366,7 @@ struct ContentView: View {
                 }
 
                 Button("Clear history", role: .destructive) {
-                    model.clearHistory()
+                    requestConfirmationFromSheet("history", dismiss: "recent")
                 }
                 .buttonStyle(.bordered)
                 .padding(.top, 8)
@@ -1331,16 +1376,34 @@ struct ContentView: View {
 
     // MARK: - Helpers
 
+    private func requestConfirmationFromSheet(_ action: String, dismiss sheet: String) {
+        pendingDestructiveAction = action
+        confirmationQueuedAfterSheetDismiss = true
+        if sheet == "tools" {
+            showToolsSheet = false
+        } else {
+            showRecentSheet = false
+        }
+    }
+
+    private func presentQueuedConfirmation() {
+        guard confirmationQueuedAfterSheetDismiss else { return }
+        confirmationQueuedAfterSheetDismiss = false
+        showingDestructiveConfirmation = true
+    }
+
     private func playerIconButton(
         _ systemImage: String,
+        label: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 15, weight: .medium))
-                .frame(width: 34, height: 34)
+                .frame(width: 44, height: 44)
                 .background(Circle().fill(Color.white.opacity(0.12)))
         }
+        .accessibilityLabel(label)
         .buttonStyle(.plain)
         .foregroundStyle(.white)
     }
@@ -1429,6 +1492,7 @@ private struct PlayerChip: View {
     let label: String
     var systemImage: String? = nil
     var selected: Bool = false
+    var stretch: Bool = false
     let action: () -> Void
 
     var body: some View {
@@ -1442,8 +1506,8 @@ private struct PlayerChip: View {
                     .font(.caption)
                     .lineLimit(1)
             }
-            .padding(.horizontal, 13)
-            .padding(.vertical, 8)
+            .frame(maxWidth: stretch ? .infinity : nil, minHeight: 44)
+            .padding(.horizontal, 8)
             .background(
                 Capsule().fill(
                     selected ? PlayerColors.accent.opacity(0.22) : Color.white.opacity(0.12)
@@ -1530,17 +1594,27 @@ private struct SeekBar: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         guard duration > 0 else { return }
-                        let next = min(max(value.location.x / width, 0), 1)
-                        scrubFraction = next
-                        onSeek(next * duration)
+                        scrubFraction = min(max(value.location.x / width, 0), 1)
                     }
-                    .onEnded { _ in
+                    .onEnded { value in
+                        if duration > 0 {
+                            let next = min(max(value.location.x / width, 0), 1)
+                            onSeek(next * duration)
+                        }
                         scrubFraction = nil
                     }
             )
         }
-        .frame(height: 26)
+        .frame(height: 48)
         .accessibilityElement(children: .ignore)
+        .accessibilityAdjustableAction { direction in
+            let step = max(duration / 100, 5)
+            switch direction {
+            case .increment: onSeek(min(duration, position + step))
+            case .decrement: onSeek(max(0, position - step))
+            @unknown default: break
+            }
+        }
         .accessibilityLabel("Playback position and detected silence")
         .accessibilityValue(
             PlayerModel.format(seconds: position) +

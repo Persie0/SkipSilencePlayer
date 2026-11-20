@@ -116,4 +116,17 @@
   <string name="cd_next">Next</string>
   <string name="cd_seek_back">Seek back</string>
   <string name="cd_seek_forward">Seek forward</string>
+  <string name="ui_more">More</string>
+  <string name="ui_adjust">Adjust</string>
+  <string name="ui_playback_preferences">Playback preferences</string>
+  <string name="ui_silence_help">Adaptive mode calibrates each video to help protect quiet speech. Aggressive presets may skip more content.</string>
+  <string name="ui_advanced_tuning">Advanced tuning</string>
+  <string name="ui_confirm_clear_history">Clear playback history?</string>
+  <string name="ui_confirm_clear_bookmarks">Clear all bookmarks?</string>
+  <string name="ui_confirm_reset_settings">Reset player settings?</string>
+  <string name="ui_cannot_undo">This action cannot be undone.</string>
+  <string name="ui_cancel">Cancel</string>
+  <string name="ui_clear">Clear</string>
+  <string name="ui_confirm_reset">Reset</string>
+  <string name="ui_remove_bookmark">Remove bookmark %1$s</string>
 </resources>

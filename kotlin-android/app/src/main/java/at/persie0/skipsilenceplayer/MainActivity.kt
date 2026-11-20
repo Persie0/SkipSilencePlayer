@@ -53,6 +53,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -129,8 +130,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -302,8 +307,7 @@ private enum class ResumeMode(val label: String) {
 private enum class AspectMode(val label: String, val resizeMode: Int) {
     FIT("Fit", AspectRatioFrameLayout.RESIZE_MODE_FIT),
     FILL("Fill", AspectRatioFrameLayout.RESIZE_MODE_FILL),
-    CROP("Crop", AspectRatioFrameLayout.RESIZE_MODE_ZOOM),
-    ORIGINAL("Original", AspectRatioFrameLayout.RESIZE_MODE_FIT)
+    CROP("Crop", AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
 }
 
 private enum class SubtitlePosition(val label: String) {
@@ -438,6 +442,9 @@ private fun SkipSilencePlayerScreen(
     var showToolsSheet by remember { mutableStateOf(false) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
     var showRecentSheet by remember { mutableStateOf(false) }
+    var showPreferencesSheet by remember { mutableStateOf(false) }
+    var showAdvancedSilence by remember { mutableStateOf(false) }
+    var pendingDestructiveAction by remember { mutableStateOf<String?>(null) }
 
     var aspectMode by remember {
         mutableStateOf(
@@ -492,6 +499,7 @@ private fun SkipSilencePlayerScreen(
     var abEndMs by remember { mutableStateOf<Long?>(null) }
 
     var sleepDeadline by remember { mutableStateOf<Long?>(null) }
+    var selectedSleepMinutes by remember { mutableStateOf<Long?>(null) }
     var sleepAtEnd by remember { mutableStateOf(false) }
 
     var skippedSeconds by remember { mutableFloatStateOf(0f) }
@@ -970,6 +978,7 @@ private fun SkipSilencePlayerScreen(
             ) {
                 player.pause()
                 sleepDeadline = null
+                selectedSleepMinutes = null
                 gestureText = "Sleep timer finished"
             }
             if (
@@ -1129,6 +1138,13 @@ private fun SkipSilencePlayerScreen(
         preferences.edit()
             .putFloat("playback_speed", speed)
             .apply()
+        saveCurrentState()
+    }
+
+    fun setSkipSilence(enabled: Boolean) {
+        skipSilence = enabled
+        PlaybackRuntime.setSkipSilenceEnabled(enabled)
+        preferences.edit().putBoolean("skip_silence", enabled).apply()
         saveCurrentState()
     }
 
@@ -1298,7 +1314,8 @@ private fun SkipSilencePlayerScreen(
                         showAudioSheet ||
                         showToolsSheet ||
                         showPlaylistSheet ||
-                        showRecentSheet
+                        showRecentSheet ||
+                        showPreferencesSheet
 
                 if (
                     anySheetOpen ||
@@ -1586,7 +1603,7 @@ private fun SkipSilencePlayerScreen(
                         }
                     }
 
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(4.dp))
 
                     playerIconButton(
                         icon = Icons.Outlined.Lock,
@@ -1596,18 +1613,7 @@ private fun SkipSilencePlayerScreen(
                         controlsVisible = false
                     }
 
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        Spacer(Modifier.width(10.dp))
-                        playerIconButton(
-                            icon = Icons.Outlined.PictureInPicture,
-                            contentDescription = stringResource(R.string.cd_pip),
-                            enabled = player.mediaItemCount > 0
-                        ) {
-                            enterPip()
-                        }
-                    }
-
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(4.dp))
 
                     playerIconButton(
                         icon = if (isFullscreen) {
@@ -1620,7 +1626,7 @@ private fun SkipSilencePlayerScreen(
                         toggleFullscreen()
                     }
 
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(4.dp))
 
                     Box {
                         playerIconButton(
@@ -1676,34 +1682,37 @@ private fun SkipSilencePlayerScreen(
                             )
                             HorizontalDivider()
                             DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        stringResource(R.string.ui_aspect) +
-                                            ": " +
-                                            localizePlayerLabel(aspectMode.label)
-                                    )
-                                },
-                                onClick = { cycleAspect() }
+                                text = { Text(stringResource(R.string.ui_playback_preferences)) },
+                                onClick = {
+                                    overflowOpen = false
+                                    showPreferencesSheet = true
+                                }
                             )
                             DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        stringResource(R.string.ui_double_tap_seek) +
-                                            ": " + doubleTapSeconds + " s"
-                                    )
-                                },
-                                onClick = { cycleDoubleTap() }
+                                text = { Text(stringResource(R.string.ui_audio)) },
+                                onClick = {
+                                    overflowOpen = false
+                                    showAudioSheet = true
+                                }
                             )
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        stringResource(R.string.ui_resume_behavior) +
-                                            ": " +
-                                            localizePlayerLabel(resumeMode.label)
-                                    )
-                                },
-                                onClick = { cycleResumeMode() }
-                            )
+                            if (player.mediaItemCount > 1) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.ui_playlist)) },
+                                    onClick = {
+                                        overflowOpen = false
+                                        showPlaylistSheet = true
+                                    }
+                                )
+                            }
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.ui_pip)) },
+                                    onClick = {
+                                        overflowOpen = false
+                                        enterPip()
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = {
                                     Text(stringResource(R.string.ui_audio_only))
@@ -1725,7 +1734,7 @@ private fun SkipSilencePlayerScreen(
                                 },
                                 onClick = {
                                     overflowOpen = false
-                                    clearHistory()
+                                    pendingDestructiveAction = "history"
                                 }
                             )
                             DropdownMenuItem(
@@ -1734,7 +1743,7 @@ private fun SkipSilencePlayerScreen(
                                 },
                                 onClick = {
                                     overflowOpen = false
-                                    resetSettings()
+                                    pendingDestructiveAction = "settings"
                                 }
                             )
                         }
@@ -1776,29 +1785,6 @@ private fun SkipSilencePlayerScreen(
                         fontSize = 11.sp
                     )
                     Spacer(Modifier.weight(1f))
-                    if (skipSilence) {
-                        Text(
-                            stringResource(
-                                R.string.playback_time_saved,
-                                formatSeconds(skippedSeconds),
-                                formatSeconds(estimatedWatchSeconds)
-                            ),
-                            color = PlayerAccent,
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            modifier = Modifier
-                                .background(
-                                    PlayerAccent.copy(alpha = 0.16f),
-                                    RoundedCornerShape(50)
-                                )
-                                .border(
-                                    1.dp,
-                                    PlayerAccent.copy(alpha = 0.35f),
-                                    RoundedCornerShape(50)
-                                )
-                                .padding(horizontal = 9.dp, vertical = 3.dp)
-                        )
-                    }
                     Spacer(Modifier.weight(1f))
                     Text(
                         if (durationMs > 0) {
@@ -1821,8 +1807,50 @@ private fun SkipSilencePlayerScreen(
                 )
 
                 Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { showSilenceSheet = true }
+                            .padding(vertical = 6.dp)
+                    ) {
+                        Text(
+                            stringResource(R.string.ui_skip_silence) + " · " +
+                                stringResource(R.string.ui_adjust),
+                            color = if (skipSilence) PlayerAccent else Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp
+                        )
+                        if (skipSilence) {
+                            Text(
+                                stringResource(
+                                    R.string.playback_time_saved,
+                                    formatSeconds(skippedSeconds),
+                                    formatSeconds(estimatedWatchSeconds)
+                                ),
+                                color = Color.White.copy(alpha = 0.75f),
+                                fontSize = 11.sp,
+                                maxLines = 2
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = skipSilence,
+                        onCheckedChange = { setSkipSilence(it) },
+                        modifier = Modifier.semantics {
+                            contentDescription = "Skip silence"
+                        }
+                    )
+                }
+
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
+                    horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
@@ -1894,63 +1922,82 @@ private fun SkipSilencePlayerScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(
-                            top = 4.dp,
-                            start = 20.dp,
-                            end = 20.dp
-                        ),
+                        .padding(top = 4.dp, start = 20.dp, end = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     PlayerChip(
                         text = formatSpeedLabel(playbackSpeed),
                         selected = abs(playbackSpeed - 1f) > 0.01f,
                         onClick = { showSpeedSheet = true },
-                        icon = Icons.Outlined.Speed
+                        icon = Icons.Outlined.Speed,
+                        modifier = Modifier.weight(1f)
                     )
-
-                    PlayerChip(
-                        text = stringResource(
-                            if (skipSilence) R.string.ui_silence_on
-                            else R.string.ui_silence_off
-                        ),
-                        selected = skipSilence,
-                        onClick = { showSilenceSheet = true },
-                        icon = Icons.Outlined.GraphicEq
-                    )
-
                     PlayerChip(
                         text = stringResource(R.string.ui_subtitles),
                         selected = subtitleName != null ||
                             selectedTrackName(currentTracks, C.TRACK_TYPE_TEXT) != null,
                         onClick = { showSubtitleSheet = true },
-                        icon = Icons.Outlined.Subtitles
+                        icon = Icons.Outlined.Subtitles,
+                        modifier = Modifier.weight(1f)
                     )
-
                     PlayerChip(
-                        text = selectedTrackName(currentTracks, C.TRACK_TYPE_AUDIO)
-                            ?: stringResource(R.string.ui_audio),
-                        selected = selectedTrackName(currentTracks, C.TRACK_TYPE_AUDIO) != null,
-                        onClick = { showAudioSheet = true },
-                        icon = Icons.Outlined.VolumeUp
-                    )
-
-                    PlayerChip(
-                        text = stringResource(R.string.ui_tools),
+                        text = stringResource(R.string.ui_more),
                         selected = false,
                         onClick = { showToolsSheet = true },
-                        icon = Icons.Outlined.Build
+                        icon = Icons.Outlined.Build,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+
+        if (showPreferencesSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showPreferencesSheet = false },
+                containerColor = PlayerSheetColor
+            ) {
+                Column(
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 22.dp)
+                        .padding(bottom = 28.dp)
+                ) {
+                    SheetHeader(stringResource(R.string.ui_playback_preferences)) {
+                        showPreferencesSheet = false
+                    }
+
+                    SectionLabel(stringResource(R.string.ui_aspect))
+                    ChoiceChips(
+                        options = AspectMode.entries.toList(),
+                        selected = { aspectMode == it },
+                        label = { localizePlayerLabel(it.label) },
+                        onSelect = {
+                            aspectMode = it
+                            preferences.edit().putString("aspect_mode", it.name).apply()
+                        }
                     )
 
-                    if (player.mediaItemCount > 1) {
-                        PlayerChip(
-                            text = "${player.currentMediaItemIndex + 1}/" +
-                                "${player.mediaItemCount}",
-                            selected = false,
-                            onClick = { showPlaylistSheet = true },
-                            icon = Icons.Outlined.PlaylistPlay
-                        )
-                    }
+                    SectionLabel(stringResource(R.string.ui_double_tap_seek))
+                    ChoiceChips(
+                        options = listOf(5, 10, 15, 30),
+                        selected = { doubleTapSeconds == it },
+                        label = { "$it s" },
+                        onSelect = {
+                            doubleTapSeconds = it
+                            preferences.edit().putInt("double_tap_seconds", it).apply()
+                        }
+                    )
+
+                    SectionLabel(stringResource(R.string.ui_resume_behavior))
+                    ChoiceChips(
+                        options = ResumeMode.entries.toList(),
+                        selected = { resumeMode == it },
+                        label = { localizePlayerLabel(it.label) },
+                        onSelect = {
+                            resumeMode = it
+                            preferences.edit().putString("resume_mode", it.name).apply()
+                        }
+                    )
                 }
             }
         }
@@ -2021,14 +2068,7 @@ private fun SkipSilencePlayerScreen(
                     SheetSwitchRow(
                         label = stringResource(R.string.ui_skip_silence),
                         checked = skipSilence,
-                        onCheckedChange = {
-                            skipSilence = it
-                            PlaybackRuntime.setSkipSilenceEnabled(it)
-                            preferences.edit()
-                                .putBoolean("skip_silence", it)
-                                .apply()
-                            saveCurrentState()
-                        }
+                        onCheckedChange = { setSkipSilence(it) }
                     )
 
                     SheetSwitchRow(
@@ -2045,6 +2085,12 @@ private fun SkipSilencePlayerScreen(
                         fontSize = 12.sp,
                         color = PlayerAccent,
                         modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                    Text(
+                        stringResource(R.string.ui_silence_help),
+                        fontSize = 12.sp,
+                        color = Color.White.copy(alpha = 0.75f),
+                        modifier = Modifier.padding(bottom = 10.dp)
                     )
 
                     ChoiceChips(
@@ -2066,44 +2112,57 @@ private fun SkipSilencePlayerScreen(
                         }
                     )
 
-                    SheetSliderRow(
-                        label = stringResource(R.string.ui_threshold),
-                        valueText = "${silenceThresholdDb.roundToInt()} dB",
-                        value = silenceThresholdDb,
-                        onValueChange = { silenceThresholdDb = it },
-                        onValueChangeFinished = { applySilenceSettings() },
-                        valueRange = -60f..-20f,
-                        steps = 39,
-                        enabled = skipSilence
-                    )
+                    OutlinedButton(
+                        onClick = { showAdvancedSilence = !showAdvancedSilence },
+                        enabled = skipSilence,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            stringResource(R.string.ui_advanced_tuning) +
+                                if (showAdvancedSilence) " −" else " +"
+                        )
+                    }
 
-                    SheetSliderRow(
-                        label = stringResource(R.string.ui_minimum_silence),
-                        valueText = String.format("%.2f s", minimumSilence),
-                        value = minimumSilence,
-                        onValueChange = {
-                            minimumSilence =
-                                ((it * 20).roundToInt() / 20f)
-                        },
-                        onValueChangeFinished = { applySilenceSettings() },
-                        valueRange = 0.2f..2f,
-                        steps = 35,
-                        enabled = skipSilence
-                    )
-
-                    SheetSliderRow(
-                        label = stringResource(R.string.ui_edge_padding),
-                        valueText = "${(edgePadding * 1000).roundToInt()} ms",
-                        value = edgePadding,
-                        onValueChange = {
-                            edgePadding =
-                                ((it * 100).roundToInt() / 100f)
-                        },
-                        onValueChangeFinished = { applySilenceSettings() },
-                        valueRange = 0.02f..0.20f,
-                        steps = 17,
-                        enabled = skipSilence
-                    )
+                    if (showAdvancedSilence) {
+                        SheetSliderRow(
+                            label = stringResource(R.string.ui_threshold),
+                            valueText = "${silenceThresholdDb.roundToInt()} dB",
+                            value = silenceThresholdDb,
+                            onValueChange = { silenceThresholdDb = it },
+                            onValueChangeFinished = { applySilenceSettings() },
+                            valueRange = -60f..-20f,
+                            steps = 39,
+                            enabled = skipSilence
+                        )
+    
+                        SheetSliderRow(
+                            label = stringResource(R.string.ui_minimum_silence),
+                            valueText = String.format("%.2f s", minimumSilence),
+                            value = minimumSilence,
+                            onValueChange = {
+                                minimumSilence =
+                                    ((it * 20).roundToInt() / 20f)
+                            },
+                            onValueChangeFinished = { applySilenceSettings() },
+                            valueRange = 0.2f..2f,
+                            steps = 35,
+                            enabled = skipSilence
+                        )
+    
+                        SheetSliderRow(
+                            label = stringResource(R.string.ui_edge_padding),
+                            valueText = "${(edgePadding * 1000).roundToInt()} ms",
+                            value = edgePadding,
+                            onValueChange = {
+                                edgePadding =
+                                    ((it * 100).roundToInt() / 100f)
+                            },
+                            onValueChangeFinished = { applySilenceSettings() },
+                            valueRange = 0.02f..0.20f,
+                            steps = 17,
+                            enabled = skipSilence
+                        )
+                    }
                 }
             }
         }
@@ -2296,6 +2355,31 @@ private fun SkipSilencePlayerScreen(
                     SheetHeader(stringResource(R.string.ui_tools)) {
                         showToolsSheet = false
                     }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                showToolsSheet = false
+                                showAudioSheet = true
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.ui_audio))
+                        }
+                        if (player.mediaItemCount > 1) {
+                            OutlinedButton(
+                                onClick = {
+                                    showToolsSheet = false
+                                    showPlaylistSheet = true
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(stringResource(R.string.ui_playlist))
+                            }
+                        }
+                    }
 
                     SectionLabel(stringResource(R.string.ui_ab_repeat))
 
@@ -2366,6 +2450,7 @@ private fun SkipSilencePlayerScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { player.seekTo(bookmark.positionMs) }
+                                    .heightIn(min = 48.dp)
                                     .padding(vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -2383,33 +2468,32 @@ private fun SkipSilencePlayerScreen(
                                     maxLines = 1,
                                     modifier = Modifier.weight(1f)
                                 )
-                                Icon(
-                                    Icons.Filled.Close,
-                                    contentDescription = null,
-                                    tint = Color.White.copy(alpha = 0.4f),
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .clickable {
-                                            bookmarks = bookmarks.filterNot {
-                                                it.positionMs == bookmark.positionMs
-                                            }
-                                            activeUri?.let { uri ->
-                                                saveBookmarks(
-                                                    preferences,
-                                                    uri,
-                                                    bookmarks
-                                                )
-                                            }
+                                IconButton(
+                                    onClick = {
+                                        bookmarks = bookmarks.filterNot {
+                                            it.positionMs == bookmark.positionMs
                                         }
-                                )
+                                        activeUri?.let { uri ->
+                                            saveBookmarks(preferences, uri, bookmarks)
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Close,
+                                        contentDescription = stringResource(
+                                            R.string.ui_remove_bookmark,
+                                            bookmark.label
+                                        ),
+                                        tint = Color.White.copy(alpha = 0.75f),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
                         TextButton(
                             onClick = {
-                                bookmarks = emptyList()
-                                activeUri?.let { uri ->
-                                    saveBookmarks(preferences, uri, emptyList())
-                                }
+                                showToolsSheet = false
+                                pendingDestructiveAction = "bookmarks"
                             }
                         ) {
                             Text(stringResource(R.string.ui_clear_bookmarks))
@@ -2464,9 +2548,10 @@ private fun SkipSilencePlayerScreen(
                                     R.string.ui_minutes,
                                     minutes.toInt()
                                 ),
-                                selected = sleepDeadline != null,
+                                selected = selectedSleepMinutes == minutes,
                                 onClick = {
                                     sleepAtEnd = false
+                                    selectedSleepMinutes = minutes
                                     sleepDeadline =
                                         SystemClock.elapsedRealtime() +
                                             minutes * 60_000L
@@ -2478,6 +2563,7 @@ private fun SkipSilencePlayerScreen(
                             selected = sleepAtEnd,
                             onClick = {
                                 sleepDeadline = null
+                                selectedSleepMinutes = null
                                 sleepAtEnd = true
                             }
                         )
@@ -2487,6 +2573,7 @@ private fun SkipSilencePlayerScreen(
                                 selected = false,
                                 onClick = {
                                     sleepDeadline = null
+                                    selectedSleepMinutes = null
                                     sleepAtEnd = false
                                 }
                             )
@@ -2500,13 +2587,19 @@ private fun SkipSilencePlayerScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         OutlinedButton(
-                            onClick = { clearHistory() },
+                            onClick = {
+                                showToolsSheet = false
+                                pendingDestructiveAction = "history"
+                            },
                             modifier = Modifier.weight(1f)
                         ) {
                             Text(stringResource(R.string.ui_clear_history))
                         }
                         OutlinedButton(
-                            onClick = { resetSettings() },
+                            onClick = {
+                                showToolsSheet = false
+                                pendingDestructiveAction = "settings"
+                            },
                             modifier = Modifier.weight(1f)
                         ) {
                             Text(stringResource(R.string.ui_reset_settings))
@@ -2588,13 +2681,61 @@ private fun SkipSilencePlayerScreen(
                                 }
                             )
                         }
-                        TextButton(onClick = { clearHistory() }) {
+                        TextButton(onClick = {
+                            showRecentSheet = false
+                            pendingDestructiveAction = "history"
+                        }) {
                             Text(stringResource(R.string.ui_clear_history))
                         }
                     }
                 }
             }
         }
+    }
+
+    pendingDestructiveAction?.let { action ->
+        AlertDialog(
+            onDismissRequest = { pendingDestructiveAction = null },
+            title = {
+                Text(
+                    stringResource(
+                        when (action) {
+                            "history" -> R.string.ui_confirm_clear_history
+                            "bookmarks" -> R.string.ui_confirm_clear_bookmarks
+                            else -> R.string.ui_confirm_reset_settings
+                        }
+                    )
+                )
+            },
+            text = { Text(stringResource(R.string.ui_cannot_undo)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDestructiveAction = null
+                    when (action) {
+                        "history" -> clearHistory()
+                        "settings" -> resetSettings()
+                        "bookmarks" -> {
+                            bookmarks = emptyList()
+                            activeUri?.let { uri ->
+                                saveBookmarks(preferences, uri, emptyList())
+                            }
+                        }
+                    }
+                }) {
+                    Text(
+                        stringResource(
+                            if (action == "settings") R.string.ui_confirm_reset
+                            else R.string.ui_clear
+                        )
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDestructiveAction = null }) {
+                    Text(stringResource(R.string.ui_cancel))
+                }
+            }
+        )
     }
 
     pendingResume?.let { request ->
@@ -2812,7 +2953,7 @@ private fun playerIconButton(
 ) {
     Box(
         modifier = Modifier
-            .size(34.dp)
+            .size(48.dp)
             .background(Color.White.copy(alpha = 0.12f), CircleShape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
@@ -2831,10 +2972,12 @@ private fun PlayerChip(
     text: String,
     selected: Boolean,
     onClick: () -> Unit,
-    icon: ImageVector? = null
+    icon: ImageVector? = null,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
+            .heightIn(min = 48.dp)
             .background(
                 if (selected) {
                     PlayerAccent.copy(alpha = 0.22f)
@@ -2853,9 +2996,9 @@ private fun PlayerChip(
                 RoundedCornerShape(50)
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 13.dp, vertical = 7.dp),
+            .padding(horizontal = 8.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.Center
     ) {
         icon?.let {
             Icon(
@@ -2907,12 +3050,26 @@ private fun PlayerSeekBar(
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var scrubPositionMs by remember(durationMs) { mutableStateOf<Long?>(null) }
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(26.dp)
+            .height(48.dp)
             .semantics {
                 contentDescription = "Playback position and detected silence"
+                stateDescription = formatTime(scrubPositionMs ?: positionMs) +
+                    " of " + formatTime(durationMs)
+                progressBarRangeInfo = ProgressBarRangeInfo(
+                    (scrubPositionMs ?: positionMs)
+                        .coerceIn(0L, durationMs.coerceAtLeast(1L)).toFloat(),
+                    0f..durationMs.coerceAtLeast(1L).toFloat()
+                )
+                setProgress { target ->
+                    if (durationMs > 0) {
+                        onSeek(target.toLong().coerceIn(0L, durationMs))
+                        true
+                    } else false
+                }
             }
             .pointerInput(durationMs) {
                 detectTapGestures { offset ->
@@ -2924,19 +3081,33 @@ private fun PlayerSeekBar(
                 }
             }
             .pointerInput(durationMs) {
-                detectHorizontalDragGestures { change, _ ->
-                    if (durationMs > 0) {
-                        change.consume()
-                        val fraction =
-                            (change.position.x / size.width.toFloat())
-                                .coerceIn(0f, 1f)
-                        onSeek((fraction * durationMs).toLong())
+                detectHorizontalDragGestures(
+                    onDragStart = { offset ->
+                        if (durationMs > 0) {
+                            scrubPositionMs = (
+                                offset.x / size.width.coerceAtLeast(1).toFloat() * durationMs
+                            ).toLong().coerceIn(0L, durationMs)
+                        }
+                    },
+                    onDragEnd = {
+                        scrubPositionMs?.let(onSeek)
+                        scrubPositionMs = null
+                    },
+                    onDragCancel = { scrubPositionMs = null },
+                    onHorizontalDrag = { change, _ ->
+                        if (durationMs > 0) {
+                            change.consume()
+                            val fraction = (change.position.x /
+                                size.width.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
+                            scrubPositionMs = (fraction * durationMs).toLong()
+                        }
                     }
-                }
+                )
             }
     ) {
         val fraction = if (durationMs > 0) {
-            (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+            ((scrubPositionMs ?: positionMs).toFloat() / durationMs.toFloat())
+                .coerceIn(0f, 1f)
         } else {
             0f
         }
@@ -3122,6 +3293,7 @@ private fun SelectRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
+            .heightIn(min = 48.dp)
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
