@@ -147,4 +147,5 @@
   <string name="ui_search_recent">Search recent videos</string>
   <string name="ui_resume_at">Resume at %1$s</string>
   <string name="ui_no_recent_matches">No matching recent videos</string>
+  <string name="ui_recent_folders">Recent folders</string>
 </resources>
