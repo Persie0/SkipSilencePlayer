@@ -25,6 +25,7 @@ import android.provider.Settings
 import android.util.Rational
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -1308,6 +1309,23 @@ private fun SkipSilencePlayerScreen(
         rootFocusRequester.requestFocus()
     }
 
+    BackHandler(
+        enabled = player.mediaItemCount > 0 && !showLibrary && !gestureLocked &&
+            !showSpeedSheet && !showSilenceSheet && !showSubtitleSheet &&
+            !showAudioSheet && !showToolsSheet && !showPlaylistSheet &&
+            !showRecentSheet && !showPreferencesSheet
+    ) {
+        if (isFullscreen) {
+            isFullscreen = false
+            activity.setPlayerFullscreen(false)
+        } else {
+            player.pause()
+            saveCurrentState()
+            showLibrary = true
+            controlsVisible = false
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1328,6 +1346,7 @@ private fun SkipSilencePlayerScreen(
 
                 if (
                     anySheetOpen ||
+                    showLibrary ||
                     event.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN ||
                     event.nativeKeyEvent.repeatCount > 0
                 ) {
