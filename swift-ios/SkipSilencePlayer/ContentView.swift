@@ -235,9 +235,10 @@ struct ContentView: View {
             switch result {
             case .success(let urls):
                 if let url = urls.first {
-                    model.requestFolder(url: url)
-                    showingLibrary = false
-                    showControls()
+                    if model.requestFolder(url: url) {
+                        showingLibrary = false
+                        showControls()
+                    }
                 }
             case .failure(let error):
                 gestureHUD = error.localizedDescription
@@ -643,6 +644,40 @@ struct ContentView: View {
             }
             .padding(.horizontal, 22)
             .padding(.top, 12)
+
+            if !model.recentFolders.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Recent folders")
+                        .font(.headline)
+                        .padding(.bottom, 4)
+
+                    ForEach(model.recentFolders.prefix(4)) { folder in
+                        Button {
+                            if model.openRecentFolder(folder) {
+                                showingLibrary = false
+                                showControls()
+                            }
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "folder")
+                                    .foregroundStyle(PlayerColors.accent)
+                                Text(folder.name)
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
+                .padding(.top, 20)
+            }
 
             if model.playlist.count > 1 {
                 Button {
