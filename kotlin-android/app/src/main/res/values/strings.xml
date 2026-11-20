@@ -135,6 +135,7 @@
   <string name="ui_analysis_ready">Analysis ready</string>
   <string name="ui_analysis_partial">Partially analyzed</string>
   <string name="ui_analysis_unavailable">Analysis unavailable</string>
+  <string name="ui_no_audio_track">No audio track</string>
   <string name="ui_analyzing_audio">Analyzing audio…</string>
   <string name="ui_subtitle_advanced">Subtitle sync, style &amp; search</string>
   <string name="ui_subtitle_advanced_hint">Import a subtitle file to adjust its timing, text style, position or search.</string>
