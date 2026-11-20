@@ -546,10 +546,20 @@ struct ContentView: View {
                 Spacer(minLength: 24)
 
             if hasVideo {
-                Text("Library")
-                    .font(.largeTitle.weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 24)
+                HStack {
+                    Text("Library")
+                        .font(.largeTitle.weight(.semibold))
+                    Spacer()
+                    Button {
+                        showSettingsPage = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Settings")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: 22)
@@ -588,6 +598,12 @@ struct ContentView: View {
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
+                            Text(
+                                PlayerModel.format(seconds: model.currentTime) +
+                                    " of " + PlayerModel.format(seconds: model.duration)
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         }
                         Spacer()
                         Image(systemName: "chevron.right")
@@ -601,6 +617,22 @@ struct ContentView: View {
                 .padding(.top, 22)
             }
 
+            HStack {
+                Text("Browse files")
+                    .font(.headline)
+                Spacer()
+                if !hasVideo {
+                    Button {
+                        showSettingsPage = true
+                    } label: {
+                        Label("Settings", systemImage: "gearshape")
+                    }
+                    .font(.subheadline)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 26)
+
             HStack(spacing: 12) {
                 HomeCard(label: "Open video", systemImage: "play.rectangle") {
                     showingVideoImporter = true
@@ -610,11 +642,31 @@ struct ContentView: View {
                 }
             }
             .padding(.horizontal, 22)
-            .padding(.top, 30)
+            .padding(.top, 12)
+
+            if model.playlist.count > 1 {
+                Button {
+                    showPlaylistSheet = true
+                } label: {
+                    HStack {
+                        Image(systemName: "list.number")
+                        Text("Up Next")
+                        Spacer()
+                        Text("\(model.playlist.count) videos")
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right")
+                    }
+                    .frame(minHeight: 44)
+                    .padding(.horizontal, 12)
+                }
+                .buttonStyle(.bordered)
+                .padding(.horizontal, 22)
+                .padding(.top, 12)
+            }
 
             if !model.recentVideos.isEmpty {
                 HStack {
-                    Text("Recent")
+                    Text("Recent videos")
                         .font(.headline)
                     Spacer()
                     Button("See all") {
@@ -626,8 +678,15 @@ struct ContentView: View {
                 .padding(.top, 28)
                 .padding(.bottom, 6)
 
+                if model.recentVideos.count > 4 {
+                    TextField("Search recent videos", text: $librarySearch)
+                        .textFieldStyle(.roundedBorder)
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 8)
+                }
+
                 VStack(spacing: 2) {
-                    ForEach(model.recentVideos.prefix(4)) { recent in
+                    ForEach(filteredRecentVideos.prefix(8)) { recent in
                         Button {
                             model.openRecent(recent)
                             showingLibrary = false
@@ -636,16 +695,30 @@ struct ContentView: View {
                             HStack(spacing: 10) {
                                 Image(systemName: "clock.arrow.circlepath")
                                     .foregroundStyle(.tertiary)
-                                Text(recent.name)
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(recent.name)
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+                                    if let resume = model.resumeTimeLabel(for: recent) {
+                                        Text(resume)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
                                 Spacer()
                             }
                             .padding(.horizontal, 26)
-                            .padding(.vertical, 9)
+                            .frame(minHeight: 44)
+                            .padding(.vertical, 5)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                    }
+                    if filteredRecentVideos.isEmpty {
+                        Text("No matching recent videos")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 16)
                     }
                 }
             }
