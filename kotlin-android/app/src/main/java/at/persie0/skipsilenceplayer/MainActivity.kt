@@ -1313,7 +1313,8 @@ private fun SkipSilencePlayerScreen(
         enabled = player.mediaItemCount > 0 && !showLibrary && !gestureLocked &&
             !showSpeedSheet && !showSilenceSheet && !showSubtitleSheet &&
             !showAudioSheet && !showToolsSheet && !showPlaylistSheet &&
-            !showRecentSheet && !showPreferencesSheet
+            !showRecentSheet && !showPreferencesSheet &&
+            pendingResume == null && pendingDestructiveAction == null
     ) {
         if (isFullscreen) {
             isFullscreen = false
