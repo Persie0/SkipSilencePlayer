@@ -1241,7 +1241,67 @@ struct ContentView: View {
     }
 
     private var toolsSheet: some View {
-        SheetCard(title: "Tools") {
+        SheetCard(title: "Playback tools") {
+            Button {
+                openFromTools("markers")
+            } label: {
+                Label("Markers · Chapters, bookmarks and A–B", systemImage: "bookmark")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+
+            if model.playlist.count > 1 {
+                Button {
+                    openFromTools("queue")
+                } label: {
+                    Label("Up Next · \(model.playlist.count) videos", systemImage: "list.number")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Button {
+                openFromTools("audio")
+            } label: {
+                Label("Audio tracks", systemImage: "speaker.wave.2")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+
+            SectionLabel(text: "Sleep timer")
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach([15, 30, 45, 60], id: \.self) { minutes in
+                        PlayerChip(
+                            label: "\(minutes) min",
+                            selected: model.sleepTimerMinutes == minutes
+                        ) {
+                            model.setSleepTimer(minutes: Double(minutes))
+                        }
+                    }
+                    PlayerChip(
+                        label: "At end of video",
+                        selected: model.sleepAtEnd
+                    ) {
+                        model.setSleepAtEnd()
+                    }
+                    if model.sleepDeadline != nil || model.sleepAtEnd {
+                        PlayerChip(label: model.sleepTimerLabel) {
+                            model.cancelSleepTimer()
+                        }
+                    }
+                }
+            }
+
+        }
+    }
+
+    private var markersSheet: some View {
+        SheetCard(title: "Markers") {
             SectionLabel(text: "A–B repeat")
 
             HStack(spacing: 10) {
@@ -1304,14 +1364,16 @@ struct ContentView: View {
                         } label: {
                             Image(systemName: "minus.circle")
                                 .foregroundStyle(.secondary)
+                                .frame(width: 44, height: 44)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Remove bookmark \(bookmark.label)")
                     }
                     .padding(.vertical, 6)
                 }
 
                 Button("Clear bookmarks", role: .destructive) {
-                    requestConfirmationFromSheet("bookmarks", dismiss: "tools")
+                    requestConfirmationFromSheet("bookmarks", dismiss: "markers")
                 }
                 .buttonStyle(.bordered)
             }
@@ -1345,50 +1407,65 @@ struct ContentView: View {
                 }
             }
 
-            SectionLabel(text: "Sleep timer")
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach([15, 30, 45, 60], id: \.self) { minutes in
-                        PlayerChip(
-                            label: "\(minutes) min",
-                            selected: model.sleepTimerMinutes == minutes
-                        ) {
-                            model.setSleepTimer(minutes: Double(minutes))
-                        }
-                    }
-                    PlayerChip(
-                        label: "At end of video",
-                        selected: model.sleepAtEnd
-                    ) {
-                        model.setSleepAtEnd()
-                    }
-                    if model.sleepDeadline != nil || model.sleepAtEnd {
-                        PlayerChip(label: model.sleepTimerLabel) {
-                            model.cancelSleepTimer()
-                        }
-                    }
-                }
-            }
-
-            SectionLabel(text: "Data")
-
-            HStack(spacing: 10) {
-                Button("Clear history", role: .destructive) {
-                    requestConfirmationFromSheet("history", dismiss: "tools")
-                }
-                .buttonStyle(.bordered)
-
-                Button("Reset settings", role: .destructive) {
-                    requestConfirmationFromSheet("settings", dismiss: "tools")
-                }
-                .buttonStyle(.bordered)
-            }
         }
     }
 
+    private var settingsPage: some View {
+        NavigationStack {
+            Form {
+                Section("Video display") {
+                    Picker("Aspect ratio", selection: Binding(
+                        get: { model.aspectMode },
+                        set: { model.setAspectMode($0) }
+                    )) {
+                        ForEach(VideoAspectMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    Toggle("Audio-only playback", isOn: Binding(
+                        get: { model.audioOnly },
+                        set: { model.setAudioOnly($0) }
+                    ))
+                }
+                Section("Controls") {
+                    Picker("Double-tap seek", selection: Binding(
+                        get: { model.doubleTapSeconds },
+                        set: { model.setDoubleTapSeconds($0) }
+                    )) {
+                        ForEach([5, 10, 15, 30], id: \.self) { seconds in
+                            Text("\(seconds) seconds").tag(seconds)
+                        }
+                    }
+                    Picker("Resume playback", selection: Binding(
+                        get: { model.resumeMode },
+                        set: { model.setResumeMode($0) }
+                    )) {
+                        ForEach(ResumeMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                }
+                Section("Data and privacy") {
+                    Button("Clear viewing history", role: .destructive) {
+                        requestConfirmationFromSheet("history", dismiss: "settings")
+                    }
+                    Button("Reset player settings", role: .destructive) {
+                        requestConfirmationFromSheet("settings", dismiss: "settings")
+                    }
+                }
+            }
+            .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showSettingsPage = false }
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
     private var playlistSheet: some View {
-        SheetCard(title: "Playlist") {
+        SheetCard(title: "Up Next") {
             if model.playlist.isEmpty {
                 Text("No videos loaded")
                     .font(.caption2)
@@ -1418,8 +1495,8 @@ struct ContentView: View {
                                 .lineLimit(1)
                             Spacer()
                             if index == model.playlistIndex {
-                                Text("Now")
-                                    .font(.caption2)
+                                Text("Now playing")
+                                    .font(.caption)
                                     .foregroundStyle(PlayerColors.accent)
                             }
                         }
