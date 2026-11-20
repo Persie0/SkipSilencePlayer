@@ -1635,7 +1635,7 @@ private fun SkipSilencePlayerScreen(
                         start = 18.dp,
                         end = 14.dp,
                         top = 8.dp,
-                        bottom = 26.dp
+                        bottom = if (compactLandscape) 5.dp else 26.dp
                     )
             ) {
                 Row(
@@ -1653,7 +1653,7 @@ private fun SkipSilencePlayerScreen(
                             Text(
                                 fileInfo,
                                 color = Color.White.copy(alpha = 0.55f),
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 maxLines = 1
                             )
                         }
@@ -1812,7 +1812,8 @@ private fun SkipSilencePlayerScreen(
                         )
                     )
                     .navigationBarsPadding()
-                    .padding(top = 26.dp, bottom = 10.dp)
+                    .padding(top = if (compactLandscape) 5.dp else 26.dp,
+                        bottom = if (compactLandscape) 4.dp else 10.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -1823,7 +1824,7 @@ private fun SkipSilencePlayerScreen(
                     Text(
                         formatTime(currentMs),
                         color = Color.White,
-                        fontSize = 11.sp
+                        fontSize = 12.sp
                     )
                     Spacer(Modifier.weight(1f))
                     Spacer(Modifier.weight(1f))
@@ -1834,7 +1835,7 @@ private fun SkipSilencePlayerScreen(
                             "--:--"
                         },
                         color = Color.White,
-                        fontSize = 11.sp
+                        fontSize = 12.sp
                     )
                 }
 
@@ -1847,6 +1848,67 @@ private fun SkipSilencePlayerScreen(
                     modifier = Modifier.padding(horizontal = 20.dp)
                 )
 
+                if (compactLandscape) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        IconButton(
+                            onClick = { seekBy(-doubleTapSeconds * 1000L) }
+                        ) {
+                            Icon(
+                                Icons.Filled.FastRewind,
+                                contentDescription = stringResource(R.string.cd_seek_back),
+                                tint = Color.White
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                if (player.isPlaying) player.pause() else player.play()
+                            }
+                        ) {
+                            Icon(
+                                if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = stringResource(R.string.cd_play_pause),
+                                tint = PlayerAccent
+                            )
+                        }
+                        IconButton(
+                            onClick = { seekBy(doubleTapSeconds * 1000L) }
+                        ) {
+                            Icon(
+                                Icons.Filled.FastForward,
+                                contentDescription = stringResource(R.string.cd_seek_forward),
+                                tint = Color.White
+                            )
+                        }
+                        TextButton(onClick = { showSilenceSheet = true }) {
+                            Text(
+                                stringResource(R.string.ui_skip_silence),
+                                color = if (skipSilence) PlayerAccent else Color.White,
+                                maxLines = 1,
+                                fontSize = 13.sp
+                            )
+                        }
+                        Switch(
+                            checked = skipSilence,
+                            onCheckedChange = { setSkipSilence(it) },
+                            modifier = Modifier.semantics {
+                                contentDescription = "Skip silence"
+                            }
+                        )
+                        IconButton(onClick = { showToolsSheet = true }) {
+                            Icon(
+                                Icons.Outlined.MoreVert,
+                                contentDescription = stringResource(R.string.ui_tools),
+                                tint = Color.White
+                            )
+                        }
+                    }
+                } else {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1896,7 +1958,7 @@ private fun SkipSilencePlayerScreen(
                                     formatSeconds(estimatedWatchSeconds)
                                 ),
                                 color = Color.White.copy(alpha = 0.75f),
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 maxLines = 2
                             )
                         }
@@ -2009,6 +2071,7 @@ private fun SkipSilencePlayerScreen(
                         icon = Icons.Outlined.Build,
                         modifier = Modifier.weight(1f)
                     )
+                }
                 }
             }
         }
@@ -3067,7 +3130,7 @@ private fun HomeScreen(
         Text(
             stringResource(R.string.ui_home_hint),
             color = Color.White.copy(alpha = 0.4f),
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .padding(top = 26.dp, bottom = 40.dp)
