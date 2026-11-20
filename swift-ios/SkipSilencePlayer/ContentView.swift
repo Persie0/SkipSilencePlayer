@@ -24,6 +24,7 @@ struct ContentView: View {
     @State private var dragControl: DragControl?
     @State private var dragStartValue = 0.0
     @State private var dragStartTime = 0.0
+    @State private var gestureSeekPreview: Double?
     @State private var gestureHUD: String?
     @State private var controlsVisible = true
     @State private var isFullscreen = false
@@ -41,6 +42,9 @@ struct ContentView: View {
     @State private var showPlaylistSheet = false
     @State private var showRecentSheet = false
     @State private var showAdvancedSilenceSettings = false
+    @State private var showAdvancedSubtitleSettings = false
+    @State private var showingLibrary = false
+    @State private var bottomControlsHeight: CGFloat = 0
     @State private var pendingDestructiveAction: String?
     @State private var showingDestructiveConfirmation = false
     @State private var confirmationQueuedAfterSheetDismiss = false
@@ -55,18 +59,29 @@ struct ContentView: View {
 
             videoArea
 
-            if !hasVideo {
+            if !hasVideo || showingLibrary {
                 homeScreen
             } else if controlsVisible && !gesturesLocked {
                 VStack(spacing: 0) {
                     topBar
                     Spacer()
                     bottomCluster
+                        .background(
+                            GeometryReader { proxy in
+                                Color.clear.preference(
+                                    key: PlayerBottomControlsHeightKey.self,
+                                    value: proxy.size.height
+                                )
+                            }
+                        )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onPreferenceChange(PlayerBottomControlsHeightKey.self) {
+                    bottomControlsHeight = $0
+                }
             }
 
-            if gesturesLocked {
+            if gesturesLocked && !showingLibrary {
                 Button {
                     gesturesLocked = false
                     showControls()
@@ -161,6 +176,7 @@ struct ContentView: View {
         }
         .onOpenURL { url in
             model.openExternalURL(url)
+            showingLibrary = false
             showControls()
         }
         .fileImporter(
@@ -172,6 +188,7 @@ struct ContentView: View {
             case .success(let urls):
                 if !urls.isEmpty {
                     model.requestLoad(urls: urls)
+                    showingLibrary = false
                     showControls()
                 }
             case .failure(let error):
@@ -187,6 +204,7 @@ struct ContentView: View {
             case .success(let urls):
                 if let url = urls.first {
                     model.requestFolder(url: url)
+                    showingLibrary = false
                     showControls()
                 }
             case .failure(let error):
@@ -413,7 +431,7 @@ struct ContentView: View {
                         )
                 }
 
-                subtitleOverlay
+                subtitleOverlay(availableHeight: geometry.size.height)
 
                 if let gestureHUD {
                     Text(gestureHUD)
@@ -486,10 +504,40 @@ struct ContentView: View {
                 .font(.title3.weight(.semibold))
                 .padding(.top, 14)
 
-            Text("Plays only what matters")
+            Text("Skip quiet pauses in your videos")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .padding(.top, 3)
+
+            if hasVideo {
+                Button {
+                    showingLibrary = false
+                    showControls()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "play.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(PlayerColors.accent)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Continue watching")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(model.fileName)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(14)
+                    .background(Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 22)
+                .padding(.top, 22)
+            }
 
             HStack(spacing: 12) {
                 HomeCard(label: "Open video", systemImage: "play.rectangle") {
@@ -520,6 +568,7 @@ struct ContentView: View {
                     ForEach(model.recentVideos.prefix(4)) { recent in
                         Button {
                             model.openRecent(recent)
+                            showingLibrary = false
                             showControls()
                         } label: {
                             HStack(spacing: 10) {
@@ -585,9 +634,11 @@ struct ContentView: View {
             Spacer(minLength: 4)
 
             HStack(spacing: 4) {
-                playerIconButton("lock.fill", label: "Lock controls") {
-                    gesturesLocked = true
+                playerIconButton("chevron.left", label: "Library") {
+                    model.pause()
+                    showingLibrary = true
                     controlsVisible = false
+                    hideGeneration += 1
                 }
 
                 playerIconButton(
@@ -600,6 +651,13 @@ struct ContentView: View {
                 }
 
                 Menu {
+                    Button {
+                        gesturesLocked = true
+                        controlsVisible = false
+                    } label: {
+                        Label("Lock controls", systemImage: "lock.fill")
+                    }
+                    Divider()
                     Button {
                         showingVideoImporter = true
                     } label: {
