@@ -164,6 +164,27 @@ vendor-specific hardware decoders, Android SAF providers, iOS external-file
 bookmarks, PiP, and real-world dialogue/background-music content cannot be
 fully validated by these CI builds alone.
 
+## Playback navigation and device-adaptive UI
+
+- **Library** combines Continue Watching, file and folder opening, recent-video
+  search, per-video resume timestamps, and recent-folder shortcuts. Folder
+  selections are remembered using platform-supported persistent document
+  permissions (Android) or bookmarks (iOS); inaccessible folders report errors.
+- **Up Next** lists the current playlist and lets the user jump between videos.
+- **Markers** holds A–B repeat, bookmarks and chapters. **Tools** holds
+  contextual playback controls and the sleep timer; **Settings** owns aspect
+  ratio, double-tap seeking, resume behavior, audio-only mode, and destructive
+  data actions.
+- Compact landscape phones show a reduced overlay with seek timeline, transport,
+  silence skipping, and tools; portrait retains the richer control layout.
+- Minimum touch targets have been improved for recently opened items, the iOS
+  chapter and bookmark controls, and the unlock affordance.
+- All these surfaces remain native Compose or SwiftUI.
+
+**Still required:** physical Android/iOS QA for rotated short screens,
+subtitle overlap, screen readers, large system fonts, security-scoped folders,
+and gesture conflicts; compilation alone does not validate their appearance.
+
 ## Playback interface
 
 - The player has a dedicated Library view with open-video, open-folder,
