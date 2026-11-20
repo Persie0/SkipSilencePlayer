@@ -1206,7 +1206,7 @@ private fun SkipSilencePlayerScreen(
     }
 
     val pointerGestures =
-        if (gestureLocked) {
+        if (gestureLocked || showLibrary) {
             Modifier
         } else {
             Modifier
@@ -1414,6 +1414,7 @@ private fun SkipSilencePlayerScreen(
                 onContinue = {
                     showLibrary = false
                     controlsVisible = true
+                    player.play()
                 },
                 onOpenVideo = { openVideos() },
                 onOpenFolder = { openFolder() },
@@ -1488,7 +1489,7 @@ private fun SkipSilencePlayerScreen(
         }
 
         gestureText?.let { message ->
-            if (!activity.pipMode) {
+            if (!activity.pipMode && !showLibrary) {
                 Text(
                     text = message,
                     color = Color.White,
@@ -1638,6 +1639,10 @@ private fun SkipSilencePlayerScreen(
                     ) {
                         player.pause()
                         saveCurrentState()
+                        if (isFullscreen) {
+                            isFullscreen = false
+                            activity.setPlayerFullscreen(false)
+                        }
                         showLibrary = true
                         controlsVisible = false
                     }
