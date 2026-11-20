@@ -683,7 +683,7 @@ struct ContentView: View {
                     .lineLimit(1)
 
                 HStack(spacing: 6) {
-                    if !model.fileInfo.isEmpty {
+                    if !compactLandscape && !model.fileInfo.isEmpty {
                         Text(model.fileInfo)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -813,6 +813,9 @@ struct ContentView: View {
             }
             .padding(.horizontal, 20)
 
+            if compactLandscape {
+                compactTransportControls
+            } else {
             HStack(spacing: 12) {
                 Button {
                     showSilenceSheet = true
@@ -943,9 +946,10 @@ struct ContentView: View {
                 }
             }
             .padding(.horizontal, 20)
+            }
         }
-        .padding(.top, 26)
-        .padding(.bottom, 16)
+        .padding(.top, compactLandscape ? 5 : 26)
+        .padding(.bottom, compactLandscape ? 5 : 16)
         .background(
             LinearGradient(
                 colors: [.clear, .black.opacity(0.9)],
@@ -954,6 +958,71 @@ struct ContentView: View {
             )
             .ignoresSafeArea(edges: .bottom)
         )
+    }
+
+    private var compactTransportControls: some View {
+        HStack(spacing: 12) {
+            Button {
+                model.seek(by: -Double(model.doubleTapSeconds))
+            } label: {
+                Image(systemName: "gobackward")
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .accessibilityLabel("Seek backward \(model.doubleTapSeconds) seconds")
+
+            Button {
+                model.togglePlayback()
+                showControls()
+            } label: {
+                Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+                    .foregroundStyle(PlayerColors.accentDark)
+                    .frame(width: 48, height: 48)
+                    .background(Circle().fill(PlayerColors.accent))
+            }
+            .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
+
+            Button {
+                model.seek(by: Double(model.doubleTapSeconds))
+            } label: {
+                Image(systemName: "goforward")
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .accessibilityLabel("Seek forward \(model.doubleTapSeconds) seconds")
+
+            Spacer(minLength: 2)
+
+            Button {
+                showSilenceSheet = true
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Skip silence")
+                        .font(.caption.weight(.semibold))
+                    Text(silenceStatusSummary)
+                        .font(.caption2)
+                        .lineLimit(1)
+                }
+                .frame(minHeight: 44)
+            }
+            .accessibilityHint("Adjust silence skipping")
+
+            Toggle("Skip silence", isOn: Binding(
+                get: { model.silenceEnabled },
+                set: { model.setSilenceEnabled($0) }
+            ))
+            .labelsHidden()
+            .tint(PlayerColors.accent)
+
+            Button {
+                showToolsSheet = true
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .accessibilityLabel("Playback tools")
+        }
+        .foregroundStyle(.white)
+        .buttonStyle(.plain)
+        .padding(.horizontal, 20)
     }
 
     // MARK: - Sheets
