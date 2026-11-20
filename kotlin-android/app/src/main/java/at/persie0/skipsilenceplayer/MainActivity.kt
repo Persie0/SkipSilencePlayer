@@ -302,8 +302,7 @@ private enum class ResumeMode(val label: String) {
 private enum class AspectMode(val label: String, val resizeMode: Int) {
     FIT("Fit", AspectRatioFrameLayout.RESIZE_MODE_FIT),
     FILL("Fill", AspectRatioFrameLayout.RESIZE_MODE_FILL),
-    CROP("Crop", AspectRatioFrameLayout.RESIZE_MODE_ZOOM),
-    ORIGINAL("Original", AspectRatioFrameLayout.RESIZE_MODE_FIT)
+    CROP("Crop", AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
 }
 
 private enum class SubtitlePosition(val label: String) {
@@ -438,6 +437,9 @@ private fun SkipSilencePlayerScreen(
     var showToolsSheet by remember { mutableStateOf(false) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
     var showRecentSheet by remember { mutableStateOf(false) }
+    var showPreferencesSheet by remember { mutableStateOf(false) }
+    var showAdvancedSilence by remember { mutableStateOf(false) }
+    var pendingDestructiveAction by remember { mutableStateOf<String?>(null) }
 
     var aspectMode by remember {
         mutableStateOf(
@@ -492,6 +494,7 @@ private fun SkipSilencePlayerScreen(
     var abEndMs by remember { mutableStateOf<Long?>(null) }
 
     var sleepDeadline by remember { mutableStateOf<Long?>(null) }
+    var selectedSleepMinutes by remember { mutableStateOf<Long?>(null) }
     var sleepAtEnd by remember { mutableStateOf(false) }
 
     var skippedSeconds by remember { mutableFloatStateOf(0f) }
@@ -1132,6 +1135,13 @@ private fun SkipSilencePlayerScreen(
         saveCurrentState()
     }
 
+    fun setSkipSilence(enabled: Boolean) {
+        skipSilence = enabled
+        PlaybackRuntime.setSkipSilenceEnabled(enabled)
+        preferences.edit().putBoolean("skip_silence", enabled).apply()
+        saveCurrentState()
+    }
+
     fun clearHistory() {
         recentVideos = emptyList()
         clearPlaybackHistory(preferences)
@@ -1586,7 +1596,7 @@ private fun SkipSilencePlayerScreen(
                         }
                     }
 
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(4.dp))
 
                     playerIconButton(
                         icon = Icons.Outlined.Lock,
@@ -1596,18 +1606,7 @@ private fun SkipSilencePlayerScreen(
                         controlsVisible = false
                     }
 
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        Spacer(Modifier.width(10.dp))
-                        playerIconButton(
-                            icon = Icons.Outlined.PictureInPicture,
-                            contentDescription = stringResource(R.string.cd_pip),
-                            enabled = player.mediaItemCount > 0
-                        ) {
-                            enterPip()
-                        }
-                    }
-
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(4.dp))
 
                     playerIconButton(
                         icon = if (isFullscreen) {
@@ -1620,7 +1619,7 @@ private fun SkipSilencePlayerScreen(
                         toggleFullscreen()
                     }
 
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(4.dp))
 
                     Box {
                         playerIconButton(
@@ -1676,34 +1675,37 @@ private fun SkipSilencePlayerScreen(
                             )
                             HorizontalDivider()
                             DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        stringResource(R.string.ui_aspect) +
-                                            ": " +
-                                            localizePlayerLabel(aspectMode.label)
-                                    )
-                                },
-                                onClick = { cycleAspect() }
+                                text = { Text(stringResource(R.string.ui_playback_preferences)) },
+                                onClick = {
+                                    overflowOpen = false
+                                    showPreferencesSheet = true
+                                }
                             )
                             DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        stringResource(R.string.ui_double_tap_seek) +
-                                            ": " + doubleTapSeconds + " s"
-                                    )
-                                },
-                                onClick = { cycleDoubleTap() }
+                                text = { Text(stringResource(R.string.ui_audio)) },
+                                onClick = {
+                                    overflowOpen = false
+                                    showAudioSheet = true
+                                }
                             )
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        stringResource(R.string.ui_resume_behavior) +
-                                            ": " +
-                                            localizePlayerLabel(resumeMode.label)
-                                    )
-                                },
-                                onClick = { cycleResumeMode() }
-                            )
+                            if (player.mediaItemCount > 1) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.ui_playlist)) },
+                                    onClick = {
+                                        overflowOpen = false
+                                        showPlaylistSheet = true
+                                    }
+                                )
+                            }
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.ui_pip)) },
+                                    onClick = {
+                                        overflowOpen = false
+                                        enterPip()
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = {
                                     Text(stringResource(R.string.ui_audio_only))
@@ -1725,7 +1727,7 @@ private fun SkipSilencePlayerScreen(
                                 },
                                 onClick = {
                                     overflowOpen = false
-                                    clearHistory()
+                                    pendingDestructiveAction = "history"
                                 }
                             )
                             DropdownMenuItem(
@@ -1734,7 +1736,7 @@ private fun SkipSilencePlayerScreen(
                                 },
                                 onClick = {
                                     overflowOpen = false
-                                    resetSettings()
+                                    pendingDestructiveAction = "settings"
                                 }
                             )
                         }
