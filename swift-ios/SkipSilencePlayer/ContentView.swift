@@ -1253,7 +1253,7 @@ struct ContentView: View {
                     ForEach([15, 30, 45, 60], id: \.self) { minutes in
                         PlayerChip(
                             label: "\(minutes) min",
-                            selected: false
+                            selected: model.sleepTimerMinutes == minutes
                         ) {
                             model.setSleepTimer(minutes: Double(minutes))
                         }
