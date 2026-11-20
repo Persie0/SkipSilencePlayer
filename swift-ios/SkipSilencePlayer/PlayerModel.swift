@@ -67,7 +67,7 @@ enum VideoAspectMode: String, CaseIterable, Identifiable {
     case fit
     case fill
     case crop
-    case original
+
 
     var id: String { rawValue }
     var label: String {
@@ -78,7 +78,7 @@ enum VideoAspectMode: String, CaseIterable, Identifiable {
         switch self {
         case .fill, .crop:
             return .resizeAspectFill
-        case .fit, .original:
+        case .fit:
             return .resizeAspect
         }
     }
@@ -196,6 +196,7 @@ final class PlayerModel: NSObject, ObservableObject {
     @Published private(set) var abEnd: Double?
 
     @Published private(set) var sleepDeadline: Date?
+    @Published private(set) var sleepTimerMinutes: Int?
     @Published private(set) var sleepAtEnd = false
 
     @Published private(set) var resumePromptSeconds: Double?
@@ -887,15 +888,18 @@ final class PlayerModel: NSObject, ObservableObject {
     func setSleepTimer(minutes: Double) {
         sleepAtEnd = false
         sleepDeadline = Date().addingTimeInterval(minutes * 60)
+        sleepTimerMinutes = Int(minutes)
     }
 
     func setSleepAtEnd() {
         sleepDeadline = nil
+        sleepTimerMinutes = nil
         sleepAtEnd = true
     }
 
     func cancelSleepTimer() {
         sleepDeadline = nil
+        sleepTimerMinutes = nil
         sleepAtEnd = false
     }
 
@@ -1925,6 +1929,7 @@ final class PlayerModel: NSObject, ObservableObject {
 
         if let sleepDeadline, Date() >= sleepDeadline {
             self.sleepDeadline = nil
+            self.sleepTimerMinutes = nil
             pause()
         }
 
