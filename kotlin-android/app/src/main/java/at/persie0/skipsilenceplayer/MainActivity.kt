@@ -429,6 +429,9 @@ private fun SkipSilencePlayerScreen(
     var recentVideos by remember {
         mutableStateOf(loadRecentVideos(preferences))
     }
+    var recentFolders by remember {
+        mutableStateOf(loadRecentVideos(preferences, "recent_folders"))
+    }
     var currentQueueEntries by remember {
         mutableStateOf<List<VideoEntry>>(emptyList())
     }
@@ -1054,6 +1057,16 @@ private fun SkipSilencePlayerScreen(
     ) { treeUri ->
         if (treeUri != null) {
             takePersistableTreePermission(activity, treeUri)
+            val folderName = runCatching {
+                DocumentsContract.getTreeDocumentId(treeUri)
+                    .substringAfterLast(':')
+                    .ifBlank { "Folder" }
+            }.getOrDefault("Folder")
+            val folder = RecentVideo(treeUri.toString(), folderName)
+            recentFolders = (listOf(folder) + recentFolders.filterNot {
+                it.uri == folder.uri
+            }).take(6)
+            saveRecentVideos(preferences, recentFolders, "recent_folders")
             scope.launch {
                 val entries = withContext(Dispatchers.IO) {
                     collectVideoDocuments(context, treeUri)
@@ -1095,6 +1108,21 @@ private fun SkipSilencePlayerScreen(
 
     fun openFolder() {
         folderPicker.launch(null)
+    }
+
+    fun reopenFolder(folder: RecentVideo) {
+        scope.launch {
+            val entries = withContext(Dispatchers.IO) {
+                runCatching {
+                    collectVideoDocuments(context, Uri.parse(folder.uri))
+                }.getOrDefault(emptyList())
+            }
+            if (entries.isEmpty()) {
+                gestureText = "Could not reopen folder or no videos found"
+            } else {
+                requestOpen(entries)
+            }
+        }
     }
 
     fun openSubtitleFile() {
@@ -1437,6 +1465,8 @@ private fun SkipSilencePlayerScreen(
         if ((player.mediaItemCount == 0 || showLibrary) && !activity.pipMode) {
             HomeScreen(
                 recentVideos = recentVideos,
+                recentFolders = recentFolders,
+                onOpenRecentFolder = { reopenFolder(it) },
                 currentVideoName = if (player.mediaItemCount > 0) fileName else null,
                 currentPositionMs = currentMs,
                 currentDurationMs = durationMs,
@@ -2974,6 +3004,8 @@ private fun SkipSilencePlayerScreen(
 @Composable
 private fun HomeScreen(
     recentVideos: List<RecentVideo>,
+    recentFolders: List<RecentVideo>,
+    onOpenRecentFolder: (RecentVideo) -> Unit,
     currentVideoName: String?,
     currentPositionMs: Long,
     currentDurationMs: Long,
@@ -3113,6 +3145,40 @@ private fun HomeScreen(
                 modifier = Modifier.weight(1f),
                 onClick = onOpenFolder
             )
+        }
+
+        if (recentFolders.isNotEmpty()) {
+            Text(
+                stringResource(R.string.ui_recent_folders),
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 22.dp, bottom = 6.dp)
+            )
+            recentFolders.take(4).forEach { folder ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenRecentFolder(folder) }
+                        .heightIn(min = 48.dp)
+                        .padding(horizontal = 4.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Folder,
+                        contentDescription = null,
+                        tint = PlayerAccent
+                    )
+                    Text(
+                        folder.name,
+                        color = Color.White,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
         }
 
         if (queueCount > 1) {
@@ -3893,9 +3959,10 @@ private fun takePersistableTreePermission(activity: Activity, uri: Uri) {
 }
 
 private fun loadRecentVideos(
-    preferences: android.content.SharedPreferences
+    preferences: android.content.SharedPreferences,
+    key: String = "recent_videos"
 ): List<RecentVideo> {
-    val raw = preferences.getString("recent_videos", null) ?: return emptyList()
+    val raw = preferences.getString(key, null) ?: return emptyList()
     return runCatching {
         val array = JSONArray(raw)
         buildList {
@@ -3916,7 +3983,8 @@ private fun loadRecentVideos(
 
 private fun saveRecentVideos(
     preferences: android.content.SharedPreferences,
-    videos: List<RecentVideo>
+    videos: List<RecentVideo>,
+    key: String = "recent_videos"
 ) {
     val array = JSONArray()
     videos.take(12).forEach {
@@ -3926,7 +3994,7 @@ private fun saveRecentVideos(
                 .put("name", it.name)
         )
     }
-    preferences.edit().putString("recent_videos", array.toString()).apply()
+    preferences.edit().putString(key, array.toString()).apply()
 }
 
 private fun loadBookmarks(
