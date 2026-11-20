@@ -523,23 +523,30 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 Spacer(minLength: 24)
 
-            ZStack {
-                RoundedRectangle(cornerRadius: 22)
-                    .fill(PlayerColors.accent.opacity(0.16))
-                Image(systemName: "waveform")
-                    .font(.system(size: 36, weight: .semibold))
-                    .foregroundStyle(PlayerColors.accent)
+            if hasVideo {
+                Text("Library")
+                    .font(.largeTitle.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 24)
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 22)
+                        .fill(PlayerColors.accent.opacity(0.16))
+                    Image(systemName: "waveform")
+                        .font(.system(size: 36, weight: .semibold))
+                        .foregroundStyle(PlayerColors.accent)
+                }
+                .frame(width: 76, height: 76)
+    
+                Text("Skip Silence Player")
+                    .font(.title3.weight(.semibold))
+                    .padding(.top, 14)
+    
+                Text("Skip quiet pauses in your videos")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 3)
             }
-            .frame(width: 76, height: 76)
-
-            Text("Skip Silence Player")
-                .font(.title3.weight(.semibold))
-                .padding(.top, 14)
-
-            Text("Skip quiet pauses in your videos")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .padding(.top, 3)
 
             if hasVideo {
                 Button {
