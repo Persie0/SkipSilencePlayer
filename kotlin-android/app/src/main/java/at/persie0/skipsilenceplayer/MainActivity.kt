@@ -130,6 +130,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
@@ -431,6 +433,10 @@ private fun SkipSilencePlayerScreen(
 
     var controlsVisible by remember { mutableStateOf(true) }
     var showLibrary by remember { mutableStateOf(false) }
+    var rootHeightPx by remember { mutableIntStateOf(0) }
+    var bottomControlsHeightPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    var showAdvancedSubtitle by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
     var gestureLocked by remember { mutableStateOf(false) }
     var gestureText by remember { mutableStateOf<String?>(null) }
@@ -1305,6 +1311,7 @@ private fun SkipSilencePlayerScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .onSizeChanged { rootHeightPx = it.height }
             .background(Color.Black)
             .focusRequester(rootFocusRequester)
             .focusable()
@@ -1440,6 +1447,19 @@ private fun SkipSilencePlayerScreen(
         }
 
         if (externalSubtitleText.isNotBlank() && !showLibrary) {
+            val bottomReserved = if (
+                subtitlePosition == SubtitlePosition.BOTTOM && controlsVisible &&
+                !gestureLocked && bottomControlsHeightPx > 0
+            ) {
+                with(density) {
+                    minOf(
+                        bottomControlsHeightPx + 12.dp.roundToPx(),
+                        (rootHeightPx * 0.55f).roundToInt()
+                    ).coerceAtLeast(0).toDp()
+                }
+            } else {
+                32.dp
+            }
             val alignment = when (subtitlePosition) {
                 SubtitlePosition.TOP -> Alignment.TopCenter
                 SubtitlePosition.CENTER -> Alignment.Center
@@ -1454,10 +1474,10 @@ private fun SkipSilencePlayerScreen(
                     .align(alignment)
                     .padding(
                         horizontal = 24.dp,
-                        vertical = if (
-                            subtitlePosition == SubtitlePosition.BOTTOM &&
-                            controlsVisible
-                        ) 205.dp else 32.dp
+                        top = if (subtitlePosition == SubtitlePosition.TOP) 24.dp else 0.dp,
+                        bottom = if (subtitlePosition == SubtitlePosition.BOTTOM) {
+                            bottomReserved
+                        } else 0.dp
                     )
                     .background(
                         Color.Black.copy(alpha = subtitleBackgroundOpacity),
@@ -1782,6 +1802,7 @@ private fun SkipSilencePlayerScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .onSizeChanged { bottomControlsHeightPx = it.height }
                     .background(
                         Brush.verticalGradient(
                             listOf(
@@ -1845,6 +1866,25 @@ private fun SkipSilencePlayerScreen(
                             color = if (skipSilence) PlayerAccent else Color.White,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 14.sp
+                        )
+                        val status = PlaybackRuntime.analysisStatus
+                        Text(
+                            stringResource(
+                                when {
+                                    !skipSilence -> R.string.ui_skipping_off
+                                    status.startsWith("Analysis complete") ->
+                                        R.string.ui_analysis_ready
+                                    status.startsWith("Analysis capped") ->
+                                        R.string.ui_analysis_partial
+                                    status.startsWith("Analysis stopped") ->
+                                        R.string.ui_analysis_unavailable
+                                    status.contains("No local") -> R.string.ui_analysis_unavailable
+                                    else -> R.string.ui_analyzing_audio
+                                }
+                            ),
+                            color = Color.White.copy(alpha = 0.72f),
+                            fontSize = 12.sp,
+                            maxLines = 1
                         )
                         if (skipSilence) {
                             Text(
@@ -1961,7 +2001,7 @@ private fun SkipSilencePlayerScreen(
                         modifier = Modifier.weight(1f)
                     )
                     PlayerChip(
-                        text = stringResource(R.string.ui_more),
+                        text = stringResource(R.string.ui_tools),
                         selected = false,
                         onClick = { showToolsSheet = true },
                         icon = Icons.Outlined.Build,
