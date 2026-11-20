@@ -2584,6 +2584,29 @@ private fun SkipSilencePlayerScreen(
                         OutlinedButton(
                             onClick = {
                                 showToolsSheet = false
+                                showSpeedSheet = true
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.ui_speed))
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                showToolsSheet = false
+                                showSubtitleSheet = true
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.ui_subtitles))
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                showToolsSheet = false
                                 showAudioSheet = true
                             },
                             modifier = Modifier.weight(1f)
