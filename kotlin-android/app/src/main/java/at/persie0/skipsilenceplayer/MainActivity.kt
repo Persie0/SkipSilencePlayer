@@ -1193,7 +1193,9 @@ private fun SkipSilencePlayerScreen(
 
     fun clearHistory() {
         recentVideos = emptyList()
+        recentFolders = emptyList()
         clearPlaybackHistory(preferences)
+        preferences.edit().remove("recent_folders").apply()
         gestureText = "Playback history cleared"
     }
 
