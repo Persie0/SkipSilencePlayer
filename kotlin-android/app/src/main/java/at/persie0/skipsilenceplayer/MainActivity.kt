@@ -2491,7 +2491,10 @@ private fun SkipSilencePlayerScreen(
                             }
                         }
                         TextButton(
-                            onClick = { pendingDestructiveAction = "bookmarks" }
+                            onClick = {
+                                showToolsSheet = false
+                                pendingDestructiveAction = "bookmarks"
+                            }
                         ) {
                             Text(stringResource(R.string.ui_clear_bookmarks))
                         }
@@ -2584,13 +2587,19 @@ private fun SkipSilencePlayerScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         OutlinedButton(
-                            onClick = { pendingDestructiveAction = "history" },
+                            onClick = {
+                                showToolsSheet = false
+                                pendingDestructiveAction = "history"
+                            },
                             modifier = Modifier.weight(1f)
                         ) {
                             Text(stringResource(R.string.ui_clear_history))
                         }
                         OutlinedButton(
-                            onClick = { pendingDestructiveAction = "settings" },
+                            onClick = {
+                                showToolsSheet = false
+                                pendingDestructiveAction = "settings"
+                            },
                             modifier = Modifier.weight(1f)
                         ) {
                             Text(stringResource(R.string.ui_reset_settings))
@@ -2672,7 +2681,10 @@ private fun SkipSilencePlayerScreen(
                                 }
                             )
                         }
-                        TextButton(onClick = { pendingDestructiveAction = "history" }) {
+                        TextButton(onClick = {
+                            showRecentSheet = false
+                            pendingDestructiveAction = "history"
+                        }) {
                             Text(stringResource(R.string.ui_clear_history))
                         }
                     }
@@ -3048,7 +3060,8 @@ private fun PlayerSeekBar(
                 stateDescription = formatTime(scrubPositionMs ?: positionMs) +
                     " of " + formatTime(durationMs)
                 progressBarRangeInfo = ProgressBarRangeInfo(
-                    (scrubPositionMs ?: positionMs).toFloat(),
+                    (scrubPositionMs ?: positionMs)
+                        .coerceIn(0L, durationMs.coerceAtLeast(1L)).toFloat(),
                     0f..durationMs.coerceAtLeast(1L).toFloat()
                 )
                 setProgress { target ->
