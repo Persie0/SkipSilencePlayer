@@ -216,6 +216,8 @@ final class PlayerModel: NSObject, ObservableObject {
     private var playlistSecurityURL: URL?
     private var hasPlaylistSecurityScope = false
     private var selectedURL: URL?
+
+    var hasLoadedMedia: Bool { selectedURL != nil }
     private var jumpingOverSilence = false
     private var skipSeekGeneration = 0
     private var manualSeekPending = false
@@ -543,6 +545,7 @@ final class PlayerModel: NSObject, ObservableObject {
     func pause() {
         player.pause()
         isPlaying = false
+        saveCurrentVideoState()
         updateNowPlaying()
     }
 

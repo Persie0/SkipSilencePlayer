@@ -25,6 +25,7 @@ import android.provider.Settings
 import android.util.Rational
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -65,6 +66,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
@@ -130,6 +132,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
@@ -430,6 +434,11 @@ private fun SkipSilencePlayerScreen(
     val silencePreviewRanges = PlaybackRuntime.silenceRanges
 
     var controlsVisible by remember { mutableStateOf(true) }
+    var showLibrary by remember { mutableStateOf(false) }
+    var rootHeightPx by remember { mutableIntStateOf(0) }
+    var bottomControlsHeightPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    var showAdvancedSubtitle by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
     var gestureLocked by remember { mutableStateOf(false) }
     var gestureText by remember { mutableStateOf<String?>(null) }
@@ -664,6 +673,7 @@ private fun SkipSilencePlayerScreen(
     ) {
         if (entries.isEmpty()) return
         saveCurrentState()
+        showLibrary = false
 
         val index = startIndex.coerceIn(0, entries.lastIndex)
         val selected = entries[index]
@@ -1198,7 +1208,7 @@ private fun SkipSilencePlayerScreen(
     }
 
     val pointerGestures =
-        if (gestureLocked) {
+        if (gestureLocked || showLibrary) {
             Modifier
         } else {
             Modifier
@@ -1300,9 +1310,28 @@ private fun SkipSilencePlayerScreen(
         rootFocusRequester.requestFocus()
     }
 
+    BackHandler(
+        enabled = player.mediaItemCount > 0 && !showLibrary && !gestureLocked &&
+            !showSpeedSheet && !showSilenceSheet && !showSubtitleSheet &&
+            !showAudioSheet && !showToolsSheet && !showPlaylistSheet &&
+            !showRecentSheet && !showPreferencesSheet &&
+            pendingResume == null && pendingDestructiveAction == null
+    ) {
+        if (isFullscreen) {
+            isFullscreen = false
+            activity.setPlayerFullscreen(false)
+        } else {
+            player.pause()
+            saveCurrentState()
+            showLibrary = true
+            controlsVisible = false
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .onSizeChanged { rootHeightPx = it.height }
             .background(Color.Black)
             .focusRequester(rootFocusRequester)
             .focusable()
@@ -1319,6 +1348,7 @@ private fun SkipSilencePlayerScreen(
 
                 if (
                     anySheetOpen ||
+                    showLibrary ||
                     event.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN ||
                     event.nativeKeyEvent.repeatCount > 0
                 ) {
@@ -1398,9 +1428,15 @@ private fun SkipSilencePlayerScreen(
                 .then(pointerGestures)
         )
 
-        if (player.mediaItemCount == 0 && !activity.pipMode) {
+        if ((player.mediaItemCount == 0 || showLibrary) && !activity.pipMode) {
             HomeScreen(
                 recentVideos = recentVideos,
+                currentVideoName = if (player.mediaItemCount > 0) fileName else null,
+                onContinue = {
+                    showLibrary = false
+                    controlsVisible = true
+                    player.play()
+                },
                 onOpenVideo = { openVideos() },
                 onOpenFolder = { openFolder() },
                 onOpenRecent = { recent ->
@@ -1432,7 +1468,20 @@ private fun SkipSilencePlayerScreen(
             }
         }
 
-        if (externalSubtitleText.isNotBlank()) {
+        if (externalSubtitleText.isNotBlank() && !showLibrary) {
+            val bottomReserved = if (
+                subtitlePosition == SubtitlePosition.BOTTOM && controlsVisible &&
+                !gestureLocked && bottomControlsHeightPx > 0
+            ) {
+                with(density) {
+                    minOf(
+                        bottomControlsHeightPx + 12.dp.roundToPx(),
+                        (rootHeightPx * 0.55f).roundToInt()
+                    ).coerceAtLeast(0).toDp()
+                }
+            } else {
+                32.dp
+            }
             val alignment = when (subtitlePosition) {
                 SubtitlePosition.TOP -> Alignment.TopCenter
                 SubtitlePosition.CENTER -> Alignment.Center
@@ -1446,11 +1495,12 @@ private fun SkipSilencePlayerScreen(
                 modifier = Modifier
                     .align(alignment)
                     .padding(
-                        horizontal = 24.dp,
-                        vertical = if (
-                            subtitlePosition == SubtitlePosition.BOTTOM &&
-                            controlsVisible
-                        ) 205.dp else 32.dp
+                        start = 24.dp,
+                        end = 24.dp,
+                        top = if (subtitlePosition == SubtitlePosition.TOP) 24.dp else 0.dp,
+                        bottom = if (subtitlePosition == SubtitlePosition.BOTTOM) {
+                            bottomReserved
+                        } else 0.dp
                     )
                     .background(
                         Color.Black.copy(alpha = subtitleBackgroundOpacity),
@@ -1461,7 +1511,7 @@ private fun SkipSilencePlayerScreen(
         }
 
         gestureText?.let { message ->
-            if (!activity.pipMode) {
+            if (!activity.pipMode && !showLibrary) {
                 Text(
                     text = message,
                     color = Color.White,
@@ -1558,7 +1608,7 @@ private fun SkipSilencePlayerScreen(
 
         AnimatedVisibility(
             visible = player.mediaItemCount > 0 && controlsVisible &&
-                !activity.pipMode && !gestureLocked,
+                !activity.pipMode && !gestureLocked && !showLibrary,
             enter = fadeIn() + slideInVertically { -it / 2 },
             exit = fadeOut() + slideOutVertically { -it / 2 },
             modifier = Modifier.align(Alignment.TopCenter)
@@ -1606,10 +1656,16 @@ private fun SkipSilencePlayerScreen(
                     Spacer(Modifier.width(4.dp))
 
                     playerIconButton(
-                        icon = Icons.Outlined.Lock,
-                        contentDescription = stringResource(R.string.cd_lock)
+                        icon = Icons.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.ui_library)
                     ) {
-                        gestureLocked = true
+                        player.pause()
+                        saveCurrentState()
+                        if (isFullscreen) {
+                            isFullscreen = false
+                            activity.setPlayerFullscreen(false)
+                        }
+                        showLibrary = true
                         controlsVisible = false
                     }
 
@@ -1639,6 +1695,17 @@ private fun SkipSilencePlayerScreen(
                             expanded = overflowOpen,
                             onDismissRequest = { overflowOpen = false }
                         ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.ui_lock_gestures)) },
+                                leadingIcon = {
+                                    Icon(Icons.Outlined.Lock, contentDescription = null)
+                                },
+                                onClick = {
+                                    overflowOpen = false
+                                    gestureLocked = true
+                                    controlsVisible = false
+                                }
+                            )
                             DropdownMenuItem(
                                 text = {
                                     Text(stringResource(R.string.ui_open_video))
@@ -1754,7 +1821,7 @@ private fun SkipSilencePlayerScreen(
 
         AnimatedVisibility(
             visible = player.mediaItemCount > 0 && controlsVisible &&
-                !activity.pipMode && !gestureLocked,
+                !activity.pipMode && !gestureLocked && !showLibrary,
             enter = fadeIn() + slideInVertically { it / 2 },
             exit = fadeOut() + slideOutVertically { it / 2 },
             modifier = Modifier.align(Alignment.BottomCenter)
@@ -1762,6 +1829,7 @@ private fun SkipSilencePlayerScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .onSizeChanged { bottomControlsHeightPx = it.height }
                     .background(
                         Brush.verticalGradient(
                             listOf(
@@ -1825,6 +1893,27 @@ private fun SkipSilencePlayerScreen(
                             color = if (skipSilence) PlayerAccent else Color.White,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 14.sp
+                        )
+                        val status = PlaybackRuntime.analysisStatus
+                        Text(
+                            stringResource(
+                                when {
+                                    !skipSilence -> R.string.ui_skipping_off
+                                    status.startsWith("Analysis complete") ->
+                                        R.string.ui_analysis_ready
+                                    status.startsWith("Analysis capped") ->
+                                        R.string.ui_analysis_partial
+                                    status.startsWith("Analysis stopped") ->
+                                        R.string.ui_analysis_partial
+                                    status.contains("no audio", ignoreCase = true) ->
+                                        R.string.ui_no_audio_track
+                                    status.contains("No local") -> R.string.ui_analysis_unavailable
+                                    else -> R.string.ui_analyzing_audio
+                                }
+                            ),
+                            color = Color.White.copy(alpha = 0.72f),
+                            fontSize = 12.sp,
+                            maxLines = 1
                         )
                         if (skipSilence) {
                             Text(
@@ -1941,7 +2030,7 @@ private fun SkipSilencePlayerScreen(
                         modifier = Modifier.weight(1f)
                     )
                     PlayerChip(
-                        text = stringResource(R.string.ui_more),
+                        text = stringResource(R.string.ui_tools),
                         selected = false,
                         onClick = { showToolsSheet = true },
                         icon = Icons.Outlined.Build,
@@ -2224,25 +2313,6 @@ private fun SkipSilencePlayerScreen(
                         includeOff = true
                     )
 
-                    SectionLabel(stringResource(R.string.ui_sync_and_style))
-
-                    SheetSliderRow(
-                        label = stringResource(R.string.ui_sync),
-                        valueText = String.format("%+.1f s", subtitleOffsetMs / 1000f),
-                        value = subtitleOffsetMs.toFloat(),
-                        onValueChange = {
-                            subtitleOffsetMs =
-                                (it / 50f).roundToInt() * 50L
-                        },
-                        onValueChangeFinished = {
-                            preferences.edit()
-                                .putLong("subtitle_offset_ms", subtitleOffsetMs)
-                                .apply()
-                        },
-                        valueRange = -10_000f..10_000f,
-                        steps = 399
-                    )
-
                     SheetSliderRow(
                         label = stringResource(R.string.ui_text_size),
                         valueText = String.format("%.1f×", subtitleFontScale),
@@ -2252,65 +2322,100 @@ private fun SkipSilencePlayerScreen(
                         },
                         onValueChangeFinished = {
                             preferences.edit()
-                                .putFloat(
-                                    "subtitle_font_scale",
-                                    subtitleFontScale
-                                )
+                                .putFloat("subtitle_font_scale", subtitleFontScale)
                                 .apply()
                         },
                         valueRange = 0.7f..2f
                     )
 
-                    SheetSliderRow(
-                        label = stringResource(R.string.ui_background),
-                        valueText = "${(subtitleBackgroundOpacity * 100).roundToInt()}%",
-                        value = subtitleBackgroundOpacity,
-                        onValueChange = { subtitleBackgroundOpacity = it },
-                        onValueChangeFinished = {
-                            preferences.edit()
-                                .putFloat(
-                                    "subtitle_background_opacity",
-                                    subtitleBackgroundOpacity
-                                )
-                                .apply()
-                        },
-                        valueRange = 0f..1f
-                    )
-
-                    ChoiceChips(
-                        options = SubtitlePosition.entries.toList(),
-                        selected = { subtitlePosition == it },
-                        label = { localizePlayerLabel(it.label) },
-                        onSelect = {
-                            subtitlePosition = it
-                            preferences.edit()
-                                .putString("subtitle_position", it.name)
-                                .apply()
-                        }
-                    )
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = subtitleSearch,
-                            onValueChange = { subtitleSearch = it },
-                            singleLine = true,
-                            label = {
-                                Text(stringResource(R.string.ui_search_subtitle_text))
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Button(
-                            onClick = { searchSubtitle() },
-                            enabled = externalSubtitleCues.isNotEmpty()
+                    if (selectedSubtitleUri != null) {
+                        OutlinedButton(
+                            onClick = { showAdvancedSubtitle = !showAdvancedSubtitle },
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(stringResource(R.string.ui_next))
+                            Text(
+                                stringResource(R.string.ui_subtitle_advanced) +
+                                    if (showAdvancedSubtitle) " −" else " +"
+                            )
                         }
+                        if (showAdvancedSubtitle) {
+                        SheetSliderRow(
+                            label = stringResource(R.string.ui_sync),
+                            valueText = String.format("%+.1f s", subtitleOffsetMs / 1000f),
+                            value = subtitleOffsetMs.toFloat(),
+                            onValueChange = {
+                                subtitleOffsetMs =
+                                    (it / 50f).roundToInt() * 50L
+                            },
+                            onValueChangeFinished = {
+                                preferences.edit()
+                                    .putLong("subtitle_offset_ms", subtitleOffsetMs)
+                                    .apply()
+                            },
+                            valueRange = -10_000f..10_000f,
+                            steps = 399
+                        )
+    
+    
+                        SheetSliderRow(
+                            label = stringResource(R.string.ui_background),
+                            valueText = "${(subtitleBackgroundOpacity * 100).roundToInt()}%",
+                            value = subtitleBackgroundOpacity,
+                            onValueChange = { subtitleBackgroundOpacity = it },
+                            onValueChangeFinished = {
+                                preferences.edit()
+                                    .putFloat(
+                                        "subtitle_background_opacity",
+                                        subtitleBackgroundOpacity
+                                    )
+                                    .apply()
+                            },
+                            valueRange = 0f..1f
+                        )
+    
+                        ChoiceChips(
+                            options = SubtitlePosition.entries.toList(),
+                            selected = { subtitlePosition == it },
+                            label = { localizePlayerLabel(it.label) },
+                            onSelect = {
+                                subtitlePosition = it
+                                preferences.edit()
+                                    .putString("subtitle_position", it.name)
+                                    .apply()
+                            }
+                        )
+    
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = subtitleSearch,
+                                onValueChange = { subtitleSearch = it },
+                                singleLine = true,
+                                label = {
+                                    Text(stringResource(R.string.ui_search_subtitle_text))
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Button(
+                                onClick = { searchSubtitle() },
+                                enabled = externalSubtitleCues.isNotEmpty()
+                            ) {
+                                Text(stringResource(R.string.ui_next))
+                            }
+                        }
+                            }
+                    } else {
+                        Text(
+                            stringResource(R.string.ui_subtitle_advanced_hint),
+                            color = Color.White.copy(alpha = 0.72f),
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
                     }
                 }
             }
@@ -2780,6 +2885,8 @@ private fun SkipSilencePlayerScreen(
 @Composable
 private fun HomeScreen(
     recentVideos: List<RecentVideo>,
+    currentVideoName: String?,
+    onContinue: () -> Unit,
     onOpenVideo: () -> Unit,
     onOpenFolder: () -> Unit,
     onOpenRecent: (RecentVideo) -> Unit,
@@ -2799,39 +2906,80 @@ private fun HomeScreen(
             .padding(horizontal = 22.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(48.dp))
+        Spacer(Modifier.height(if (currentVideoName == null) 48.dp else 24.dp))
 
-        Box(
-            modifier = Modifier
-                .size(76.dp)
-                .background(
-                    PlayerAccent.copy(alpha = 0.16f),
-                    RoundedCornerShape(22.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.Outlined.GraphicEq,
-                contentDescription = null,
-                tint = PlayerAccent,
-                modifier = Modifier.size(34.dp)
+        if (currentVideoName == null) {
+            Box(
+                modifier = Modifier
+                    .size(76.dp)
+                    .background(
+                        PlayerAccent.copy(alpha = 0.16f),
+                        RoundedCornerShape(22.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Outlined.GraphicEq,
+                    contentDescription = null,
+                    tint = PlayerAccent,
+                    modifier = Modifier.size(34.dp)
+                )
+            }
+    
+            Text(
+                stringResource(R.string.app_name),
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 20.sp,
+                modifier = Modifier.padding(top = 14.dp)
+            )
+    
+            Text(
+                stringResource(R.string.ui_home_subtitle),
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 3.dp)
+            )
+        } else {
+            Text(
+                stringResource(R.string.ui_library),
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 24.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp, bottom = 10.dp)
             )
         }
 
-        Text(
-            stringResource(R.string.app_name),
-            color = Color.White,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 20.sp,
-            modifier = Modifier.padding(top = 14.dp)
-        )
-
-        Text(
-            stringResource(R.string.ui_home_subtitle),
-            color = Color.White.copy(alpha = 0.6f),
-            fontSize = 13.sp,
-            modifier = Modifier.padding(top = 3.dp)
-        )
+        if (currentVideoName != null) {
+            OutlinedButton(
+                onClick = onContinue,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 22.dp)
+            ) {
+                Icon(
+                    Icons.Filled.PlayArrow,
+                    contentDescription = null,
+                    tint = PlayerAccent
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.ui_continue_watching),
+                        color = PlayerAccent,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        currentVideoName,
+                        color = Color.White,
+                        maxLines = 1,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
 
         Row(
             modifier = Modifier

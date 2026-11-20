@@ -15,6 +15,7 @@ private enum PlayerColors {
 }
 
 struct ContentView: View {
+    @ScaledMetric(relativeTo: .body) private var subtitleBaseFontSize: CGFloat = 18
     @StateObject private var model = PlayerModel()
     @StateObject private var pipManager = PictureInPictureManager()
 
@@ -24,6 +25,7 @@ struct ContentView: View {
     @State private var dragControl: DragControl?
     @State private var dragStartValue = 0.0
     @State private var dragStartTime = 0.0
+    @State private var gestureSeekPreview: Double?
     @State private var gestureHUD: String?
     @State private var controlsVisible = true
     @State private var isFullscreen = false
@@ -41,12 +43,27 @@ struct ContentView: View {
     @State private var showPlaylistSheet = false
     @State private var showRecentSheet = false
     @State private var showAdvancedSilenceSettings = false
+    @State private var showAdvancedSubtitleSettings = false
+    @State private var showingLibrary = false
+    @State private var bottomControlsHeight: CGFloat = 0
     @State private var pendingDestructiveAction: String?
     @State private var showingDestructiveConfirmation = false
     @State private var confirmationQueuedAfterSheetDismiss = false
 
     private var hasVideo: Bool {
-        model.fileName != "No video selected"
+        model.hasLoadedMedia
+    }
+
+    private var silenceStatusSummary: String {
+        if !model.silenceEnabled { return "Skipping off" }
+        let status = model.analysisStatus
+        if status.hasPrefix("Analysis complete") { return "Analysis ready" }
+        if status.hasPrefix("Analysis capped") { return "Partially analyzed" }
+        if status.localizedCaseInsensitiveContains("unavailable") {
+            return "Analysis unavailable"
+        }
+        if status.contains("no audio track") { return "No audio track" }
+        return "Analyzing audio…"
     }
 
     var body: some View {
@@ -55,18 +72,32 @@ struct ContentView: View {
 
             videoArea
 
-            if !hasVideo {
-                homeScreen
+            if !hasVideo || showingLibrary {
+                ZStack {
+                    Color.black.ignoresSafeArea()
+                    homeScreen
+                }
             } else if controlsVisible && !gesturesLocked {
                 VStack(spacing: 0) {
                     topBar
                     Spacer()
                     bottomCluster
+                        .background(
+                            GeometryReader { proxy in
+                                Color.clear.preference(
+                                    key: PlayerBottomControlsHeightKey.self,
+                                    value: proxy.size.height
+                                )
+                            }
+                        )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onPreferenceChange(PlayerBottomControlsHeightKey.self) {
+                    bottomControlsHeight = $0
+                }
             }
 
-            if gesturesLocked {
+            if gesturesLocked && !showingLibrary {
                 Button {
                     gesturesLocked = false
                     showControls()
@@ -117,50 +148,51 @@ struct ContentView: View {
             playerKeyboardFocus = true
         }
         .onKeyPress(.space) {
-            guard hasVideo else { return .ignored }
+            guard hasVideo && !showingLibrary else { return .ignored }
             model.togglePlayback()
             showControls()
             return .handled
         }
         .onKeyPress(.leftArrow) {
-            guard hasVideo else { return .ignored }
+            guard hasVideo && !showingLibrary else { return .ignored }
             model.seek(by: -Double(model.doubleTapSeconds))
             showHUD("−\(model.doubleTapSeconds) s")
             return .handled
         }
         .onKeyPress(.rightArrow) {
-            guard hasVideo else { return .ignored }
+            guard hasVideo && !showingLibrary else { return .ignored }
             model.seek(by: Double(model.doubleTapSeconds))
             showHUD("+\(model.doubleTapSeconds) s")
             return .handled
         }
         .onKeyPress("j") {
-            guard hasVideo else { return .ignored }
+            guard hasVideo && !showingLibrary else { return .ignored }
             model.seek(by: -Double(model.doubleTapSeconds))
             return .handled
         }
         .onKeyPress("k") {
-            guard hasVideo else { return .ignored }
+            guard hasVideo && !showingLibrary else { return .ignored }
             model.togglePlayback()
             return .handled
         }
         .onKeyPress("l") {
-            guard hasVideo else { return .ignored }
+            guard hasVideo && !showingLibrary else { return .ignored }
             model.seek(by: Double(model.doubleTapSeconds))
             return .handled
         }
         .onKeyPress("f") {
-            guard hasVideo else { return .ignored }
+            guard hasVideo && !showingLibrary else { return .ignored }
             setFullscreen(!isFullscreen)
             return .handled
         }
         .onKeyPress("m") {
-            guard hasVideo else { return .ignored }
+            guard hasVideo && !showingLibrary else { return .ignored }
             model.toggleMute()
             return .handled
         }
         .onOpenURL { url in
             model.openExternalURL(url)
+            showingLibrary = false
             showControls()
         }
         .fileImporter(
@@ -172,6 +204,7 @@ struct ContentView: View {
             case .success(let urls):
                 if !urls.isEmpty {
                     model.requestLoad(urls: urls)
+                    showingLibrary = false
                     showControls()
                 }
             case .failure(let error):
@@ -187,6 +220,7 @@ struct ContentView: View {
             case .success(let urls):
                 if let url = urls.first {
                     model.requestFolder(url: url)
+                    showingLibrary = false
                     showControls()
                 }
             case .failure(let error):
@@ -313,21 +347,10 @@ struct ContentView: View {
                     }
                 }
 
-                if !gesturesLocked {
+                if !gesturesLocked && !showingLibrary && hasVideo {
                     Color.clear
                         .contentShape(Rectangle())
-                        .simultaneousGesture(
-                            SpatialTapGesture(count: 1)
-                                .onEnded { _ in
-                                    if controlsVisible {
-                                        controlsVisible = false
-                                        hideGeneration += 1
-                                    } else {
-                                        showControls()
-                                    }
-                                }
-                        )
-                        .simultaneousGesture(
+                        .gesture(
                             SpatialTapGesture(count: 2)
                                 .onEnded { event in
                                     let seconds = Double(model.doubleTapSeconds)
@@ -339,6 +362,17 @@ struct ContentView: View {
                                         showHUD("+\(model.doubleTapSeconds) s")
                                     }
                                 }
+                                .exclusively(
+                                    before: SpatialTapGesture(count: 1)
+                                        .onEnded { _ in
+                                            if controlsVisible {
+                                                controlsVisible = false
+                                                hideGeneration += 1
+                                            } else {
+                                                showControls()
+                                            }
+                                        }
+                                )
                         )
                         .simultaneousGesture(
                             DragGesture(minimumDistance: 12)
@@ -363,11 +397,13 @@ struct ContentView: View {
                                         let delta =
                                             value.translation.width /
                                             max(geometry.size.width, 1) * 120
-                                        let target = max(0, dragStartTime + delta)
-                                        gestureHUD =
-                                            (delta >= 0 ? "Seek +" : "Seek ") +
-                                            String(Int(delta.rounded())) + " s"
-                                        model.seek(to: target)
+                                        let target = min(
+                                            max(0, dragStartTime + delta),
+                                            model.duration > 0 ? model.duration : .infinity
+                                        )
+                                        gestureSeekPreview = target
+                                        gestureHUD = "Seek to " +
+                                            PlayerModel.format(seconds: target)
                                     case .brightness:
                                         let delta =
                                             -value.translation.height /
@@ -389,6 +425,10 @@ struct ContentView: View {
                                     }
                                 }
                                 .onEnded { _ in
+                                    if dragControl == .seek, let target = gestureSeekPreview {
+                                        model.seek(to: target)
+                                    }
+                                    gestureSeekPreview = nil
                                     dragControl = nil
                                     dismissHUDLater()
                                     showControls()
@@ -413,7 +453,7 @@ struct ContentView: View {
                         )
                 }
 
-                subtitleOverlay
+                subtitleOverlay(availableHeight: geometry.size.height)
 
                 if let gestureHUD {
                     Text(gestureHUD)
@@ -433,8 +473,11 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private var subtitleOverlay: some View {
+    private func subtitleOverlay(availableHeight: CGFloat) -> some View {
         if !model.externalSubtitleText.isEmpty {
+            let bottomInset: CGFloat = controlsVisible && !gesturesLocked
+                ? min(bottomControlsHeight + 12, max(28, availableHeight * 0.55))
+                : 28
             VStack {
                 if model.subtitlePosition == .center {
                     Spacer()
@@ -444,8 +487,13 @@ struct ContentView: View {
                 }
 
                 Text(model.externalSubtitleText)
-                    .font(.system(size: 18 * model.subtitleFontScale, weight: .semibold))
+                    .font(.system(
+                        size: subtitleBaseFontSize * model.subtitleFontScale,
+                        weight: .semibold
+                    ))
                     .multilineTextAlignment(.center)
+                    .lineLimit(4)
+                    .minimumScaleFactor(0.75)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
@@ -462,7 +510,8 @@ struct ContentView: View {
                     Spacer()
                 }
             }
-            .padding(.vertical, controlsVisible ? 170 : 28)
+            .padding(.top, 24)
+            .padding(.bottom, bottomInset)
             .allowsHitTesting(false)
         }
     }
@@ -470,26 +519,65 @@ struct ContentView: View {
     // MARK: - Home screen
 
     private var homeScreen: some View {
-        VStack(spacing: 0) {
-            Spacer()
+        ScrollView {
+            VStack(spacing: 0) {
+                Spacer(minLength: 24)
 
-            ZStack {
-                RoundedRectangle(cornerRadius: 22)
-                    .fill(PlayerColors.accent.opacity(0.16))
-                Image(systemName: "waveform")
-                    .font(.system(size: 36, weight: .semibold))
-                    .foregroundStyle(PlayerColors.accent)
+            if hasVideo {
+                Text("Library")
+                    .font(.largeTitle.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 24)
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 22)
+                        .fill(PlayerColors.accent.opacity(0.16))
+                    Image(systemName: "waveform")
+                        .font(.system(size: 36, weight: .semibold))
+                        .foregroundStyle(PlayerColors.accent)
+                }
+                .frame(width: 76, height: 76)
+    
+                Text("Skip Silence Player")
+                    .font(.title3.weight(.semibold))
+                    .padding(.top, 14)
+    
+                Text("Skip quiet pauses in your videos")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 3)
             }
-            .frame(width: 76, height: 76)
 
-            Text("Skip Silence Player")
-                .font(.title3.weight(.semibold))
-                .padding(.top, 14)
-
-            Text("Plays only what matters")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .padding(.top, 3)
+            if hasVideo {
+                Button {
+                    showingLibrary = false
+                    model.play()
+                    showControls()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "play.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(PlayerColors.accent)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Continue watching")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(model.fileName)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(14)
+                    .background(Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 22)
+                .padding(.top, 22)
+            }
 
             HStack(spacing: 12) {
                 HomeCard(label: "Open video", systemImage: "play.rectangle") {
@@ -520,6 +608,7 @@ struct ContentView: View {
                     ForEach(model.recentVideos.prefix(4)) { recent in
                         Button {
                             model.openRecent(recent)
+                            showingLibrary = false
                             showControls()
                         } label: {
                             HStack(spacing: 10) {
@@ -548,7 +637,9 @@ struct ContentView: View {
             .padding(.horizontal, 40)
             .padding(.top, 26)
 
-            Spacer()
+                Spacer(minLength: 24)
+            }
+            .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
@@ -575,19 +666,18 @@ struct ContentView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
-                    Text(model.analysisStatus)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
                 }
             }
 
             Spacer(minLength: 4)
 
             HStack(spacing: 4) {
-                playerIconButton("lock.fill", label: "Lock controls") {
-                    gesturesLocked = true
+                playerIconButton("chevron.left", label: "Library") {
+                    model.pause()
+                    if isFullscreen { setFullscreen(false) }
+                    showingLibrary = true
                     controlsVisible = false
+                    hideGeneration += 1
                 }
 
                 playerIconButton(
@@ -600,6 +690,13 @@ struct ContentView: View {
                 }
 
                 Menu {
+                    Button {
+                        gesturesLocked = true
+                        controlsVisible = false
+                    } label: {
+                        Label("Lock controls", systemImage: "lock.fill")
+                    }
+                    Divider()
                     Button {
                         showingVideoImporter = true
                     } label: {
@@ -741,6 +838,9 @@ struct ContentView: View {
                         Label("Skip silence", systemImage: "waveform")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(model.silenceEnabled ? PlayerColors.accent : .white)
+                        Text(silenceStatusSummary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         if model.silenceEnabled {
                             Text("Saved " + PlayerModel.format(seconds: model.skippedTime) +
                                  " · Est. watch " + PlayerModel.format(seconds: model.estimatedWatchTime))
@@ -1056,74 +1156,85 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
 
-            SectionLabel(text: "Sync & style")
-
-            SheetSliderRow(
-                label: "Sync",
-                valueText: String(format: "%+.1f s", model.subtitleOffset),
-                value: Binding(
-                    get: { model.subtitleOffset },
-                    set: { model.setSubtitleOffset($0) }
-                ),
-                range: -10...10,
-                step: 0.05,
-                onCommit: {}
-            )
-
-            SheetSliderRow(
-                label: "Text size",
-                valueText: String(format: "%.1f×", model.subtitleFontScale),
-                value: Binding(
-                    get: { model.subtitleFontScale },
-                    set: { model.setSubtitleFontScale($0) }
-                ),
-                range: 0.7...2,
-                onCommit: {}
-            )
-
-            SheetSliderRow(
-                label: "Background",
-                valueText: "\(Int((model.subtitleBackgroundOpacity * 100).rounded()))%",
-                value: Binding(
-                    get: { model.subtitleBackgroundOpacity },
-                    set: { model.setSubtitleBackgroundOpacity($0) }
-                ),
-                range: 0...1,
-                onCommit: {}
-            )
-
-            SectionLabel(text: "Position")
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(SubtitlePosition.allCases) { position in
-                        PlayerChip(
-                            label: position.label,
-                            selected: model.subtitlePosition == position
-                        ) {
-                            model.setSubtitlePosition(position)
+            if model.externalSubtitleName != nil {
+                DisclosureGroup(isExpanded: $showAdvancedSubtitleSettings) {
+                SheetSliderRow(
+                    label: "Sync",
+                    valueText: String(format: "%+.1f s", model.subtitleOffset),
+                    value: Binding(
+                        get: { model.subtitleOffset },
+                        set: { model.setSubtitleOffset($0) }
+                    ),
+                    range: -10...10,
+                    step: 0.05,
+                    onCommit: {}
+                )
+    
+                SheetSliderRow(
+                    label: "Text size",
+                    valueText: String(format: "%.1f×", model.subtitleFontScale),
+                    value: Binding(
+                        get: { model.subtitleFontScale },
+                        set: { model.setSubtitleFontScale($0) }
+                    ),
+                    range: 0.7...2,
+                    onCommit: {}
+                )
+    
+                SheetSliderRow(
+                    label: "Background",
+                    valueText: "\(Int((model.subtitleBackgroundOpacity * 100).rounded()))%",
+                    value: Binding(
+                        get: { model.subtitleBackgroundOpacity },
+                        set: { model.setSubtitleBackgroundOpacity($0) }
+                    ),
+                    range: 0...1,
+                    onCommit: {}
+                )
+    
+                SectionLabel(text: "Position")
+    
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(SubtitlePosition.allCases) { position in
+                            PlayerChip(
+                                label: position.label,
+                                selected: model.subtitlePosition == position
+                            ) {
+                                model.setSubtitlePosition(position)
+                            }
                         }
                     }
                 }
-            }
-
-            SectionLabel(text: "Search")
-
-            HStack(spacing: 10) {
-                TextField("Search subtitle text", text: $subtitleSearch)
-                    .textFieldStyle(.roundedBorder)
-                Button("Next") {
-                    model.searchSubtitle(subtitleSearch)
+    
+                SectionLabel(text: "Search")
+    
+                HStack(spacing: 10) {
+                    TextField("Search subtitle text", text: $subtitleSearch)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Next") {
+                        model.searchSubtitle(subtitleSearch)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.externalSubtitleCueCount == 0)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(model.externalSubtitleCueCount == 0)
-            }
-
-            if let status = model.subtitleSearchStatus {
-                Text(status)
-                    .font(.caption2)
+    
+                if let status = model.subtitleSearchStatus {
+                    Text(status)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                } label: {
+                    Text("Subtitle sync, style & search")
+                        .font(.subheadline.weight(.medium))
+                }
+                .tint(PlayerColors.accent)
+            } else {
+                Text("Import a subtitle file to adjust sync, text style, position, or search.")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
         }
     }
 
@@ -1348,6 +1459,7 @@ struct ContentView: View {
                 ForEach(model.recentVideos) { recent in
                     Button {
                         model.openRecent(recent)
+                        showingLibrary = false
                         showRecentSheet = false
                         showControls()
                     } label: {
@@ -1461,6 +1573,14 @@ struct ContentView: View {
 }
 
 // MARK: - Reusable components
+
+private struct PlayerBottomControlsHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat { 0 }
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
 
 private struct HomeCard: View {
     let label: String

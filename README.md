@@ -16,7 +16,7 @@ Two native mobile video players that automatically skip silent parts of local vi
 - Horizontal swipe seeking.
 - Left/right vertical swipes for brightness and volume.
 - Gesture lock.
-- Fit, fill, crop, original-size mode, and pinch zoom.
+- Fit, fill/stretch, crop, and pinch zoom.
 - Fullscreen/landscape playback.
 - Picture-in-Picture.
 - Audio-only/background playback.
@@ -163,6 +163,22 @@ false-positive skipping of quiet speech.
 vendor-specific hardware decoders, Android SAF providers, iOS external-file
 bookmarks, PiP, and real-world dialogue/background-music content cannot be
 fully validated by these CI builds alone.
+
+## Playback interface
+
+- The player has a dedicated Library view with open-video, open-folder,
+  recent videos, and Continue watching actions. Returning to Library pauses
+  playback but retains the active playlist and resume position.
+- Android's system Back exits fullscreen first, then navigates to Library;
+  dialogs and sheets retain their own Back behavior.
+- Swipe-seeking previews its target and performs one seek on gesture release
+  on both platforms, while the timeline supports accessible seeking.
+- Subtitle overlays adapt to the measured playback-control area rather than
+  relying on a fixed portrait-only offset.
+- Silence analysis progress and availability are visible alongside the primary
+  Skip silence control. Detailed analysis remains available in the settings sheet.
+- Subtitle timing, styling, placement and text search are shown as advanced
+  options only when an external subtitle file is loaded.
 
 ## Resume, history, and navigation
 
