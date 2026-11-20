@@ -66,6 +66,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
@@ -1655,7 +1656,7 @@ private fun SkipSilencePlayerScreen(
                     Spacer(Modifier.width(4.dp))
 
                     playerIconButton(
-                        icon = Icons.Filled.FolderOpen,
+                        icon = Icons.Filled.ArrowBack,
                         contentDescription = stringResource(R.string.ui_library)
                     ) {
                         player.pause()
@@ -2905,39 +2906,51 @@ private fun HomeScreen(
             .padding(horizontal = 22.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(48.dp))
+        Spacer(Modifier.height(if (currentVideoName == null) 48.dp else 24.dp))
 
-        Box(
-            modifier = Modifier
-                .size(76.dp)
-                .background(
-                    PlayerAccent.copy(alpha = 0.16f),
-                    RoundedCornerShape(22.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.Outlined.GraphicEq,
-                contentDescription = null,
-                tint = PlayerAccent,
-                modifier = Modifier.size(34.dp)
+        if (currentVideoName == null) {
+            Box(
+                modifier = Modifier
+                    .size(76.dp)
+                    .background(
+                        PlayerAccent.copy(alpha = 0.16f),
+                        RoundedCornerShape(22.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Outlined.GraphicEq,
+                    contentDescription = null,
+                    tint = PlayerAccent,
+                    modifier = Modifier.size(34.dp)
+                )
+            }
+    
+            Text(
+                stringResource(R.string.app_name),
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 20.sp,
+                modifier = Modifier.padding(top = 14.dp)
+            )
+    
+            Text(
+                stringResource(R.string.ui_home_subtitle),
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 3.dp)
+            )
+        } else {
+            Text(
+                stringResource(R.string.ui_library),
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 24.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp, bottom = 10.dp)
             )
         }
-
-        Text(
-            stringResource(R.string.app_name),
-            color = Color.White,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 20.sp,
-            modifier = Modifier.padding(top = 14.dp)
-        )
-
-        Text(
-            stringResource(R.string.ui_home_subtitle),
-            color = Color.White.copy(alpha = 0.6f),
-            fontSize = 13.sp,
-            modifier = Modifier.padding(top = 3.dp)
-        )
 
         if (currentVideoName != null) {
             OutlinedButton(
