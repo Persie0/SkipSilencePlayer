@@ -53,6 +53,18 @@ struct ContentView: View {
         model.fileName != "No video selected"
     }
 
+    private var silenceStatusSummary: String {
+        if !model.silenceEnabled { return "Skipping off" }
+        let status = model.analysisStatus
+        if status.hasPrefix("Analysis complete") { return "Analysis ready" }
+        if status.hasPrefix("Analysis capped") { return "Partially analyzed" }
+        if status.localizedCaseInsensitiveContains("unavailable") {
+            return "Analysis unavailable"
+        }
+        if status.contains("no audio track") { return "No audio track" }
+        return "Analyzing audio…"
+    }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -640,10 +652,6 @@ struct ContentView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
-                    Text(model.analysisStatus)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
                 }
             }
 
@@ -815,6 +823,9 @@ struct ContentView: View {
                         Label("Skip silence", systemImage: "waveform")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(model.silenceEnabled ? PlayerColors.accent : .white)
+                        Text(silenceStatusSummary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         if model.silenceEnabled {
                             Text("Saved " + PlayerModel.format(seconds: model.skippedTime) +
                                  " · Est. watch " + PlayerModel.format(seconds: model.estimatedWatchTime))
@@ -1130,74 +1141,85 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
 
-            SectionLabel(text: "Sync & style")
-
-            SheetSliderRow(
-                label: "Sync",
-                valueText: String(format: "%+.1f s", model.subtitleOffset),
-                value: Binding(
-                    get: { model.subtitleOffset },
-                    set: { model.setSubtitleOffset($0) }
-                ),
-                range: -10...10,
-                step: 0.05,
-                onCommit: {}
-            )
-
-            SheetSliderRow(
-                label: "Text size",
-                valueText: String(format: "%.1f×", model.subtitleFontScale),
-                value: Binding(
-                    get: { model.subtitleFontScale },
-                    set: { model.setSubtitleFontScale($0) }
-                ),
-                range: 0.7...2,
-                onCommit: {}
-            )
-
-            SheetSliderRow(
-                label: "Background",
-                valueText: "\(Int((model.subtitleBackgroundOpacity * 100).rounded()))%",
-                value: Binding(
-                    get: { model.subtitleBackgroundOpacity },
-                    set: { model.setSubtitleBackgroundOpacity($0) }
-                ),
-                range: 0...1,
-                onCommit: {}
-            )
-
-            SectionLabel(text: "Position")
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(SubtitlePosition.allCases) { position in
-                        PlayerChip(
-                            label: position.label,
-                            selected: model.subtitlePosition == position
-                        ) {
-                            model.setSubtitlePosition(position)
+            if model.externalSubtitleName != nil {
+                DisclosureGroup(isExpanded: $showAdvancedSubtitleSettings) {
+                SheetSliderRow(
+                    label: "Sync",
+                    valueText: String(format: "%+.1f s", model.subtitleOffset),
+                    value: Binding(
+                        get: { model.subtitleOffset },
+                        set: { model.setSubtitleOffset($0) }
+                    ),
+                    range: -10...10,
+                    step: 0.05,
+                    onCommit: {}
+                )
+    
+                SheetSliderRow(
+                    label: "Text size",
+                    valueText: String(format: "%.1f×", model.subtitleFontScale),
+                    value: Binding(
+                        get: { model.subtitleFontScale },
+                        set: { model.setSubtitleFontScale($0) }
+                    ),
+                    range: 0.7...2,
+                    onCommit: {}
+                )
+    
+                SheetSliderRow(
+                    label: "Background",
+                    valueText: "\(Int((model.subtitleBackgroundOpacity * 100).rounded()))%",
+                    value: Binding(
+                        get: { model.subtitleBackgroundOpacity },
+                        set: { model.setSubtitleBackgroundOpacity($0) }
+                    ),
+                    range: 0...1,
+                    onCommit: {}
+                )
+    
+                SectionLabel(text: "Position")
+    
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(SubtitlePosition.allCases) { position in
+                            PlayerChip(
+                                label: position.label,
+                                selected: model.subtitlePosition == position
+                            ) {
+                                model.setSubtitlePosition(position)
+                            }
                         }
                     }
                 }
-            }
-
-            SectionLabel(text: "Search")
-
-            HStack(spacing: 10) {
-                TextField("Search subtitle text", text: $subtitleSearch)
-                    .textFieldStyle(.roundedBorder)
-                Button("Next") {
-                    model.searchSubtitle(subtitleSearch)
+    
+                SectionLabel(text: "Search")
+    
+                HStack(spacing: 10) {
+                    TextField("Search subtitle text", text: $subtitleSearch)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Next") {
+                        model.searchSubtitle(subtitleSearch)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.externalSubtitleCueCount == 0)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(model.externalSubtitleCueCount == 0)
-            }
-
-            if let status = model.subtitleSearchStatus {
-                Text(status)
-                    .font(.caption2)
+    
+                if let status = model.subtitleSearchStatus {
+                    Text(status)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                } label: {
+                    Text("Subtitle sync, style & search")
+                        .font(.subheadline.weight(.medium))
+                }
+                .tint(PlayerColors.accent)
+            } else {
+                Text("Import a subtitle file to adjust sync, text style, position, or search.")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
         }
     }
 
