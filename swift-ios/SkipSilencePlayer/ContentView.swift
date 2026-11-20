@@ -1419,6 +1419,25 @@ struct ContentView: View {
 
     private var toolsSheet: some View {
         SheetCard(title: "Playback tools") {
+            HStack(spacing: 12) {
+                Button {
+                    openFromTools("speed")
+                } label: {
+                    Label("Speed", systemImage: "gauge")
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    openFromTools("subtitles")
+                } label: {
+                    Label("Subtitles", systemImage: "captions.bubble")
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+            }
             Button {
                 openFromTools("markers")
             } label: {
@@ -1750,6 +1769,8 @@ struct ContentView: View {
         case "markers": showMarkersSheet = true
         case "queue": showPlaylistSheet = true
         case "audio": showAudioSheet = true
+        case "speed": showSpeedSheet = true
+        case "subtitles": showSubtitleSheet = true
         case "settings": showSettingsPage = true
         default: break
         }
