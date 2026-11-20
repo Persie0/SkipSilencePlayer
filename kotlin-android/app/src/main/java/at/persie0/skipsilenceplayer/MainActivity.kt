@@ -974,6 +974,7 @@ private fun SkipSilencePlayerScreen(
             ) {
                 player.pause()
                 sleepDeadline = null
+                selectedSleepMinutes = null
                 gestureText = "Sleep timer finished"
             }
             if (
@@ -2484,12 +2485,7 @@ private fun SkipSilencePlayerScreen(
                             }
                         }
                         TextButton(
-                            onClick = {
-                                bookmarks = emptyList()
-                                activeUri?.let { uri ->
-                                    saveBookmarks(preferences, uri, emptyList())
-                                }
-                            }
+                            onClick = { pendingDestructiveAction = "bookmarks" }
                         ) {
                             Text(stringResource(R.string.ui_clear_bookmarks))
                         }
@@ -2543,9 +2539,10 @@ private fun SkipSilencePlayerScreen(
                                     R.string.ui_minutes,
                                     minutes.toInt()
                                 ),
-                                selected = sleepDeadline != null,
+                                selected = selectedSleepMinutes == minutes,
                                 onClick = {
                                     sleepAtEnd = false
+                                    selectedSleepMinutes = minutes
                                     sleepDeadline =
                                         SystemClock.elapsedRealtime() +
                                             minutes * 60_000L
@@ -2557,6 +2554,7 @@ private fun SkipSilencePlayerScreen(
                             selected = sleepAtEnd,
                             onClick = {
                                 sleepDeadline = null
+                                selectedSleepMinutes = null
                                 sleepAtEnd = true
                             }
                         )
@@ -2566,6 +2564,7 @@ private fun SkipSilencePlayerScreen(
                                 selected = false,
                                 onClick = {
                                     sleepDeadline = null
+                                    selectedSleepMinutes = null
                                     sleepAtEnd = false
                                 }
                             )
@@ -2579,13 +2578,13 @@ private fun SkipSilencePlayerScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         OutlinedButton(
-                            onClick = { clearHistory() },
+                            onClick = { pendingDestructiveAction = "history" },
                             modifier = Modifier.weight(1f)
                         ) {
                             Text(stringResource(R.string.ui_clear_history))
                         }
                         OutlinedButton(
-                            onClick = { resetSettings() },
+                            onClick = { pendingDestructiveAction = "settings" },
                             modifier = Modifier.weight(1f)
                         ) {
                             Text(stringResource(R.string.ui_reset_settings))
@@ -2667,13 +2666,58 @@ private fun SkipSilencePlayerScreen(
                                 }
                             )
                         }
-                        TextButton(onClick = { clearHistory() }) {
+                        TextButton(onClick = { pendingDestructiveAction = "history" }) {
                             Text(stringResource(R.string.ui_clear_history))
                         }
                     }
                 }
             }
         }
+    }
+
+    pendingDestructiveAction?.let { action ->
+        AlertDialog(
+            onDismissRequest = { pendingDestructiveAction = null },
+            title = {
+                Text(
+                    stringResource(
+                        when (action) {
+                            "history" -> R.string.ui_confirm_clear_history
+                            "bookmarks" -> R.string.ui_confirm_clear_bookmarks
+                            else -> R.string.ui_confirm_reset_settings
+                        }
+                    )
+                )
+            },
+            text = { Text(stringResource(R.string.ui_cannot_undo)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDestructiveAction = null
+                    when (action) {
+                        "history" -> clearHistory()
+                        "settings" -> resetSettings()
+                        "bookmarks" -> {
+                            bookmarks = emptyList()
+                            activeUri?.let { uri ->
+                                saveBookmarks(preferences, uri, emptyList())
+                            }
+                        }
+                    }
+                }) {
+                    Text(
+                        stringResource(
+                            if (action == "settings") R.string.ui_confirm_reset
+                            else R.string.ui_clear
+                        )
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDestructiveAction = null }) {
+                    Text(stringResource(R.string.ui_cancel))
+                }
+            }
+        )
     }
 
     pendingResume?.let { request ->
