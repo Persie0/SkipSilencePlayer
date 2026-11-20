@@ -148,45 +148,45 @@ struct ContentView: View {
             playerKeyboardFocus = true
         }
         .onKeyPress(.space) {
-            guard hasVideo else { return .ignored }
+            guard hasVideo && !showingLibrary else { return .ignored }
             model.togglePlayback()
             showControls()
             return .handled
         }
         .onKeyPress(.leftArrow) {
-            guard hasVideo else { return .ignored }
+            guard hasVideo && !showingLibrary else { return .ignored }
             model.seek(by: -Double(model.doubleTapSeconds))
             showHUD("−\(model.doubleTapSeconds) s")
             return .handled
         }
         .onKeyPress(.rightArrow) {
-            guard hasVideo else { return .ignored }
+            guard hasVideo && !showingLibrary else { return .ignored }
             model.seek(by: Double(model.doubleTapSeconds))
             showHUD("+\(model.doubleTapSeconds) s")
             return .handled
         }
         .onKeyPress("j") {
-            guard hasVideo else { return .ignored }
+            guard hasVideo && !showingLibrary else { return .ignored }
             model.seek(by: -Double(model.doubleTapSeconds))
             return .handled
         }
         .onKeyPress("k") {
-            guard hasVideo else { return .ignored }
+            guard hasVideo && !showingLibrary else { return .ignored }
             model.togglePlayback()
             return .handled
         }
         .onKeyPress("l") {
-            guard hasVideo else { return .ignored }
+            guard hasVideo && !showingLibrary else { return .ignored }
             model.seek(by: Double(model.doubleTapSeconds))
             return .handled
         }
         .onKeyPress("f") {
-            guard hasVideo else { return .ignored }
+            guard hasVideo && !showingLibrary else { return .ignored }
             setFullscreen(!isFullscreen)
             return .handled
         }
         .onKeyPress("m") {
-            guard hasVideo else { return .ignored }
+            guard hasVideo && !showingLibrary else { return .ignored }
             model.toggleMute()
             return .handled
         }
@@ -347,7 +347,7 @@ struct ContentView: View {
                     }
                 }
 
-                if !gesturesLocked && !showingLibrary {
+                if !gesturesLocked && !showingLibrary && hasVideo {
                     Color.clear
                         .contentShape(Rectangle())
                         .gesture(
