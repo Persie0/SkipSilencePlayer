@@ -42,6 +42,8 @@ struct ContentView: View {
     @State private var showRecentSheet = false
     @State private var showAdvancedSilenceSettings = false
     @State private var pendingDestructiveAction: String?
+    @State private var showingDestructiveConfirmation = false
+    @State private var confirmationQueuedAfterSheetDismiss = false
 
     private var hasVideo: Bool {
         model.fileName != "No video selected"
@@ -218,13 +220,13 @@ struct ContentView: View {
         .sheet(isPresented: $showAudioSheet) {
             audioSheet
         }
-        .sheet(isPresented: $showToolsSheet) {
+        .sheet(isPresented: $showToolsSheet, onDismiss: presentQueuedConfirmation) {
             toolsSheet
         }
         .sheet(isPresented: $showPlaylistSheet) {
             playlistSheet
         }
-        .sheet(isPresented: $showRecentSheet) {
+        .sheet(isPresented: $showRecentSheet, onDismiss: presentQueuedConfirmation) {
             recentSheet
         }
         .alert(
@@ -251,10 +253,7 @@ struct ContentView: View {
             pendingDestructiveAction == "history" ? "Clear playback history?" :
                 pendingDestructiveAction == "bookmarks" ? "Clear all bookmarks?" :
                 "Reset player settings?",
-            isPresented: Binding(
-                get: { pendingDestructiveAction != nil },
-                set: { if !$0 { pendingDestructiveAction = nil } }
-            ),
+            isPresented: $showingDestructiveConfirmation,
             titleVisibility: .visible
         ) {
             Button("Cancel", role: .cancel) {
@@ -674,9 +673,11 @@ struct ContentView: View {
                     Divider()
                     Button("Clear history", role: .destructive) {
                         pendingDestructiveAction = "history"
+                        showingDestructiveConfirmation = true
                     }
                     Button("Reset settings", role: .destructive) {
                         pendingDestructiveAction = "settings"
+                        showingDestructiveConfirmation = true
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -773,6 +774,7 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "backward.end.fill")
                         .font(.title3)
+                        .frame(minWidth: 44, minHeight: 44)
                 }
                 .disabled(!model.hasPrevious)
                 .foregroundStyle(.white)
@@ -789,6 +791,7 @@ struct ContentView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    .frame(minWidth: 44, minHeight: 44)
                 }
                 .foregroundStyle(.white)
                 .accessibilityLabel("Seek backward \(model.doubleTapSeconds) seconds")
@@ -816,6 +819,7 @@ struct ContentView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    .frame(minWidth: 44, minHeight: 44)
                 }
                 .foregroundStyle(.white)
                 .accessibilityLabel("Seek forward \(model.doubleTapSeconds) seconds")
@@ -825,6 +829,7 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "forward.end.fill")
                         .font(.title3)
+                        .frame(minWidth: 44, minHeight: 44)
                 }
                 .disabled(!model.hasNext)
                 .foregroundStyle(.white)
@@ -1212,7 +1217,7 @@ struct ContentView: View {
                 }
 
                 Button("Clear bookmarks", role: .destructive) {
-                    pendingDestructiveAction = "bookmarks"
+                    requestConfirmationFromSheet("bookmarks", dismiss: "tools")
                 }
                 .buttonStyle(.bordered)
             }
@@ -1276,12 +1281,12 @@ struct ContentView: View {
 
             HStack(spacing: 10) {
                 Button("Clear history", role: .destructive) {
-                    pendingDestructiveAction = "history"
+                    requestConfirmationFromSheet("history", dismiss: "tools")
                 }
                 .buttonStyle(.bordered)
 
                 Button("Reset settings", role: .destructive) {
-                    pendingDestructiveAction = "settings"
+                    requestConfirmationFromSheet("settings", dismiss: "tools")
                 }
                 .buttonStyle(.bordered)
             }
@@ -1361,7 +1366,7 @@ struct ContentView: View {
                 }
 
                 Button("Clear history", role: .destructive) {
-                    pendingDestructiveAction = "history"
+                    requestConfirmationFromSheet("history", dismiss: "recent")
                 }
                 .buttonStyle(.bordered)
                 .padding(.top, 8)
@@ -1370,6 +1375,22 @@ struct ContentView: View {
     }
 
     // MARK: - Helpers
+
+    private func requestConfirmationFromSheet(_ action: String, dismiss sheet: String) {
+        pendingDestructiveAction = action
+        confirmationQueuedAfterSheetDismiss = true
+        if sheet == "tools" {
+            showToolsSheet = false
+        } else {
+            showRecentSheet = false
+        }
+    }
+
+    private func presentQueuedConfirmation() {
+        guard confirmationQueuedAfterSheetDismiss else { return }
+        confirmationQueuedAfterSheetDismiss = false
+        showingDestructiveConfirmation = true
+    }
 
     private func playerIconButton(
         _ systemImage: String,
