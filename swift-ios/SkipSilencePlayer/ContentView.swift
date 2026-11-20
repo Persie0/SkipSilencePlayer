@@ -121,7 +121,7 @@ struct ContentView: View {
                     Label("Unlock", systemImage: "lock.open")
                         .font(.caption.weight(.medium))
                         .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
+                        .frame(minHeight: 44)
                         .background(Capsule().fill(Color.black.opacity(0.72)))
                         .overlay(
                             Capsule().strokeBorder(PlayerColors.accent.opacity(0.6))
@@ -1542,7 +1542,8 @@ struct ContentView: View {
                                 .lineLimit(1)
                             Spacer()
                         }
-                        .padding(.vertical, 7)
+                        .frame(minHeight: 44)
+                        .padding(.vertical, 5)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
