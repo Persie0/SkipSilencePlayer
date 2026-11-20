@@ -430,6 +430,7 @@ private fun SkipSilencePlayerScreen(
     val silencePreviewRanges = PlaybackRuntime.silenceRanges
 
     var controlsVisible by remember { mutableStateOf(true) }
+    var showLibrary by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
     var gestureLocked by remember { mutableStateOf(false) }
     var gestureText by remember { mutableStateOf<String?>(null) }
@@ -664,6 +665,7 @@ private fun SkipSilencePlayerScreen(
     ) {
         if (entries.isEmpty()) return
         saveCurrentState()
+        showLibrary = false
 
         val index = startIndex.coerceIn(0, entries.lastIndex)
         val selected = entries[index]
@@ -1398,9 +1400,14 @@ private fun SkipSilencePlayerScreen(
                 .then(pointerGestures)
         )
 
-        if (player.mediaItemCount == 0 && !activity.pipMode) {
+        if ((player.mediaItemCount == 0 || showLibrary) && !activity.pipMode) {
             HomeScreen(
                 recentVideos = recentVideos,
+                currentVideoName = if (player.mediaItemCount > 0) fileName else null,
+                onContinue = {
+                    showLibrary = false
+                    controlsVisible = true
+                },
                 onOpenVideo = { openVideos() },
                 onOpenFolder = { openFolder() },
                 onOpenRecent = { recent ->
@@ -1432,7 +1439,7 @@ private fun SkipSilencePlayerScreen(
             }
         }
 
-        if (externalSubtitleText.isNotBlank()) {
+        if (externalSubtitleText.isNotBlank() && !showLibrary) {
             val alignment = when (subtitlePosition) {
                 SubtitlePosition.TOP -> Alignment.TopCenter
                 SubtitlePosition.CENTER -> Alignment.Center
@@ -1558,7 +1565,7 @@ private fun SkipSilencePlayerScreen(
 
         AnimatedVisibility(
             visible = player.mediaItemCount > 0 && controlsVisible &&
-                !activity.pipMode && !gestureLocked,
+                !activity.pipMode && !gestureLocked && !showLibrary,
             enter = fadeIn() + slideInVertically { -it / 2 },
             exit = fadeOut() + slideOutVertically { -it / 2 },
             modifier = Modifier.align(Alignment.TopCenter)
@@ -1606,10 +1613,12 @@ private fun SkipSilencePlayerScreen(
                     Spacer(Modifier.width(4.dp))
 
                     playerIconButton(
-                        icon = Icons.Outlined.Lock,
-                        contentDescription = stringResource(R.string.cd_lock)
+                        icon = Icons.Filled.FolderOpen,
+                        contentDescription = stringResource(R.string.ui_library)
                     ) {
-                        gestureLocked = true
+                        player.pause()
+                        saveCurrentState()
+                        showLibrary = true
                         controlsVisible = false
                     }
 
@@ -1639,6 +1648,17 @@ private fun SkipSilencePlayerScreen(
                             expanded = overflowOpen,
                             onDismissRequest = { overflowOpen = false }
                         ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.ui_lock_gestures)) },
+                                leadingIcon = {
+                                    Icon(Icons.Outlined.Lock, contentDescription = null)
+                                },
+                                onClick = {
+                                    overflowOpen = false
+                                    gestureLocked = true
+                                    controlsVisible = false
+                                }
+                            )
                             DropdownMenuItem(
                                 text = {
                                     Text(stringResource(R.string.ui_open_video))
@@ -1754,7 +1774,7 @@ private fun SkipSilencePlayerScreen(
 
         AnimatedVisibility(
             visible = player.mediaItemCount > 0 && controlsVisible &&
-                !activity.pipMode && !gestureLocked,
+                !activity.pipMode && !gestureLocked && !showLibrary,
             enter = fadeIn() + slideInVertically { it / 2 },
             exit = fadeOut() + slideOutVertically { it / 2 },
             modifier = Modifier.align(Alignment.BottomCenter)
@@ -2780,6 +2800,8 @@ private fun SkipSilencePlayerScreen(
 @Composable
 private fun HomeScreen(
     recentVideos: List<RecentVideo>,
+    currentVideoName: String?,
+    onContinue: () -> Unit,
     onOpenVideo: () -> Unit,
     onOpenFolder: () -> Unit,
     onOpenRecent: (RecentVideo) -> Unit,
@@ -2832,6 +2854,35 @@ private fun HomeScreen(
             fontSize = 13.sp,
             modifier = Modifier.padding(top = 3.dp)
         )
+
+        if (currentVideoName != null) {
+            OutlinedButton(
+                onClick = onContinue,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 22.dp)
+            ) {
+                Icon(
+                    Icons.Filled.PlayArrow,
+                    contentDescription = null,
+                    tint = PlayerAccent
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.ui_continue_watching),
+                        color = PlayerAccent,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        currentVideoName,
+                        color = Color.White,
+                        maxLines = 1,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
 
         Row(
             modifier = Modifier
