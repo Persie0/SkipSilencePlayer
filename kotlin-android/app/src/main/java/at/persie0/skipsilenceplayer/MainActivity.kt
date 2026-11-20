@@ -134,6 +134,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
@@ -449,6 +450,10 @@ private fun SkipSilencePlayerScreen(
     var showSubtitleSheet by remember { mutableStateOf(false) }
     var showAudioSheet by remember { mutableStateOf(false) }
     var showToolsSheet by remember { mutableStateOf(false) }
+    var showMarkersSheet by remember { mutableStateOf(false) }
+    val localConfiguration = LocalConfiguration.current
+    val compactLandscape = localConfiguration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+        localConfiguration.screenHeightDp < 500
     var showPlaylistSheet by remember { mutableStateOf(false) }
     var showRecentSheet by remember { mutableStateOf(false) }
     var showPreferencesSheet by remember { mutableStateOf(false) }
@@ -1314,7 +1319,7 @@ private fun SkipSilencePlayerScreen(
         enabled = player.mediaItemCount > 0 && !showLibrary && !gestureLocked &&
             !showSpeedSheet && !showSilenceSheet && !showSubtitleSheet &&
             !showAudioSheet && !showToolsSheet && !showPlaylistSheet &&
-            !showRecentSheet && !showPreferencesSheet &&
+            !showRecentSheet && !showPreferencesSheet && !showMarkersSheet &&
             pendingResume == null && pendingDestructiveAction == null
     ) {
         if (isFullscreen) {
@@ -1344,7 +1349,8 @@ private fun SkipSilencePlayerScreen(
                         showToolsSheet ||
                         showPlaylistSheet ||
                         showRecentSheet ||
-                        showPreferencesSheet
+                        showPreferencesSheet ||
+                        showMarkersSheet
 
                 if (
                     anySheetOpen ||
@@ -1749,7 +1755,7 @@ private fun SkipSilencePlayerScreen(
                             )
                             HorizontalDivider()
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.ui_playback_preferences)) },
+                                text = { Text(stringResource(R.string.ui_settings)) },
                                 onClick = {
                                     overflowOpen = false
                                     showPreferencesSheet = true
@@ -1764,7 +1770,7 @@ private fun SkipSilencePlayerScreen(
                             )
                             if (player.mediaItemCount > 1) {
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.ui_playlist)) },
+                                    text = { Text(stringResource(R.string.ui_up_next)) },
                                     onClick = {
                                         overflowOpen = false
                                         showPlaylistSheet = true
@@ -1780,39 +1786,6 @@ private fun SkipSilencePlayerScreen(
                                     }
                                 )
                             }
-                            DropdownMenuItem(
-                                text = {
-                                    Text(stringResource(R.string.ui_audio_only))
-                                },
-                                trailingIcon = {
-                                    if (audioOnly) {
-                                        Icon(
-                                            Icons.Filled.Check,
-                                            contentDescription = null
-                                        )
-                                    }
-                                },
-                                onClick = { audioOnly = !audioOnly }
-                            )
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = {
-                                    Text(stringResource(R.string.ui_clear_history))
-                                },
-                                onClick = {
-                                    overflowOpen = false
-                                    pendingDestructiveAction = "history"
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Text(stringResource(R.string.ui_reset_settings))
-                                },
-                                onClick = {
-                                    overflowOpen = false
-                                    pendingDestructiveAction = "settings"
-                                }
-                            )
                         }
                     }
                 }
@@ -2051,7 +2024,7 @@ private fun SkipSilencePlayerScreen(
                         .padding(horizontal = 22.dp)
                         .padding(bottom = 28.dp)
                 ) {
-                    SheetHeader(stringResource(R.string.ui_playback_preferences)) {
+                    SheetHeader(stringResource(R.string.ui_settings)) {
                         showPreferencesSheet = false
                     }
 
@@ -2087,6 +2060,40 @@ private fun SkipSilencePlayerScreen(
                             preferences.edit().putString("resume_mode", it.name).apply()
                         }
                     )
+
+                    SheetSwitchRow(
+                        label = stringResource(R.string.ui_audio_only),
+                        checked = audioOnly,
+                        onCheckedChange = {
+                            audioOnly = it
+                            preferences.edit().putBoolean("audio_only", it).apply()
+                        }
+                    )
+
+                    SectionLabel(stringResource(R.string.ui_data))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                showPreferencesSheet = false
+                                pendingDestructiveAction = "history"
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.ui_clear_history))
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                showPreferencesSheet = false
+                                pendingDestructiveAction = "settings"
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.ui_reset_settings))
+                        }
+                    }
                 }
             }
         }
