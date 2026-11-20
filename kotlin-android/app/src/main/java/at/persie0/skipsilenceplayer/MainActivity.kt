@@ -1438,6 +1438,16 @@ private fun SkipSilencePlayerScreen(
             HomeScreen(
                 recentVideos = recentVideos,
                 currentVideoName = if (player.mediaItemCount > 0) fileName else null,
+                currentPositionMs = currentMs,
+                currentDurationMs = durationMs,
+                queueCount = player.mediaItemCount,
+                onShowQueue = { showPlaylistSheet = true },
+                onSettings = { showPreferencesSheet = true },
+                recentResumePositionMs = { recent ->
+                    preferences.getLong(
+                        "${mediaKey(Uri.parse(recent.uri))}_position", 0L
+                    )
+                },
                 onContinue = {
                     showLibrary = false
                     controlsVisible = true
@@ -2965,12 +2975,21 @@ private fun SkipSilencePlayerScreen(
 private fun HomeScreen(
     recentVideos: List<RecentVideo>,
     currentVideoName: String?,
+    currentPositionMs: Long,
+    currentDurationMs: Long,
+    queueCount: Int,
+    onShowQueue: () -> Unit,
+    onSettings: () -> Unit,
+    recentResumePositionMs: (RecentVideo) -> Long,
     onContinue: () -> Unit,
     onOpenVideo: () -> Unit,
     onOpenFolder: () -> Unit,
     onOpenRecent: (RecentVideo) -> Unit,
     onSeeAllRecents: () -> Unit
 ) {
+    var recentSearch by remember { mutableStateOf("") }
+    val filteredRecents = if (recentSearch.isBlank()) recentVideos
+        else recentVideos.filter { it.name.contains(recentSearch, ignoreCase = true) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -3020,15 +3039,23 @@ private fun HomeScreen(
                 modifier = Modifier.padding(top = 3.dp)
             )
         } else {
-            Text(
-                stringResource(R.string.ui_library),
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 24.sp,
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 6.dp, bottom = 10.dp)
-            )
+                    .padding(top = 6.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    stringResource(R.string.ui_library),
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 24.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onSettings) {
+                    Text(stringResource(R.string.ui_settings))
+                }
+            }
         }
 
         if (currentVideoName != null) {
@@ -3054,8 +3081,16 @@ private fun HomeScreen(
                         currentVideoName,
                         color = Color.White,
                         maxLines = 1,
-                        fontSize = 12.sp
+                        fontSize = 13.sp
                     )
+                    if (currentDurationMs > 0) {
+                        Text(
+                            formatTime(currentPositionMs) + " / " +
+                                formatTime(currentDurationMs),
+                            color = Color.White.copy(alpha = 0.72f),
+                            fontSize = 12.sp
+                        )
+                    }
                 }
             }
         }
@@ -3080,6 +3115,30 @@ private fun HomeScreen(
             )
         }
 
+        if (queueCount > 1) {
+            OutlinedButton(
+                onClick = onShowQueue,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+            ) {
+                Icon(
+                    Icons.Outlined.PlaylistPlay,
+                    contentDescription = null,
+                    tint = PlayerAccent
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.ui_up_next), modifier = Modifier.weight(1f))
+                Text(stringResource(R.string.ui_video_count, queueCount))
+            }
+        }
+
+        if (currentVideoName == null) {
+            TextButton(onClick = onSettings) {
+                Text(stringResource(R.string.ui_settings))
+            }
+        }
+
         if (recentVideos.isNotEmpty()) {
             Row(
                 modifier = Modifier
@@ -3102,11 +3161,22 @@ private fun HomeScreen(
                 }
             }
 
-            recentVideos.take(4).forEach { recent ->
+            if (recentVideos.size > 4) {
+                OutlinedTextField(
+                    value = recentSearch,
+                    onValueChange = { recentSearch = it },
+                    label = { Text(stringResource(R.string.ui_search_recent)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            filteredRecents.take(8).forEach { recent ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onOpenRecent(recent) }
+                        .heightIn(min = 48.dp)
                         .padding(horizontal = 4.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -3117,13 +3187,32 @@ private fun HomeScreen(
                         tint = Color.White.copy(alpha = 0.4f),
                         modifier = Modifier.size(15.dp)
                     )
-                    Text(
-                        recent.name,
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        maxLines = 1
-                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            recent.name,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            maxLines = 1
+                        )
+                        val resumeMs = recentResumePositionMs(recent)
+                        if (resumeMs >= 5_000L) {
+                            Text(
+                                stringResource(
+                                    R.string.ui_resume_at, formatTime(resumeMs)
+                                ),
+                                color = Color.White.copy(alpha = 0.72f),
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
                 }
+            }
+            if (filteredRecents.isEmpty()) {
+                Text(
+                    stringResource(R.string.ui_no_recent_matches),
+                    color = Color.White.copy(alpha = 0.72f),
+                    modifier = Modifier.padding(vertical = 12.dp)
+                )
             }
         }
 
