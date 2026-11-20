@@ -2488,11 +2488,85 @@ private fun SkipSilencePlayerScreen(
                                 },
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text(stringResource(R.string.ui_playlist))
+                                Text(stringResource(R.string.ui_up_next))
                             }
                         }
                     }
 
+                    OutlinedButton(
+                        onClick = {
+                            showToolsSheet = false
+                            showMarkersSheet = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.ui_markers))
+                    }
+
+                    SectionLabel(stringResource(R.string.ui_sleep_timer))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(15L, 30L, 45L, 60L).forEach { minutes ->
+                            PlayerChip(
+                                text = stringResource(
+                                    R.string.ui_minutes,
+                                    minutes.toInt()
+                                ),
+                                selected = selectedSleepMinutes == minutes,
+                                onClick = {
+                                    sleepAtEnd = false
+                                    selectedSleepMinutes = minutes
+                                    sleepDeadline =
+                                        SystemClock.elapsedRealtime() +
+                                            minutes * 60_000L
+                                }
+                            )
+                        }
+                        PlayerChip(
+                            text = stringResource(R.string.ui_at_end_of_video),
+                            selected = sleepAtEnd,
+                            onClick = {
+                                sleepDeadline = null
+                                selectedSleepMinutes = null
+                                sleepAtEnd = true
+                            }
+                        )
+                        if (sleepDeadline != null || sleepAtEnd) {
+                            PlayerChip(
+                                text = stringResource(R.string.ui_cancel_timer),
+                                selected = false,
+                                onClick = {
+                                    sleepDeadline = null
+                                    selectedSleepMinutes = null
+                                    sleepAtEnd = false
+                                }
+                            )
+                        }
+                    }
+
+                }
+            }
+        }
+
+        if (showMarkersSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showMarkersSheet = false },
+                containerColor = PlayerSheetColor
+            ) {
+                Column(
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 22.dp)
+                        .padding(bottom = 28.dp)
+                ) {
+                    SheetHeader(stringResource(R.string.ui_markers)) {
+                        showMarkersSheet = false
+                    }
                     SectionLabel(stringResource(R.string.ui_ab_repeat))
 
                     Row(
@@ -2604,7 +2678,7 @@ private fun SkipSilencePlayerScreen(
                         }
                         TextButton(
                             onClick = {
-                                showToolsSheet = false
+                                showMarkersSheet = false
                                 pendingDestructiveAction = "bookmarks"
                             }
                         ) {
@@ -2626,6 +2700,7 @@ private fun SkipSilencePlayerScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { player.seekTo(chapter.startMs) }
+                                    .heightIn(min = 48.dp)
                                     .padding(vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -2646,77 +2721,6 @@ private fun SkipSilencePlayerScreen(
                         }
                     }
 
-                    SectionLabel(stringResource(R.string.ui_sleep_timer))
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf(15L, 30L, 45L, 60L).forEach { minutes ->
-                            PlayerChip(
-                                text = stringResource(
-                                    R.string.ui_minutes,
-                                    minutes.toInt()
-                                ),
-                                selected = selectedSleepMinutes == minutes,
-                                onClick = {
-                                    sleepAtEnd = false
-                                    selectedSleepMinutes = minutes
-                                    sleepDeadline =
-                                        SystemClock.elapsedRealtime() +
-                                            minutes * 60_000L
-                                }
-                            )
-                        }
-                        PlayerChip(
-                            text = stringResource(R.string.ui_at_end_of_video),
-                            selected = sleepAtEnd,
-                            onClick = {
-                                sleepDeadline = null
-                                selectedSleepMinutes = null
-                                sleepAtEnd = true
-                            }
-                        )
-                        if (sleepDeadline != null || sleepAtEnd) {
-                            PlayerChip(
-                                text = stringResource(R.string.ui_cancel_timer),
-                                selected = false,
-                                onClick = {
-                                    sleepDeadline = null
-                                    selectedSleepMinutes = null
-                                    sleepAtEnd = false
-                                }
-                            )
-                        }
-                    }
-
-                    SectionLabel(stringResource(R.string.ui_data))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                showToolsSheet = false
-                                pendingDestructiveAction = "history"
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(stringResource(R.string.ui_clear_history))
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                showToolsSheet = false
-                                pendingDestructiveAction = "settings"
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(stringResource(R.string.ui_reset_settings))
-                        }
-                    }
                 }
             }
         }
@@ -2732,9 +2736,14 @@ private fun SkipSilencePlayerScreen(
                         .padding(horizontal = 22.dp)
                         .padding(bottom = 28.dp)
                 ) {
-                    SheetHeader(stringResource(R.string.ui_playlist)) {
+                    SheetHeader(stringResource(R.string.ui_up_next)) {
                         showPlaylistSheet = false
                     }
+                    Text(
+                        stringResource(R.string.ui_video_count, player.mediaItemCount),
+                        color = Color.White.copy(alpha = 0.72f),
+                        fontSize = 13.sp
+                    )
 
                     for (index in 0 until player.mediaItemCount) {
                         val item = player.getMediaItemAt(index)
