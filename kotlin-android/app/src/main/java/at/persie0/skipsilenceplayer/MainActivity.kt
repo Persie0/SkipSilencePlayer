@@ -53,6 +53,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -1778,29 +1779,6 @@ private fun SkipSilencePlayerScreen(
                         fontSize = 11.sp
                     )
                     Spacer(Modifier.weight(1f))
-                    if (skipSilence) {
-                        Text(
-                            stringResource(
-                                R.string.playback_time_saved,
-                                formatSeconds(skippedSeconds),
-                                formatSeconds(estimatedWatchSeconds)
-                            ),
-                            color = PlayerAccent,
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            modifier = Modifier
-                                .background(
-                                    PlayerAccent.copy(alpha = 0.16f),
-                                    RoundedCornerShape(50)
-                                )
-                                .border(
-                                    1.dp,
-                                    PlayerAccent.copy(alpha = 0.35f),
-                                    RoundedCornerShape(50)
-                                )
-                                .padding(horizontal = 9.dp, vertical = 3.dp)
-                        )
-                    }
                     Spacer(Modifier.weight(1f))
                     Text(
                         if (durationMs > 0) {
@@ -1823,8 +1801,50 @@ private fun SkipSilencePlayerScreen(
                 )
 
                 Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { showSilenceSheet = true }
+                            .padding(vertical = 6.dp)
+                    ) {
+                        Text(
+                            stringResource(R.string.ui_skip_silence) + " · " +
+                                stringResource(R.string.ui_adjust),
+                            color = if (skipSilence) PlayerAccent else Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp
+                        )
+                        if (skipSilence) {
+                            Text(
+                                stringResource(
+                                    R.string.playback_time_saved,
+                                    formatSeconds(skippedSeconds),
+                                    formatSeconds(estimatedWatchSeconds)
+                                ),
+                                color = Color.White.copy(alpha = 0.75f),
+                                fontSize = 11.sp,
+                                maxLines = 2
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = skipSilence,
+                        onCheckedChange = { setSkipSilence(it) },
+                        modifier = Modifier.semantics {
+                            contentDescription = "Skip silence"
+                        }
+                    )
+                }
+
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
+                    horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
@@ -1896,63 +1916,31 @@ private fun SkipSilencePlayerScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(
-                            top = 4.dp,
-                            start = 20.dp,
-                            end = 20.dp
-                        ),
+                        .padding(top = 4.dp, start = 20.dp, end = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     PlayerChip(
                         text = formatSpeedLabel(playbackSpeed),
                         selected = abs(playbackSpeed - 1f) > 0.01f,
                         onClick = { showSpeedSheet = true },
-                        icon = Icons.Outlined.Speed
+                        icon = Icons.Outlined.Speed,
+                        modifier = Modifier.weight(1f)
                     )
-
-                    PlayerChip(
-                        text = stringResource(
-                            if (skipSilence) R.string.ui_silence_on
-                            else R.string.ui_silence_off
-                        ),
-                        selected = skipSilence,
-                        onClick = { showSilenceSheet = true },
-                        icon = Icons.Outlined.GraphicEq
-                    )
-
                     PlayerChip(
                         text = stringResource(R.string.ui_subtitles),
                         selected = subtitleName != null ||
                             selectedTrackName(currentTracks, C.TRACK_TYPE_TEXT) != null,
                         onClick = { showSubtitleSheet = true },
-                        icon = Icons.Outlined.Subtitles
+                        icon = Icons.Outlined.Subtitles,
+                        modifier = Modifier.weight(1f)
                     )
-
                     PlayerChip(
-                        text = selectedTrackName(currentTracks, C.TRACK_TYPE_AUDIO)
-                            ?: stringResource(R.string.ui_audio),
-                        selected = selectedTrackName(currentTracks, C.TRACK_TYPE_AUDIO) != null,
-                        onClick = { showAudioSheet = true },
-                        icon = Icons.Outlined.VolumeUp
-                    )
-
-                    PlayerChip(
-                        text = stringResource(R.string.ui_tools),
+                        text = stringResource(R.string.ui_more),
                         selected = false,
                         onClick = { showToolsSheet = true },
-                        icon = Icons.Outlined.Build
+                        icon = Icons.Outlined.Build,
+                        modifier = Modifier.weight(1f)
                     )
-
-                    if (player.mediaItemCount > 1) {
-                        PlayerChip(
-                            text = "${player.currentMediaItemIndex + 1}/" +
-                                "${player.mediaItemCount}",
-                            selected = false,
-                            onClick = { showPlaylistSheet = true },
-                            icon = Icons.Outlined.PlaylistPlay
-                        )
-                    }
                 }
             }
         }
@@ -2814,7 +2802,7 @@ private fun playerIconButton(
 ) {
     Box(
         modifier = Modifier
-            .size(34.dp)
+            .size(48.dp)
             .background(Color.White.copy(alpha = 0.12f), CircleShape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
@@ -2833,10 +2821,12 @@ private fun PlayerChip(
     text: String,
     selected: Boolean,
     onClick: () -> Unit,
-    icon: ImageVector? = null
+    icon: ImageVector? = null,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
+            .heightIn(min = 48.dp)
             .background(
                 if (selected) {
                     PlayerAccent.copy(alpha = 0.22f)
@@ -2855,9 +2845,9 @@ private fun PlayerChip(
                 RoundedCornerShape(50)
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 13.dp, vertical = 7.dp),
+            .padding(horizontal = 8.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.Center
     ) {
         icon?.let {
             Icon(
