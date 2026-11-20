@@ -130,8 +130,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -2446,6 +2450,7 @@ private fun SkipSilencePlayerScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { player.seekTo(bookmark.positionMs) }
+                                    .heightIn(min = 48.dp)
                                     .padding(vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -2463,25 +2468,26 @@ private fun SkipSilencePlayerScreen(
                                     maxLines = 1,
                                     modifier = Modifier.weight(1f)
                                 )
-                                Icon(
-                                    Icons.Filled.Close,
-                                    contentDescription = null,
-                                    tint = Color.White.copy(alpha = 0.4f),
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .clickable {
-                                            bookmarks = bookmarks.filterNot {
-                                                it.positionMs == bookmark.positionMs
-                                            }
-                                            activeUri?.let { uri ->
-                                                saveBookmarks(
-                                                    preferences,
-                                                    uri,
-                                                    bookmarks
-                                                )
-                                            }
+                                IconButton(
+                                    onClick = {
+                                        bookmarks = bookmarks.filterNot {
+                                            it.positionMs == bookmark.positionMs
                                         }
-                                )
+                                        activeUri?.let { uri ->
+                                            saveBookmarks(preferences, uri, bookmarks)
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Close,
+                                        contentDescription = stringResource(
+                                            R.string.ui_remove_bookmark,
+                                            bookmark.label
+                                        ),
+                                        tint = Color.White.copy(alpha = 0.75f),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
                         TextButton(
@@ -3032,12 +3038,25 @@ private fun PlayerSeekBar(
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var scrubPositionMs by remember(durationMs) { mutableStateOf<Long?>(null) }
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(26.dp)
+            .height(48.dp)
             .semantics {
                 contentDescription = "Playback position and detected silence"
+                stateDescription = formatTime(scrubPositionMs ?: positionMs) +
+                    " of " + formatTime(durationMs)
+                progressBarRangeInfo = ProgressBarRangeInfo(
+                    (scrubPositionMs ?: positionMs).toFloat(),
+                    0f..durationMs.coerceAtLeast(1L).toFloat()
+                )
+                setProgress { target ->
+                    if (durationMs > 0) {
+                        onSeek(target.toLong().coerceIn(0L, durationMs))
+                        true
+                    } else false
+                }
             }
             .pointerInput(durationMs) {
                 detectTapGestures { offset ->
@@ -3049,19 +3068,33 @@ private fun PlayerSeekBar(
                 }
             }
             .pointerInput(durationMs) {
-                detectHorizontalDragGestures { change, _ ->
-                    if (durationMs > 0) {
-                        change.consume()
-                        val fraction =
-                            (change.position.x / size.width.toFloat())
-                                .coerceIn(0f, 1f)
-                        onSeek((fraction * durationMs).toLong())
+                detectHorizontalDragGestures(
+                    onDragStart = { offset ->
+                        if (durationMs > 0) {
+                            scrubPositionMs = (
+                                offset.x / size.width.coerceAtLeast(1).toFloat() * durationMs
+                            ).toLong().coerceIn(0L, durationMs)
+                        }
+                    },
+                    onDragEnd = {
+                        scrubPositionMs?.let(onSeek)
+                        scrubPositionMs = null
+                    },
+                    onDragCancel = { scrubPositionMs = null },
+                    onHorizontalDrag = { change, _ ->
+                        if (durationMs > 0) {
+                            change.consume()
+                            val fraction = (change.position.x /
+                                size.width.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
+                            scrubPositionMs = (fraction * durationMs).toLong()
+                        }
                     }
-                }
+                )
             }
     ) {
         val fraction = if (durationMs > 0) {
-            (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+            ((scrubPositionMs ?: positionMs).toFloat() / durationMs.toFloat())
+                .coerceIn(0f, 1f)
         } else {
             0f
         }
@@ -3247,6 +3280,7 @@ private fun SelectRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
+            .heightIn(min = 48.dp)
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
