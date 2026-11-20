@@ -493,6 +493,14 @@ final class PlayerModel: NSObject, ObservableObject {
         playbackError = nil
     }
 
+    func resumeTimeLabel(for recent: RecentVideo) -> String? {
+        let key = "video.\(recent.id).position"
+        guard defaults.object(forKey: key) != nil else { return nil }
+        let seconds = defaults.double(forKey: key)
+        guard seconds >= 5 else { return nil }
+        return "Resume at " + Self.format(seconds: seconds)
+    }
+
     func openRecent(_ recent: RecentVideo) {
         guard let url = Self.resolveBookmark(recent.bookmarkBase64) else {
             playbackError = "Could not reopen \(recent.name). The file may have moved or access expired."
