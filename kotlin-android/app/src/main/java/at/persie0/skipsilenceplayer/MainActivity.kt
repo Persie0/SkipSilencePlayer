@@ -1309,7 +1309,8 @@ private fun SkipSilencePlayerScreen(
                         showAudioSheet ||
                         showToolsSheet ||
                         showPlaylistSheet ||
-                        showRecentSheet
+                        showRecentSheet ||
+                        showPreferencesSheet
 
                 if (
                     anySheetOpen ||
@@ -1945,6 +1946,57 @@ private fun SkipSilencePlayerScreen(
             }
         }
 
+        if (showPreferencesSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showPreferencesSheet = false },
+                containerColor = PlayerSheetColor
+            ) {
+                Column(
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 22.dp)
+                        .padding(bottom = 28.dp)
+                ) {
+                    SheetHeader(stringResource(R.string.ui_playback_preferences)) {
+                        showPreferencesSheet = false
+                    }
+
+                    SectionLabel(stringResource(R.string.ui_aspect))
+                    ChoiceChips(
+                        options = AspectMode.entries.toList(),
+                        selected = { aspectMode == it },
+                        label = { localizePlayerLabel(it.label) },
+                        onSelect = {
+                            aspectMode = it
+                            preferences.edit().putString("aspect_mode", it.name).apply()
+                        }
+                    )
+
+                    SectionLabel(stringResource(R.string.ui_double_tap_seek))
+                    ChoiceChips(
+                        options = listOf(5, 10, 15, 30),
+                        selected = { doubleTapSeconds == it },
+                        label = { "$it s" },
+                        onSelect = {
+                            doubleTapSeconds = it
+                            preferences.edit().putInt("double_tap_seconds", it).apply()
+                        }
+                    )
+
+                    SectionLabel(stringResource(R.string.ui_resume_behavior))
+                    ChoiceChips(
+                        options = ResumeMode.entries.toList(),
+                        selected = { resumeMode == it },
+                        label = { localizePlayerLabel(it.label) },
+                        onSelect = {
+                            resumeMode = it
+                            preferences.edit().putString("resume_mode", it.name).apply()
+                        }
+                    )
+                }
+            }
+        }
+
         if (showSpeedSheet) {
             ModalBottomSheet(
                 onDismissRequest = { showSpeedSheet = false },
@@ -2011,14 +2063,7 @@ private fun SkipSilencePlayerScreen(
                     SheetSwitchRow(
                         label = stringResource(R.string.ui_skip_silence),
                         checked = skipSilence,
-                        onCheckedChange = {
-                            skipSilence = it
-                            PlaybackRuntime.setSkipSilenceEnabled(it)
-                            preferences.edit()
-                                .putBoolean("skip_silence", it)
-                                .apply()
-                            saveCurrentState()
-                        }
+                        onCheckedChange = { setSkipSilence(it) }
                     )
 
                     SheetSwitchRow(
@@ -2035,6 +2080,12 @@ private fun SkipSilencePlayerScreen(
                         fontSize = 12.sp,
                         color = PlayerAccent,
                         modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                    Text(
+                        stringResource(R.string.ui_silence_help),
+                        fontSize = 12.sp,
+                        color = Color.White.copy(alpha = 0.75f),
+                        modifier = Modifier.padding(bottom = 10.dp)
                     )
 
                     ChoiceChips(
@@ -2056,44 +2107,57 @@ private fun SkipSilencePlayerScreen(
                         }
                     )
 
-                    SheetSliderRow(
-                        label = stringResource(R.string.ui_threshold),
-                        valueText = "${silenceThresholdDb.roundToInt()} dB",
-                        value = silenceThresholdDb,
-                        onValueChange = { silenceThresholdDb = it },
-                        onValueChangeFinished = { applySilenceSettings() },
-                        valueRange = -60f..-20f,
-                        steps = 39,
-                        enabled = skipSilence
-                    )
+                    OutlinedButton(
+                        onClick = { showAdvancedSilence = !showAdvancedSilence },
+                        enabled = skipSilence,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            stringResource(R.string.ui_advanced_tuning) +
+                                if (showAdvancedSilence) " −" else " +"
+                        )
+                    }
 
-                    SheetSliderRow(
-                        label = stringResource(R.string.ui_minimum_silence),
-                        valueText = String.format("%.2f s", minimumSilence),
-                        value = minimumSilence,
-                        onValueChange = {
-                            minimumSilence =
-                                ((it * 20).roundToInt() / 20f)
-                        },
-                        onValueChangeFinished = { applySilenceSettings() },
-                        valueRange = 0.2f..2f,
-                        steps = 35,
-                        enabled = skipSilence
-                    )
-
-                    SheetSliderRow(
-                        label = stringResource(R.string.ui_edge_padding),
-                        valueText = "${(edgePadding * 1000).roundToInt()} ms",
-                        value = edgePadding,
-                        onValueChange = {
-                            edgePadding =
-                                ((it * 100).roundToInt() / 100f)
-                        },
-                        onValueChangeFinished = { applySilenceSettings() },
-                        valueRange = 0.02f..0.20f,
-                        steps = 17,
-                        enabled = skipSilence
-                    )
+                    if (showAdvancedSilence) {
+                        SheetSliderRow(
+                            label = stringResource(R.string.ui_threshold),
+                            valueText = "${silenceThresholdDb.roundToInt()} dB",
+                            value = silenceThresholdDb,
+                            onValueChange = { silenceThresholdDb = it },
+                            onValueChangeFinished = { applySilenceSettings() },
+                            valueRange = -60f..-20f,
+                            steps = 39,
+                            enabled = skipSilence
+                        )
+    
+                        SheetSliderRow(
+                            label = stringResource(R.string.ui_minimum_silence),
+                            valueText = String.format("%.2f s", minimumSilence),
+                            value = minimumSilence,
+                            onValueChange = {
+                                minimumSilence =
+                                    ((it * 20).roundToInt() / 20f)
+                            },
+                            onValueChangeFinished = { applySilenceSettings() },
+                            valueRange = 0.2f..2f,
+                            steps = 35,
+                            enabled = skipSilence
+                        )
+    
+                        SheetSliderRow(
+                            label = stringResource(R.string.ui_edge_padding),
+                            valueText = "${(edgePadding * 1000).roundToInt()} ms",
+                            value = edgePadding,
+                            onValueChange = {
+                                edgePadding =
+                                    ((it * 100).roundToInt() / 100f)
+                            },
+                            onValueChangeFinished = { applySilenceSettings() },
+                            valueRange = 0.02f..0.20f,
+                            steps = 17,
+                            enabled = skipSilence
+                        )
+                    }
                 }
             }
         }
@@ -2285,6 +2349,31 @@ private fun SkipSilencePlayerScreen(
                 ) {
                     SheetHeader(stringResource(R.string.ui_tools)) {
                         showToolsSheet = false
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                showToolsSheet = false
+                                showAudioSheet = true
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.ui_audio))
+                        }
+                        if (player.mediaItemCount > 1) {
+                            OutlinedButton(
+                                onClick = {
+                                    showToolsSheet = false
+                                    showPlaylistSheet = true
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(stringResource(R.string.ui_playlist))
+                            }
+                        }
                     }
 
                     SectionLabel(stringResource(R.string.ui_ab_repeat))
