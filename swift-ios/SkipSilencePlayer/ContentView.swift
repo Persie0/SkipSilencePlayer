@@ -51,7 +51,7 @@ struct ContentView: View {
     @State private var confirmationQueuedAfterSheetDismiss = false
 
     private var hasVideo: Bool {
-        model.fileName != "No video selected"
+        model.hasLoadedMedia
     }
 
     private var silenceStatusSummary: String {
