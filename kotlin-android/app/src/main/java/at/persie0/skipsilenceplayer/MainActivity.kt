@@ -1932,12 +1932,39 @@ private fun SkipSilencePlayerScreen(
                                 tint = Color.White
                             )
                         }
-                        TextButton(onClick = { showSilenceSheet = true }) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .clickable { showSilenceSheet = true },
+                            verticalArrangement = Arrangement.Center
+                        ) {
                             Text(
                                 stringResource(R.string.ui_skip_silence),
                                 color = if (skipSilence) PlayerAccent else Color.White,
                                 maxLines = 1,
                                 fontSize = 13.sp
+                            )
+                            val status = PlaybackRuntime.analysisStatus
+                            Text(
+                                stringResource(
+                                    when {
+                                        !skipSilence -> R.string.ui_skipping_off
+                                        status.startsWith("Analysis complete") ->
+                                            R.string.ui_analysis_ready
+                                        status.startsWith("Analysis capped") ||
+                                            status.startsWith("Analysis stopped") ->
+                                            R.string.ui_analysis_partial
+                                        status.contains("no audio", ignoreCase = true) ->
+                                            R.string.ui_no_audio_track
+                                        status.contains("No local") ->
+                                            R.string.ui_analysis_unavailable
+                                        else -> R.string.ui_analyzing_audio
+                                    }
+                                ),
+                                color = Color.White.copy(alpha = 0.72f),
+                                maxLines = 1,
+                                fontSize = 12.sp
                             )
                         }
                         Switch(
