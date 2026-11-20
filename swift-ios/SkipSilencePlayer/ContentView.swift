@@ -72,7 +72,10 @@ struct ContentView: View {
             videoArea
 
             if !hasVideo || showingLibrary {
-                homeScreen
+                ZStack {
+                    Color.black.ignoresSafeArea()
+                    homeScreen
+                }
             } else if controlsVisible && !gesturesLocked {
                 VStack(spacing: 0) {
                     topBar
@@ -343,7 +346,7 @@ struct ContentView: View {
                     }
                 }
 
-                if !gesturesLocked {
+                if !gesturesLocked && !showingLibrary {
                     Color.clear
                         .contentShape(Rectangle())
                         .gesture(
@@ -516,8 +519,9 @@ struct ContentView: View {
     // MARK: - Home screen
 
     private var homeScreen: some View {
-        VStack(spacing: 0) {
-            Spacer()
+        ScrollView {
+            VStack(spacing: 0) {
+                Spacer(minLength: 24)
 
             ZStack {
                 RoundedRectangle(cornerRadius: 22)
@@ -540,6 +544,7 @@ struct ContentView: View {
             if hasVideo {
                 Button {
                     showingLibrary = false
+                    model.play()
                     showControls()
                 } label: {
                     HStack(spacing: 12) {
@@ -625,7 +630,9 @@ struct ContentView: View {
             .padding(.horizontal, 40)
             .padding(.top, 26)
 
-            Spacer()
+                Spacer(minLength: 24)
+            }
+            .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
@@ -660,6 +667,7 @@ struct ContentView: View {
             HStack(spacing: 4) {
                 playerIconButton("chevron.left", label: "Library") {
                     model.pause()
+                    if isFullscreen { setFullscreen(false) }
                     showingLibrary = true
                     controlsVisible = false
                     hideGeneration += 1
