@@ -543,6 +543,7 @@ final class PlayerModel: NSObject, ObservableObject {
     func pause() {
         player.pause()
         isPlaying = false
+        saveCurrentVideoState()
         updateNowPlaying()
     }
 
