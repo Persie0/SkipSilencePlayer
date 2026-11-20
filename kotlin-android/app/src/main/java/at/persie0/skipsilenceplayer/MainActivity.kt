@@ -1349,6 +1349,10 @@ private fun SkipSilencePlayerScreen(
         rootFocusRequester.requestFocus()
     }
 
+    BackHandler(enabled = showPreferencesSheet) {
+        showPreferencesSheet = false
+    }
+
     BackHandler(
         enabled = player.mediaItemCount > 0 && !showLibrary && !gestureLocked &&
             !showSpeedSheet && !showSilenceSheet && !showSubtitleSheet &&
@@ -2151,12 +2155,17 @@ private fun SkipSilencePlayerScreen(
         }
 
         if (showPreferencesSheet) {
-            ModalBottomSheet(
-                onDismissRequest = { showPreferencesSheet = false },
-                containerColor = PlayerSheetColor
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(PlayerSheetColor)
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
             ) {
                 Column(
                     modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 22.dp)
                         .padding(bottom = 28.dp)
