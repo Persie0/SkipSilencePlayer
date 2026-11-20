@@ -15,6 +15,7 @@ private enum PlayerColors {
 }
 
 struct ContentView: View {
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @ScaledMetric(relativeTo: .body) private var subtitleBaseFontSize: CGFloat = 18
     @StateObject private var model = PlayerModel()
     @StateObject private var pipManager = PictureInPictureManager()
@@ -40,11 +41,15 @@ struct ContentView: View {
     @State private var showSubtitleSheet = false
     @State private var showAudioSheet = false
     @State private var showToolsSheet = false
+    @State private var showSettingsPage = false
+    @State private var showMarkersSheet = false
+    @State private var toolsDestinationAfterDismiss: String?
     @State private var showPlaylistSheet = false
     @State private var showRecentSheet = false
     @State private var showAdvancedSilenceSettings = false
     @State private var showAdvancedSubtitleSettings = false
     @State private var showingLibrary = false
+    @State private var librarySearch = ""
     @State private var bottomControlsHeight: CGFloat = 0
     @State private var pendingDestructiveAction: String?
     @State private var showingDestructiveConfirmation = false
@@ -52,6 +57,17 @@ struct ContentView: View {
 
     private var hasVideo: Bool {
         model.hasLoadedMedia
+    }
+
+    private var compactLandscape: Bool {
+        verticalSizeClass == .compact
+    }
+
+    private var filteredRecentVideos: [RecentVideo] {
+        guard !librarySearch.isEmpty else { return model.recentVideos }
+        return model.recentVideos.filter {
+            $0.name.localizedCaseInsensitiveContains(librarySearch)
+        }
     }
 
     private var silenceStatusSummary: String {
@@ -254,8 +270,14 @@ struct ContentView: View {
         .sheet(isPresented: $showAudioSheet) {
             audioSheet
         }
-        .sheet(isPresented: $showToolsSheet, onDismiss: presentQueuedConfirmation) {
+        .sheet(isPresented: $showToolsSheet, onDismiss: handleToolsDismiss) {
             toolsSheet
+        }
+        .sheet(isPresented: $showMarkersSheet, onDismiss: presentQueuedConfirmation) {
+            markersSheet
+        }
+        .sheet(isPresented: $showSettingsPage, onDismiss: presentQueuedConfirmation) {
+            settingsPage
         }
         .sheet(isPresented: $showPlaylistSheet) {
             playlistSheet
@@ -732,49 +754,10 @@ struct ContentView: View {
                         }
                     }
                     Divider()
-                    Menu {
-                        ForEach(VideoAspectMode.allCases) { mode in
-                            Button(mode.label) {
-                                model.setAspectMode(mode)
-                            }
-                        }
+                    Button {
+                        showSettingsPage = true
                     } label: {
-                        Text("Aspect: " + model.aspectMode.label)
-                    }
-                    Menu {
-                        ForEach([5, 10, 15, 30], id: \.self) { seconds in
-                            Button("\(seconds) s") {
-                                model.setDoubleTapSeconds(seconds)
-                            }
-                        }
-                    } label: {
-                        Text("Double-tap seek: \(model.doubleTapSeconds) s")
-                    }
-                    Menu {
-                        ForEach(ResumeMode.allCases) { mode in
-                            Button(mode.label) {
-                                model.setResumeMode(mode)
-                            }
-                        }
-                    } label: {
-                        Text("Resume: " + model.resumeMode.label)
-                    }
-                    Toggle(
-                        isOn: Binding(
-                            get: { model.audioOnly },
-                            set: { model.setAudioOnly($0) }
-                        )
-                    ) {
-                        Label("Audio only", systemImage: "waveform")
-                    }
-                    Divider()
-                    Button("Clear history", role: .destructive) {
-                        pendingDestructiveAction = "history"
-                        showingDestructiveConfirmation = true
-                    }
-                    Button("Reset settings", role: .destructive) {
-                        pendingDestructiveAction = "settings"
-                        showingDestructiveConfirmation = true
+                        Label("Settings", systemImage: "gearshape")
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -1491,10 +1474,29 @@ struct ContentView: View {
     private func requestConfirmationFromSheet(_ action: String, dismiss sheet: String) {
         pendingDestructiveAction = action
         confirmationQueuedAfterSheetDismiss = true
-        if sheet == "tools" {
-            showToolsSheet = false
-        } else {
-            showRecentSheet = false
+        switch sheet {
+        case "tools": showToolsSheet = false
+        case "markers": showMarkersSheet = false
+        case "settings": showSettingsPage = false
+        default: showRecentSheet = false
+        }
+    }
+
+    private func openFromTools(_ destination: String) {
+        toolsDestinationAfterDismiss = destination
+        showToolsSheet = false
+    }
+
+    private func handleToolsDismiss() {
+        presentQueuedConfirmation()
+        guard let destination = toolsDestinationAfterDismiss else { return }
+        toolsDestinationAfterDismiss = nil
+        switch destination {
+        case "markers": showMarkersSheet = true
+        case "queue": showPlaylistSheet = true
+        case "audio": showAudioSheet = true
+        case "settings": showSettingsPage = true
+        default: break
         }
     }
 
