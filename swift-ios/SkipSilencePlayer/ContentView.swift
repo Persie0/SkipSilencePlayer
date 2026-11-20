@@ -247,6 +247,37 @@ struct ContentView: View {
                     "?"
             )
         }
+        .confirmationDialog(
+            pendingDestructiveAction == "history" ? "Clear playback history?" :
+                pendingDestructiveAction == "bookmarks" ? "Clear all bookmarks?" :
+                "Reset player settings?",
+            isPresented: Binding(
+                get: { pendingDestructiveAction != nil },
+                set: { if !$0 { pendingDestructiveAction = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Cancel", role: .cancel) {
+                pendingDestructiveAction = nil
+            }
+            Button(
+                pendingDestructiveAction == "settings" ? "Reset settings" : "Clear",
+                role: .destructive
+            ) {
+                let action = pendingDestructiveAction
+                pendingDestructiveAction = nil
+                switch action {
+                case "history": model.clearHistory()
+                case "bookmarks": model.clearBookmarks()
+                case "settings":
+                    model.resetSettings()
+                    showHUD("Defaults restored")
+                default: break
+                }
+            }
+        } message: {
+            Text("This action cannot be undone.")
+        }
         .onChange(of: model.isPlaying) { _, playing in
             if playing {
                 scheduleControlsHide()
@@ -642,11 +673,10 @@ struct ContentView: View {
                     }
                     Divider()
                     Button("Clear history", role: .destructive) {
-                        model.clearHistory()
+                        pendingDestructiveAction = "history"
                     }
                     Button("Reset settings", role: .destructive) {
-                        model.resetSettings()
-                        showHUD("Defaults restored")
+                        pendingDestructiveAction = "settings"
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -806,7 +836,8 @@ struct ContentView: View {
                 PlayerChip(
                     label: String(format: "%g×", model.playbackSpeed),
                     systemImage: "gauge",
-                    selected: abs(model.playbackSpeed - 1) > 0.01
+                    selected: abs(model.playbackSpeed - 1) > 0.01,
+                    stretch: true
                 ) {
                     showSpeedSheet = true
                 }
@@ -814,11 +845,12 @@ struct ContentView: View {
                     label: "Subtitles",
                     systemImage: "captions.bubble",
                     selected: model.selectedSubtitleIndex != nil ||
-                        model.externalSubtitleName != nil
+                        model.externalSubtitleName != nil,
+                    stretch: true
                 ) {
                     showSubtitleSheet = true
                 }
-                PlayerChip(label: "More", systemImage: "slider.horizontal.3") {
+                PlayerChip(label: "More", systemImage: "slider.horizontal.3", stretch: true) {
                     showToolsSheet = true
                 }
             }
@@ -892,6 +924,10 @@ struct ContentView: View {
             .tint(PlayerColors.accent)
             .disabled(!model.silenceEnabled)
 
+            Text("Adaptive mode calibrates for each video and protects quiet speech. Aggressive presets may skip more content.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             SectionLabel(text: "Preset")
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -905,54 +941,60 @@ struct ContentView: View {
                             showHUD(preset.label)
                         }
                     }
-                    PlayerChip(
-                        label: "Custom",
-                        selected: model.currentPreset == nil
-                    ) {
-                        showControls()
+                    if model.currentPreset == nil {
+                        Text("Custom")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 12)
                     }
-                    .disabled(true)
                 }
             }
 
-            SheetSliderRow(
-                label: "Threshold",
-                valueText: "\(Int(model.silenceThresholdDB.rounded())) dB",
-                value: Binding(
-                    get: { model.silenceThresholdDB },
-                    set: { model.setSilenceThreshold($0) }
-                ),
-                range: -60...(-20),
-                step: 1,
-                disabled: !model.silenceEnabled,
-                onCommit: { model.applySilenceSettings() }
-            )
-
-            SheetSliderRow(
-                label: "Min silence",
-                valueText: String(format: "%.2f s", model.minimumSilence),
-                value: Binding(
-                    get: { model.minimumSilence },
-                    set: { model.setMinimumSilence($0) }
-                ),
-                range: 0.2...2,
-                step: 0.05,
-                disabled: !model.silenceEnabled,
-                onCommit: { model.applySilenceSettings() }
-            )
-
-            SheetSliderRow(
-                label: "Edge padding",
-                valueText: "\(Int((model.edgePadding * 1000).rounded())) ms",
-                value: Binding(
-                    get: { model.edgePadding },
-                    set: { model.setEdgePadding($0) }
-                ),
-                range: 0.02...0.20,
-                step: 0.01,
-                disabled: !model.silenceEnabled,
-                onCommit: { model.applySilenceSettings() }
-            )
+            DisclosureGroup(isExpanded: $showAdvancedSilenceSettings) {
+                SheetSliderRow(
+                    label: "Threshold",
+                    valueText: "\(Int(model.silenceThresholdDB.rounded())) dB",
+                    value: Binding(
+                        get: { model.silenceThresholdDB },
+                        set: { model.setSilenceThreshold($0) }
+                    ),
+                    range: -60...(-20),
+                    step: 1,
+                    disabled: !model.silenceEnabled,
+                    onCommit: { model.applySilenceSettings() }
+                )
+    
+                SheetSliderRow(
+                    label: "Min silence",
+                    valueText: String(format: "%.2f s", model.minimumSilence),
+                    value: Binding(
+                        get: { model.minimumSilence },
+                        set: { model.setMinimumSilence($0) }
+                    ),
+                    range: 0.2...2,
+                    step: 0.05,
+                    disabled: !model.silenceEnabled,
+                    onCommit: { model.applySilenceSettings() }
+                )
+    
+                SheetSliderRow(
+                    label: "Edge padding",
+                    valueText: "\(Int((model.edgePadding * 1000).rounded())) ms",
+                    value: Binding(
+                        get: { model.edgePadding },
+                        set: { model.setEdgePadding($0) }
+                    ),
+                    range: 0.02...0.20,
+                    step: 0.01,
+                    disabled: !model.silenceEnabled,
+                    onCommit: { model.applySilenceSettings() }
+                )
+            } label: {
+                Text("Advanced tuning")
+                    .font(.subheadline.weight(.medium))
+            }
+            .tint(PlayerColors.accent)
+            .disabled(!model.silenceEnabled)
 
             Text(model.analysisStatus)
                 .font(.caption2)
@@ -1170,7 +1212,7 @@ struct ContentView: View {
                 }
 
                 Button("Clear bookmarks", role: .destructive) {
-                    model.clearBookmarks()
+                    pendingDestructiveAction = "bookmarks"
                 }
                 .buttonStyle(.bordered)
             }
@@ -1211,7 +1253,7 @@ struct ContentView: View {
                     ForEach([15, 30, 45, 60], id: \.self) { minutes in
                         PlayerChip(
                             label: "\(minutes) min",
-                            selected: model.sleepDeadline != nil
+                            selected: false
                         ) {
                             model.setSleepTimer(minutes: Double(minutes))
                         }
@@ -1234,13 +1276,12 @@ struct ContentView: View {
 
             HStack(spacing: 10) {
                 Button("Clear history", role: .destructive) {
-                    model.clearHistory()
+                    pendingDestructiveAction = "history"
                 }
                 .buttonStyle(.bordered)
 
                 Button("Reset settings", role: .destructive) {
-                    model.resetSettings()
-                    showHUD("Defaults restored")
+                    pendingDestructiveAction = "settings"
                 }
                 .buttonStyle(.bordered)
             }
@@ -1320,7 +1361,7 @@ struct ContentView: View {
                 }
 
                 Button("Clear history", role: .destructive) {
-                    model.clearHistory()
+                    pendingDestructiveAction = "history"
                 }
                 .buttonStyle(.bordered)
                 .padding(.top, 8)
@@ -1430,6 +1471,7 @@ private struct PlayerChip: View {
     let label: String
     var systemImage: String? = nil
     var selected: Bool = false
+    var stretch: Bool = false
     let action: () -> Void
 
     var body: some View {
@@ -1443,7 +1485,7 @@ private struct PlayerChip: View {
                     .font(.caption)
                     .lineLimit(1)
             }
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .frame(maxWidth: stretch ? .infinity : nil, minHeight: 44)
             .padding(.horizontal, 8)
             .background(
                 Capsule().fill(
@@ -1531,17 +1573,27 @@ private struct SeekBar: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         guard duration > 0 else { return }
-                        let next = min(max(value.location.x / width, 0), 1)
-                        scrubFraction = next
-                        onSeek(next * duration)
+                        scrubFraction = min(max(value.location.x / width, 0), 1)
                     }
-                    .onEnded { _ in
+                    .onEnded { value in
+                        if duration > 0 {
+                            let next = min(max(value.location.x / width, 0), 1)
+                            onSeek(next * duration)
+                        }
                         scrubFraction = nil
                     }
             )
         }
-        .frame(height: 26)
+        .frame(height: 48)
         .accessibilityElement(children: .ignore)
+        .accessibilityAdjustableAction { direction in
+            let step = max(duration / 100, 5)
+            switch direction {
+            case .increment: onSeek(min(duration, position + step))
+            case .decrement: onSeek(max(0, position - step))
+            @unknown default: break
+            }
+        }
         .accessibilityLabel("Playback position and detected silence")
         .accessibilityValue(
             PlayerModel.format(seconds: position) +
