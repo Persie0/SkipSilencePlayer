@@ -2284,93 +2284,111 @@ private fun SkipSilencePlayerScreen(
                         includeOff = true
                     )
 
-                    SectionLabel(stringResource(R.string.ui_sync_and_style))
-
-                    SheetSliderRow(
-                        label = stringResource(R.string.ui_sync),
-                        valueText = String.format("%+.1f s", subtitleOffsetMs / 1000f),
-                        value = subtitleOffsetMs.toFloat(),
-                        onValueChange = {
-                            subtitleOffsetMs =
-                                (it / 50f).roundToInt() * 50L
-                        },
-                        onValueChangeFinished = {
-                            preferences.edit()
-                                .putLong("subtitle_offset_ms", subtitleOffsetMs)
-                                .apply()
-                        },
-                        valueRange = -10_000f..10_000f,
-                        steps = 399
-                    )
-
-                    SheetSliderRow(
-                        label = stringResource(R.string.ui_text_size),
-                        valueText = String.format("%.1f×", subtitleFontScale),
-                        value = subtitleFontScale,
-                        onValueChange = {
-                            subtitleFontScale = it.coerceIn(0.7f, 2f)
-                        },
-                        onValueChangeFinished = {
-                            preferences.edit()
-                                .putFloat(
-                                    "subtitle_font_scale",
-                                    subtitleFontScale
-                                )
-                                .apply()
-                        },
-                        valueRange = 0.7f..2f
-                    )
-
-                    SheetSliderRow(
-                        label = stringResource(R.string.ui_background),
-                        valueText = "${(subtitleBackgroundOpacity * 100).roundToInt()}%",
-                        value = subtitleBackgroundOpacity,
-                        onValueChange = { subtitleBackgroundOpacity = it },
-                        onValueChangeFinished = {
-                            preferences.edit()
-                                .putFloat(
-                                    "subtitle_background_opacity",
-                                    subtitleBackgroundOpacity
-                                )
-                                .apply()
-                        },
-                        valueRange = 0f..1f
-                    )
-
-                    ChoiceChips(
-                        options = SubtitlePosition.entries.toList(),
-                        selected = { subtitlePosition == it },
-                        label = { localizePlayerLabel(it.label) },
-                        onSelect = {
-                            subtitlePosition = it
-                            preferences.edit()
-                                .putString("subtitle_position", it.name)
-                                .apply()
-                        }
-                    )
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = subtitleSearch,
-                            onValueChange = { subtitleSearch = it },
-                            singleLine = true,
-                            label = {
-                                Text(stringResource(R.string.ui_search_subtitle_text))
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Button(
-                            onClick = { searchSubtitle() },
-                            enabled = externalSubtitleCues.isNotEmpty()
+                    if (selectedSubtitleUri != null) {
+                        OutlinedButton(
+                            onClick = { showAdvancedSubtitle = !showAdvancedSubtitle },
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(stringResource(R.string.ui_next))
+                            Text(
+                                stringResource(R.string.ui_subtitle_advanced) +
+                                    if (showAdvancedSubtitle) " −" else " +"
+                            )
                         }
+                        if (showAdvancedSubtitle) {
+                        SheetSliderRow(
+                            label = stringResource(R.string.ui_sync),
+                            valueText = String.format("%+.1f s", subtitleOffsetMs / 1000f),
+                            value = subtitleOffsetMs.toFloat(),
+                            onValueChange = {
+                                subtitleOffsetMs =
+                                    (it / 50f).roundToInt() * 50L
+                            },
+                            onValueChangeFinished = {
+                                preferences.edit()
+                                    .putLong("subtitle_offset_ms", subtitleOffsetMs)
+                                    .apply()
+                            },
+                            valueRange = -10_000f..10_000f,
+                            steps = 399
+                        )
+    
+                        SheetSliderRow(
+                            label = stringResource(R.string.ui_text_size),
+                            valueText = String.format("%.1f×", subtitleFontScale),
+                            value = subtitleFontScale,
+                            onValueChange = {
+                                subtitleFontScale = it.coerceIn(0.7f, 2f)
+                            },
+                            onValueChangeFinished = {
+                                preferences.edit()
+                                    .putFloat(
+                                        "subtitle_font_scale",
+                                        subtitleFontScale
+                                    )
+                                    .apply()
+                            },
+                            valueRange = 0.7f..2f
+                        )
+    
+                        SheetSliderRow(
+                            label = stringResource(R.string.ui_background),
+                            valueText = "${(subtitleBackgroundOpacity * 100).roundToInt()}%",
+                            value = subtitleBackgroundOpacity,
+                            onValueChange = { subtitleBackgroundOpacity = it },
+                            onValueChangeFinished = {
+                                preferences.edit()
+                                    .putFloat(
+                                        "subtitle_background_opacity",
+                                        subtitleBackgroundOpacity
+                                    )
+                                    .apply()
+                            },
+                            valueRange = 0f..1f
+                        )
+    
+                        ChoiceChips(
+                            options = SubtitlePosition.entries.toList(),
+                            selected = { subtitlePosition == it },
+                            label = { localizePlayerLabel(it.label) },
+                            onSelect = {
+                                subtitlePosition = it
+                                preferences.edit()
+                                    .putString("subtitle_position", it.name)
+                                    .apply()
+                            }
+                        )
+    
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = subtitleSearch,
+                                onValueChange = { subtitleSearch = it },
+                                singleLine = true,
+                                label = {
+                                    Text(stringResource(R.string.ui_search_subtitle_text))
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Button(
+                                onClick = { searchSubtitle() },
+                                enabled = externalSubtitleCues.isNotEmpty()
+                            ) {
+                                Text(stringResource(R.string.ui_next))
+                            }
+                        }
+                            }
+                    } else {
+                        Text(
+                            stringResource(R.string.ui_subtitle_advanced_hint),
+                            color = Color.White.copy(alpha = 0.72f),
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
                     }
                 }
             }
