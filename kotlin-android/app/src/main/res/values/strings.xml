@@ -129,4 +129,13 @@
   <string name="ui_clear">Clear</string>
   <string name="ui_confirm_reset">Reset</string>
   <string name="ui_remove_bookmark">Remove bookmark %1$s</string>
+  <string name="ui_library">Library</string>
+  <string name="ui_continue_watching">Continue watching</string>
+  <string name="ui_skipping_off">Silence skipping is off</string>
+  <string name="ui_analysis_ready">Analysis ready</string>
+  <string name="ui_analysis_partial">Partially analyzed</string>
+  <string name="ui_analysis_unavailable">Analysis unavailable</string>
+  <string name="ui_analyzing_audio">Analyzing audio…</string>
+  <string name="ui_subtitle_advanced">Subtitle sync, style &amp; search</string>
+  <string name="ui_subtitle_advanced_hint">Import a subtitle file to adjust its timing, text style, position or search.</string>
 </resources>
