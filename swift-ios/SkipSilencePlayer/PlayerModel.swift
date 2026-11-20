@@ -68,15 +68,20 @@ enum VideoAspectMode: String, CaseIterable, Identifiable {
     case fill
     case crop
 
-
     var id: String { rawValue }
     var label: String {
-        rawValue.capitalized
+        switch self {
+        case .fit: return "Fit"
+        case .fill: return "Stretch"
+        case .crop: return "Crop"
+        }
     }
 
     var gravity: AVLayerVideoGravity {
         switch self {
-        case .fill, .crop:
+        case .fill:
+            return .resize
+        case .crop:
             return .resizeAspectFill
         case .fit:
             return .resizeAspect
