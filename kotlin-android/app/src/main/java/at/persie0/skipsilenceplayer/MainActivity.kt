@@ -1904,7 +1904,9 @@ private fun SkipSilencePlayerScreen(
                                     status.startsWith("Analysis capped") ->
                                         R.string.ui_analysis_partial
                                     status.startsWith("Analysis stopped") ->
-                                        R.string.ui_analysis_unavailable
+                                        R.string.ui_analysis_partial
+                                    status.contains("no audio", ignoreCase = true) ->
+                                        R.string.ui_no_audio_track
                                     status.contains("No local") -> R.string.ui_analysis_unavailable
                                     else -> R.string.ui_analyzing_audio
                                 }
