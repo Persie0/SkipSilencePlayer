@@ -12,6 +12,12 @@ struct RecentVideo: Identifiable, Codable, Equatable {
     let bookmarkBase64: String
 }
 
+struct RecentFolder: Identifiable, Codable, Equatable {
+    let id: String
+    let name: String
+    let bookmarkBase64: String
+}
+
 struct SubtitleCue: Equatable, Sendable {
     let start: Double
     let end: Double
@@ -173,6 +179,7 @@ final class PlayerModel: NSObject, ObservableObject {
     @Published private(set) var volume = 1.0
 
     @Published private(set) var recentVideos: [RecentVideo]
+    @Published private(set) var recentFolders: [RecentFolder]
     @Published private(set) var playlist: [PlaylistEntry] = []
     @Published private(set) var playlistIndex = 0
 
@@ -269,6 +276,12 @@ final class PlayerModel: NSObject, ObservableObject {
         ) ?? .ask
 
         recentVideos = Self.loadRecentVideos()
+        if let data = defaults.data(forKey: "recentFolders"),
+           let folders = try? JSONDecoder().decode([RecentFolder].self, from: data) {
+            recentFolders = folders
+        } else {
+            recentFolders = []
+        }
 
         super.init()
 
@@ -425,7 +438,8 @@ final class PlayerModel: NSObject, ObservableObject {
         )
     }
 
-    func requestFolder(url: URL) {
+    @discardableResult
+    func requestFolder(url: URL) -> Bool {
         releasePlaylistSecurityScope()
         playlistSecurityURL = url
         hasPlaylistSecurityScope = url.startAccessingSecurityScopedResource()
@@ -448,7 +462,7 @@ final class PlayerModel: NSObject, ObservableObject {
         ) else {
             playbackError = "Could not read the selected folder."
             releasePlaylistSecurityScope()
-            return
+            return false
         }
 
         var urls: [URL] = []
@@ -476,7 +490,9 @@ final class PlayerModel: NSObject, ObservableObject {
         if urls.isEmpty {
             playbackError = "No supported video files were found in that folder."
             releasePlaylistSecurityScope()
+            return false
         } else {
+            rememberRecentFolder(url)
             let entries = urls.map {
                 PlaylistEntry(
                     id: Self.stableID($0.absoluteString),
@@ -485,7 +501,36 @@ final class PlayerModel: NSObject, ObservableObject {
                 )
             }
             requestLoad(entries: entries)
+            return true
         }
+    }
+
+    private func rememberRecentFolder(_ url: URL) {
+        guard let bookmark = try? url.bookmarkData(
+            options: [],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        ) else { return }
+
+        let folder = RecentFolder(
+            id: Self.stableID(url.absoluteString),
+            name: url.lastPathComponent,
+            bookmarkBase64: bookmark.base64EncodedString()
+        )
+        recentFolders = ([folder] + recentFolders.filter { $0.id != folder.id })
+            .prefix(6).map { $0 }
+        if let data = try? JSONEncoder().encode(recentFolders) {
+            defaults.set(data, forKey: "recentFolders")
+        }
+    }
+
+    @discardableResult
+    func openRecentFolder(_ folder: RecentFolder) -> Bool {
+        guard let url = Self.resolveBookmark(folder.bookmarkBase64) else {
+            playbackError = "Could not reopen \(folder.name). Choose it again from Files."
+            return false
+        }
+        return requestFolder(url: url)
     }
 
     func dismissPlaybackError() {
@@ -921,7 +966,9 @@ final class PlayerModel: NSObject, ObservableObject {
 
     func clearHistory() {
         recentVideos = []
+        recentFolders = []
         defaults.removeObject(forKey: "recentVideos")
+        defaults.removeObject(forKey: "recentFolders")
         defaults.removeObject(forKey: "lastPlaylistState")
 
         for key in defaults.dictionaryRepresentation().keys
