@@ -1470,15 +1470,23 @@ private fun SkipSilencePlayerScreen(
     ) {
         AndroidView(
             factory = { viewContext ->
-                PlayerView(viewContext).apply {
-                    useController = false
+                // A TextureView stays in the Compose view hierarchy when a
+                // fullscreen Settings overlay and orientation transitions
+                // occur. SurfaceView can lose its surface behind the overlay
+                // while the MediaSession keeps audio playing.
+                (android.view.LayoutInflater.from(viewContext).inflate(
+                    R.layout.video_player_texture, null, false
+                ) as PlayerView).apply {
                     resizeMode = aspectMode.resizeMode
                     setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                    setKeepContentOnPlayerReset(true)
                     this.player = player
                 }
             },
             update = { view ->
-                view.player = player
+                // Do not reset an attached output surface for every overlay
+                // recomposition; only rebind after the controller is replaced.
+                if (view.player !== player) view.player = player
                 view.resizeMode = aspectMode.resizeMode
                 view.subtitleView?.apply {
                     setApplyEmbeddedFontSizes(false)
