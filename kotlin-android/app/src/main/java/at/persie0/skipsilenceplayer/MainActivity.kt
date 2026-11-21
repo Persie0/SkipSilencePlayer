@@ -418,6 +418,9 @@ private fun SkipSilencePlayerScreen(
     var playbackSpeed by remember {
         mutableFloatStateOf(preferences.getFloat("playback_speed", 1f))
     }
+    var quietAcceleration by remember {
+        mutableFloatStateOf(preferences.getFloat("quiet_acceleration", 4f))
+    }
     var doubleTapSeconds by remember {
         mutableIntStateOf(preferences.getInt("double_tap_seconds", 10))
     }
@@ -709,7 +712,8 @@ private fun SkipSilencePlayerScreen(
         PlaybackRuntime.reconfigureSilence(
             SilenceConfig(newThreshold, newMinimum, newPadding, adaptiveSilence)
         )
-        player.setPlaybackSpeed(playbackSpeed)
+        PlaybackRuntime.setBasePlaybackSpeed(playbackSpeed)
+        PlaybackRuntime.setQuietSpeedMultiplier(quietAcceleration)
         PlaybackRuntime.setSkipSilenceEnabled(skipSilence)
 
         val subtitle = preferences.getString("${key}_subtitle", null)
@@ -731,6 +735,7 @@ private fun SkipSilencePlayerScreen(
 
         val index = startIndex.coerceIn(0, entries.lastIndex)
         val selected = entries[index]
+        fileName = selected.name
         currentQueueEntries = entries
         abStartMs = null
         abEndMs = null
@@ -921,7 +926,9 @@ private fun SkipSilencePlayerScreen(
 
     LaunchedEffect(player, PlaybackRuntime.generation) {
         PlaybackRuntime.setSkipSilenceEnabled(skipSilence)
-        player.setPlaybackSpeed(playbackSpeed)
+        PlaybackRuntime.setSilencePlaybackMode(silencePlaybackMode)
+        PlaybackRuntime.setBasePlaybackSpeed(playbackSpeed)
+        PlaybackRuntime.setQuietSpeedMultiplier(quietAcceleration)
     }
 
     LaunchedEffect(audioOnly, player) {
@@ -945,7 +952,7 @@ private fun SkipSilencePlayerScreen(
             val diagnostics = buildMediaDiagnostics(currentTracks)
             val candidateError = player.playerError?.let {
                 buildString {
-                    append("${it.errorCodeName}: ${it.localizedMessage ?: "Playback failed"}")
+                    append("${it.errorCodeName}: ${it.cause?.localizedMessage ?: it.localizedMessage ?: "Playback failed"}")
                     diagnostics.unsupportedSummary?.let { warning ->
                         append(" · ")
                         append(warning)
@@ -1005,14 +1012,11 @@ private fun SkipSilencePlayerScreen(
             estimatedSkippedSeconds = when {
                 !skipSilence -> 0f
                 silencePlaybackMode == SilencePlaybackMode.SMOOTH -> {
-                    // Native audio skipping deliberately retains some silence.
-                    // Do not advertise the full hard-cut timeline as saved time.
-                    if (currentMs > 30_000L && durationMs > currentMs) {
-                        (skippedSeconds * durationMs.toFloat() / currentMs.toFloat())
-                            .coerceIn(skippedSeconds, durationMs / 1000f)
-                    } else {
-                        skippedSeconds
-                    }
+                    // Smooth saves only the portion played faster than normal,
+                    // rather than implying that all detected quiet time was cut.
+                    (analyzedSkippedSeconds *
+                        (1f - 1f / quietAcceleration.coerceIn(2f, 8f)))
+                        .coerceAtLeast(skippedSeconds)
                 }
                 analyzedSkippedSeconds > 0f -> analyzedSkippedSeconds
                 durationMs > 0 && currentMs > 30_000L -> {
@@ -1245,7 +1249,7 @@ private fun SkipSilencePlayerScreen(
 
     fun setSpeed(speed: Float) {
         playbackSpeed = speed
-        player.setPlaybackSpeed(speed)
+        PlaybackRuntime.setBasePlaybackSpeed(speed)
         preferences.edit()
             .putFloat("playback_speed", speed)
             .apply()
@@ -1278,6 +1282,7 @@ private fun SkipSilencePlayerScreen(
         minimumSilence = 0.45f
         edgePadding = 0.08f
         playbackSpeed = 1f
+        quietAcceleration = 4f
         doubleTapSeconds = 10
         skipSilence = true
         silencePlaybackMode = SilencePlaybackMode.SMOOTH
@@ -1294,6 +1299,7 @@ private fun SkipSilencePlayerScreen(
             .putFloat("minimum_silence", 0.45f)
             .putFloat("edge_padding", 0.08f)
             .putFloat("playback_speed", 1f)
+            .putFloat("quiet_acceleration", 4f)
             .putInt("double_tap_seconds", 10)
             .putBoolean("skip_silence", true)
             .putString("silence_playback_mode", SilencePlaybackMode.SMOOTH.name)
@@ -1312,7 +1318,8 @@ private fun SkipSilencePlayerScreen(
             )
             .putBoolean("audio_only", false)
             .apply()
-        player.setPlaybackSpeed(1f)
+        PlaybackRuntime.setBasePlaybackSpeed(1f)
+        PlaybackRuntime.setQuietSpeedMultiplier(4f)
         PlaybackRuntime.setSkipSilenceEnabled(true)
         PlaybackRuntime.setSilencePlaybackMode(SilencePlaybackMode.SMOOTH)
         applySilenceSettings()
@@ -2400,7 +2407,7 @@ private fun SkipSilencePlayerScreen(
                             playbackSpeed =
                                 ((it * 4).roundToInt() / 4f)
                                     .coerceIn(0.5f, 3f)
-                            player.setPlaybackSpeed(playbackSpeed)
+                            PlaybackRuntime.setBasePlaybackSpeed(playbackSpeed)
                         },
                         onValueChangeFinished = {
                             preferences.edit()
@@ -2464,6 +2471,27 @@ private fun SkipSilencePlayerScreen(
                         modifier = Modifier.padding(vertical = 8.dp)
                     )
 
+                    if (silencePlaybackMode == SilencePlaybackMode.SMOOTH) {
+                        SheetSliderRow(
+                            label = stringResource(R.string.ui_quiet_acceleration),
+                            valueText = "${String.format("%.1f", quietAcceleration)}×",
+                            value = quietAcceleration,
+                            onValueChange = {
+                                quietAcceleration = ((it * 2f).roundToInt() / 2f)
+                                    .coerceIn(2f, 8f)
+                                PlaybackRuntime.setQuietSpeedMultiplier(quietAcceleration)
+                            },
+                            onValueChangeFinished = {
+                                preferences.edit()
+                                    .putFloat("quiet_acceleration", quietAcceleration)
+                                    .apply()
+                            },
+                            valueRange = 2f..8f,
+                            steps = 11,
+                            enabled = skipSilence
+                        )
+                    }
+
                     if (silencePlaybackMode == SilencePlaybackMode.JUMP) {
                         SheetSwitchRow(
                             label = stringResource(R.string.ui_adaptive_silence),
@@ -2478,8 +2506,6 @@ private fun SkipSilencePlayerScreen(
                     Text(
                         when {
                             !skipSilence -> stringResource(R.string.ui_skipping_off)
-                            silencePlaybackMode == SilencePlaybackMode.SMOOTH ->
-                                stringResource(R.string.ui_native_smooth_active)
                             else -> PlaybackRuntime.analysisStatus
                         },
                         fontSize = 13.sp,
