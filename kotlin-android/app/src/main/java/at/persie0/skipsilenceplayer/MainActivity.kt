@@ -2367,14 +2367,16 @@ private fun SkipSilencePlayerScreen(
                         modifier = Modifier.padding(vertical = 8.dp)
                     )
 
-                    SheetSwitchRow(
-                        label = stringResource(R.string.ui_adaptive_silence),
-                        checked = adaptiveSilence,
-                        onCheckedChange = {
-                            adaptiveSilence = it
-                            applySilenceSettings()
-                        }
-                    )
+                    if (silencePlaybackMode == SilencePlaybackMode.JUMP) {
+                        SheetSwitchRow(
+                            label = stringResource(R.string.ui_adaptive_silence),
+                            checked = adaptiveSilence,
+                            onCheckedChange = {
+                                adaptiveSilence = it
+                                applySilenceSettings()
+                            }
+                        )
+                    }
 
                     Text(
                         PlaybackRuntime.analysisStatus,
