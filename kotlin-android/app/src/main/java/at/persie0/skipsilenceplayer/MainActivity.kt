@@ -60,7 +60,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -135,6 +137,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
@@ -188,7 +191,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         handleOpenIntent(intent)
 
         val sessionToken = SessionToken(
@@ -1310,14 +1312,25 @@ private fun SkipSilencePlayerScreen(
         rootFocusRequester.requestFocus()
     }
 
+    LaunchedEffect(isPlaying, showLibrary, activity.pipMode) {
+        if (isPlaying && !showLibrary && !activity.pipMode) {
+            activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     BackHandler(
-        enabled = player.mediaItemCount > 0 && !showLibrary && !gestureLocked &&
+        enabled = player.mediaItemCount > 0 && !showLibrary &&
             !showSpeedSheet && !showSilenceSheet && !showSubtitleSheet &&
             !showAudioSheet && !showToolsSheet && !showPlaylistSheet &&
             !showRecentSheet && !showPreferencesSheet &&
             pendingResume == null && pendingDestructiveAction == null
     ) {
-        if (isFullscreen) {
+        if (gestureLocked) {
+            gestureLocked = false
+            controlsVisible = true
+        } else if (isFullscreen) {
             isFullscreen = false
             activity.setPlayerFullscreen(false)
         } else {
@@ -1547,11 +1560,12 @@ private fun SkipSilencePlayerScreen(
                         PlayerAccent.copy(alpha = 0.6f),
                         RoundedCornerShape(50)
                     )
+                    .heightIn(min = 48.dp)
                     .clickable {
                         gestureLocked = false
                         controlsVisible = true
                     }
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = 18.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -1562,39 +1576,24 @@ private fun SkipSilencePlayerScreen(
                     modifier = Modifier.size(14.dp)
                 )
                 Text(
-                    stringResource(R.string.ui_unlock),
+                    stringResource(R.string.ui_unlock_gestures),
                     color = Color.White,
-                    fontSize = 12.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Medium
                 )
             }
         }
 
         playerError?.let { error ->
-            Column(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .background(
-                        Color.Black.copy(alpha = 0.88f),
-                        MaterialTheme.shapes.medium
-                    )
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(stringResource(R.string.ui_playback_error), color = Color.White, fontWeight = FontWeight.Bold)
-                Text(
-                    error,
-                    color = Color.White.copy(alpha = 0.8f),
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            AlertDialog(
+                onDismissRequest = {
+                    dismissedError = error
+                    playerError = null
+                },
+                title = { Text(stringResource(R.string.ui_playback_error)) },
+                text = { Text(error) },
+                confirmButton = {
                     TextButton(onClick = {
-                        dismissedError = error
-                        playerError = null
-                    }) {
-                        Text(stringResource(R.string.ui_dismiss))
-                    }
-                    Button(onClick = {
                         dismissedError = null
                         playerError = null
                         player.prepare()
@@ -1602,8 +1601,16 @@ private fun SkipSilencePlayerScreen(
                     }) {
                         Text(stringResource(R.string.ui_retry))
                     }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        dismissedError = error
+                        playerError = null
+                    }) {
+                        Text(stringResource(R.string.ui_dismiss))
+                    }
                 }
-            }
+            )
         }
 
         AnimatedVisibility(
@@ -1884,6 +1891,7 @@ private fun SkipSilencePlayerScreen(
                     Column(
                         modifier = Modifier
                             .weight(1f)
+                            .heightIn(min = 48.dp)
                             .clickable { showSilenceSheet = true }
                             .padding(vertical = 6.dp)
                     ) {
@@ -1977,7 +1985,9 @@ private fun SkipSilencePlayerScreen(
                     ) {
                         Icon(
                             if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = stringResource(R.string.cd_play_pause),
+                            contentDescription = stringResource(
+                                if (isPlaying) R.string.cd_pause else R.string.cd_play
+                            ),
                             tint = PlayerAccentDark,
                             modifier = Modifier.size(30.dp)
                         )
@@ -3199,12 +3209,13 @@ private fun PlayerSeekBar(
     modifier: Modifier = Modifier
 ) {
     var scrubPositionMs by remember(durationMs) { mutableStateOf<Long?>(null) }
+    val seekbarDescription = stringResource(R.string.cd_playback_position)
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(48.dp)
             .semantics {
-                contentDescription = "Playback position and detected silence"
+                contentDescription = seekbarDescription
                 stateDescription = formatTime(scrubPositionMs ?: positionMs) +
                     " of " + formatTime(durationMs)
                 progressBarRangeInfo = ProgressBarRangeInfo(
@@ -3310,15 +3321,20 @@ private fun PlayerSeekBar(
                 }
             }
 
+            val thumbRadius = 6.dp.toPx()
+            val thumbX = (size.width * fraction).coerceIn(
+                thumbRadius,
+                (size.width - thumbRadius).coerceAtLeast(thumbRadius)
+            )
             drawCircle(
                 color = PlayerAccent,
-                radius = 6.dp.toPx(),
-                center = Offset(size.width * fraction, barCy)
+                radius = thumbRadius,
+                center = Offset(thumbX, barCy)
             )
             drawCircle(
                 color = Color.White,
                 radius = 2.dp.toPx(),
-                center = Offset(size.width * fraction, barCy)
+                center = Offset(thumbX, barCy)
             )
         }
     }
@@ -3440,7 +3456,7 @@ private fun SelectRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .heightIn(min = 48.dp)
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -3448,13 +3464,13 @@ private fun SelectRow(
     ) {
         RadioButton(
             selected = selected,
-            onClick = onClick
+            onClick = null
         )
         Text(
             text,
             color = if (selected) PlayerAccent else Color.White,
-            fontSize = 13.sp,
-            maxLines = 1
+            fontSize = 14.sp,
+            maxLines = 2
         )
     }
 }
