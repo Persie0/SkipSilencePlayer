@@ -16,6 +16,7 @@ private enum PlayerColors {
 
 struct ContentView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var subtitleBaseFontSize: CGFloat = 18
     @StateObject private var model = PlayerModel()
     @StateObject private var pipManager = PictureInPictureManager()
@@ -57,14 +58,16 @@ struct ContentView: View {
     }
 
     /// Keep essential controls visible in short landscape windows; overflow still exposes tools.
-    private var compactControls: Bool { verticalSizeClass == .compact }
+    private var compactControls: Bool {
+        verticalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize
+    }
 
     private var isModalPresented: Bool {
         showSpeedSheet || showSilenceSheet || showSubtitleSheet || showAudioSheet ||
         showToolsSheet || showPlaylistSheet || showRecentSheet ||
         showingVideoImporter || showingFolderImporter || showingSubtitleImporter ||
         showingDestructiveConfirmation || importError != nil ||
-        model.resumePromptSeconds != nil
+        model.playbackError != nil || model.resumePromptSeconds != nil
     }
 
     private var silenceStatusSummary: String {
