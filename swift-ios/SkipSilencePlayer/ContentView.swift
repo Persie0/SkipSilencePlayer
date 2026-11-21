@@ -62,6 +62,15 @@ struct ContentView: View {
         model.hasLoadedMedia
     }
 
+    private var playbackOverlayOpen: Bool {
+        showingLibrary || showingVideoImporter || showingFolderImporter ||
+            showingSubtitleImporter || showSpeedSheet || showSilenceSheet ||
+            showSubtitleSheet || showAudioSheet || showToolsSheet ||
+            showMarkersSheet || showSettingsPage || showPlaylistSheet ||
+            showRecentSheet || showingDestructiveConfirmation ||
+            model.resumePromptSeconds != nil
+    }
+
     private var compactLandscape: Bool {
         verticalSizeClass == .compact
     }
@@ -378,6 +387,16 @@ struct ContentView: View {
             } else {
                 controlsVisible = true
                 hideGeneration += 1
+            }
+        }
+        .onChange(of: playbackOverlayOpen) { _, open in
+            if open {
+                hideGeneration += 1
+                if hasVideo { controlsVisible = true }
+            } else if hasVideo && !gesturesLocked {
+                // Dismissing a sheet should reveal the player's controls,
+                // with a fresh hide countdown rather than an expired timer.
+                showControls()
             }
         }
     }
@@ -1993,11 +2012,14 @@ struct ContentView: View {
         hideGeneration += 1
         let generation = hideGeneration
 
-        guard model.isPlaying, !gesturesLocked else { return }
+        guard model.isPlaying, !gesturesLocked, !playbackOverlayOpen else {
+            return
+        }
 
         let delay = isFullscreen ? 2.5 : 4.0
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            if generation == hideGeneration && model.isPlaying {
+            if generation == hideGeneration && model.isPlaying &&
+                !playbackOverlayOpen && !gesturesLocked {
                 controlsVisible = false
             }
         }
