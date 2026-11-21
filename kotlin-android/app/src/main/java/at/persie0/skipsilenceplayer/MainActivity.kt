@@ -136,6 +136,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
@@ -441,6 +442,7 @@ private fun SkipSilencePlayerScreen(
     var rootHeightPx by remember { mutableIntStateOf(0) }
     var bottomControlsHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
+    val compactHeight = LocalConfiguration.current.screenHeightDp < 460
     var showAdvancedSubtitle by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
     var gestureLocked by remember { mutableStateOf(false) }
@@ -1313,8 +1315,8 @@ private fun SkipSilencePlayerScreen(
         rootFocusRequester.requestFocus()
     }
 
-    LaunchedEffect(isPlaying, showLibrary, activity.pipMode) {
-        if (isPlaying && !showLibrary && !activity.pipMode) {
+    LaunchedEffect(isPlaying, showLibrary, activity.pipMode, audioOnly) {
+        if (isPlaying && !showLibrary && !activity.pipMode && !audioOnly) {
             activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         } else {
             activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -1636,8 +1638,8 @@ private fun SkipSilencePlayerScreen(
                     .padding(
                         start = 18.dp,
                         end = 14.dp,
-                        top = 8.dp,
-                        bottom = 26.dp
+                        top = if (compactHeight) 2.dp else 8.dp,
+                        bottom = if (compactHeight) 8.dp else 26.dp
                     )
             ) {
                 Row(
@@ -1770,6 +1772,36 @@ private fun SkipSilencePlayerScreen(
                                     showAudioSheet = true
                                 }
                             )
+                            if (compactHeight) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.ui_silence_skipping)) },
+                                    onClick = {
+                                        overflowOpen = false
+                                        showSilenceSheet = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.ui_speed)) },
+                                    onClick = {
+                                        overflowOpen = false
+                                        showSpeedSheet = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.ui_subtitles)) },
+                                    onClick = {
+                                        overflowOpen = false
+                                        showSubtitleSheet = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.ui_playback_tools)) },
+                                    onClick = {
+                                        overflowOpen = false
+                                        showToolsSheet = true
+                                    }
+                                )
+                            }
                             if (player.mediaItemCount > 1) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.ui_playlist)) },
@@ -1847,7 +1879,10 @@ private fun SkipSilencePlayerScreen(
                         )
                     )
                     .navigationBarsPadding()
-                    .padding(top = 26.dp, bottom = 10.dp)
+                    .padding(
+                        top = if (compactHeight) 2.dp else 26.dp,
+                        bottom = if (compactHeight) 4.dp else 10.dp
+                    )
             ) {
                 Row(
                     modifier = Modifier
@@ -1882,6 +1917,7 @@ private fun SkipSilencePlayerScreen(
                     modifier = Modifier.padding(horizontal = 20.dp)
                 )
 
+                if (!compactHeight) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1945,6 +1981,7 @@ private fun SkipSilencePlayerScreen(
                         }
                     )
                 }
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1975,7 +2012,7 @@ private fun SkipSilencePlayerScreen(
                         )
                     }
 
-                    Spacer(Modifier.width(18.dp))
+                    Spacer(Modifier.width(4.dp))
 
                     Box(
                         modifier = Modifier
@@ -1996,7 +2033,7 @@ private fun SkipSilencePlayerScreen(
                         )
                     }
 
-                    Spacer(Modifier.width(18.dp))
+                    Spacer(Modifier.width(4.dp))
 
                     IconButton(
                         onClick = { seekBy(doubleTapSeconds * 1000L) },
@@ -2023,6 +2060,7 @@ private fun SkipSilencePlayerScreen(
                     }
                 }
 
+                if (!compactHeight) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2054,6 +2092,7 @@ private fun SkipSilencePlayerScreen(
                         icon = Icons.Outlined.Build,
                         modifier = Modifier.weight(1f)
                     )
+                }
                 }
             }
         }
