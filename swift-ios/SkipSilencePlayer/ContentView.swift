@@ -1673,6 +1673,7 @@ struct ContentView: View {
                     HStack(spacing: 10) {
                         Button {
                             model.seek(to: bookmark.seconds)
+                            showMarkersSheet = false
                             showControls()
                         } label: {
                             HStack(spacing: 10) {
@@ -1716,6 +1717,7 @@ struct ContentView: View {
                 ForEach(model.chapters) { chapter in
                     Button {
                         model.seek(to: chapter.start)
+                        showMarkersSheet = false
                         showControls()
                     } label: {
                         HStack(spacing: 10) {
