@@ -2930,158 +2930,158 @@ private fun HomeScreen(
                 .padding(horizontal = 22.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-        Spacer(Modifier.height(if (currentVideoName == null) 48.dp else 24.dp))
+            Spacer(Modifier.height(if (currentVideoName == null) 48.dp else 24.dp))
 
-        if (currentVideoName == null) {
-            Box(
-                modifier = Modifier
-                    .size(76.dp)
-                    .background(
-                        PlayerAccent.copy(alpha = 0.16f),
-                        RoundedCornerShape(22.dp)
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Outlined.GraphicEq,
-                    contentDescription = null,
-                    tint = PlayerAccent,
-                    modifier = Modifier.size(34.dp)
-                )
-            }
-    
-            Text(
-                stringResource(R.string.app_name),
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 20.sp,
-                modifier = Modifier.padding(top = 14.dp)
-            )
-    
-            Text(
-                stringResource(R.string.ui_home_subtitle),
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = 13.sp,
-                modifier = Modifier.padding(top = 3.dp)
-            )
-        } else {
-            Text(
-                stringResource(R.string.ui_library),
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 24.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 6.dp, bottom = 10.dp)
-            )
-        }
-
-        if (currentVideoName != null) {
-            OutlinedButton(
-                onClick = onContinue,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 22.dp)
-            ) {
-                Icon(
-                    Icons.Filled.PlayArrow,
-                    contentDescription = null,
-                    tint = PlayerAccent
-                )
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        stringResource(R.string.ui_continue_watching),
-                        color = PlayerAccent,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        currentVideoName,
-                        color = Color.White,
-                        maxLines = 2,
-                        fontSize = 14.sp
+            if (currentVideoName == null) {
+                Box(
+                    modifier = Modifier
+                        .size(76.dp)
+                        .background(
+                            PlayerAccent.copy(alpha = 0.16f),
+                            RoundedCornerShape(22.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Outlined.GraphicEq,
+                        contentDescription = null,
+                        tint = PlayerAccent,
+                        modifier = Modifier.size(34.dp)
                     )
                 }
+    
+                Text(
+                    stringResource(R.string.app_name),
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 20.sp,
+                    modifier = Modifier.padding(top = 14.dp)
+                )
+    
+                Text(
+                    stringResource(R.string.ui_home_subtitle),
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 3.dp)
+                )
+            } else {
+                Text(
+                    stringResource(R.string.ui_library),
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 24.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp, bottom = 10.dp)
+                )
             }
-        }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 30.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            HomeCard(
-                label = stringResource(R.string.ui_open_video),
-                icon = Icons.Filled.FolderOpen,
-                modifier = Modifier.weight(1f),
-                onClick = onOpenVideo
-            )
-            HomeCard(
-                label = stringResource(R.string.ui_folder),
-                icon = Icons.Filled.Folder,
-                modifier = Modifier.weight(1f),
-                onClick = onOpenFolder
-            )
-        }
+            if (currentVideoName != null) {
+                OutlinedButton(
+                    onClick = onContinue,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 22.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        tint = PlayerAccent
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            stringResource(R.string.ui_continue_watching),
+                            color = PlayerAccent,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            currentVideoName,
+                            color = Color.White,
+                            maxLines = 2,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            }
 
-        if (recentVideos.isNotEmpty()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 28.dp, bottom = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(top = 30.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    stringResource(R.string.ui_recent),
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold
+                HomeCard(
+                    label = stringResource(R.string.ui_open_video),
+                    icon = Icons.Filled.FolderOpen,
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenVideo
                 )
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onSeeAllRecents) {
-                    Text(
-                        stringResource(R.string.ui_see_all),
-                        color = PlayerAccent,
-                        fontSize = 12.sp
-                    )
-                }
+                HomeCard(
+                    label = stringResource(R.string.ui_folder),
+                    icon = Icons.Filled.Folder,
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenFolder
+                )
             }
 
-            recentVideos.take(4).forEach { recent ->
+            if (recentVideos.isNotEmpty()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                        .clickable { onOpenRecent(recent) }
-                        .padding(horizontal = 4.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(top = 28.dp, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.Outlined.History,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.4f),
-                        modifier = Modifier.size(15.dp)
-                    )
                     Text(
-                        recent.name,
+                        stringResource(R.string.ui_recent),
                         color = Color.White,
-                        fontSize = 14.sp,
-                        maxLines = 2
+                        fontWeight = FontWeight.SemiBold
                     )
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onSeeAllRecents) {
+                        Text(
+                            stringResource(R.string.ui_see_all),
+                            color = PlayerAccent,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                recentVideos.take(4).forEach { recent ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .clickable { onOpenRecent(recent) }
+                            .padding(horizontal = 4.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.History,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.4f),
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            recent.name,
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            maxLines = 2
+                        )
+                    }
                 }
             }
-        }
 
-        Text(
-            stringResource(R.string.ui_home_hint),
-            color = Color.White.copy(alpha = 0.7f),
-            fontSize = 13.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .padding(top = 26.dp, bottom = 40.dp)
-                .fillMaxWidth()
-        )
+            Text(
+                stringResource(R.string.ui_home_hint),
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .padding(top = 26.dp, bottom = 40.dp)
+                    .fillMaxWidth()
+            )
         }
     }
 }
