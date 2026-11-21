@@ -15,6 +15,7 @@ private enum PlayerColors {
 }
 
 struct ContentView: View {
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @ScaledMetric(relativeTo: .body) private var subtitleBaseFontSize: CGFloat = 18
     @StateObject private var model = PlayerModel()
     @StateObject private var pipManager = PictureInPictureManager()
@@ -52,6 +53,16 @@ struct ContentView: View {
 
     private var hasVideo: Bool {
         model.hasLoadedMedia
+    }
+
+    /// Keep essential controls visible in short landscape windows; overflow still exposes tools.
+    private var compactControls: Bool { verticalSizeClass == .compact }
+
+    private var isModalPresented: Bool {
+        showSpeedSheet || showSilenceSheet || showSubtitleSheet || showAudioSheet ||
+        showToolsSheet || showPlaylistSheet || showRecentSheet ||
+        showingVideoImporter || showingFolderImporter || showingSubtitleImporter ||
+        showingDestructiveConfirmation || model.resumePromptSeconds != nil
     }
 
     private var silenceStatusSummary: String {
@@ -141,45 +152,45 @@ struct ContentView: View {
             playerKeyboardFocus = true
         }
         .onKeyPress(.space) {
-            guard hasVideo && !showingLibrary else { return .ignored }
+            guard hasVideo && !showingLibrary && !isModalPresented else { return .ignored }
             model.togglePlayback()
             showControls()
             return .handled
         }
         .onKeyPress(.leftArrow) {
-            guard hasVideo && !showingLibrary else { return .ignored }
+            guard hasVideo && !showingLibrary && !isModalPresented else { return .ignored }
             model.seek(by: -Double(model.doubleTapSeconds))
             showHUD("−\(model.doubleTapSeconds) s")
             return .handled
         }
         .onKeyPress(.rightArrow) {
-            guard hasVideo && !showingLibrary else { return .ignored }
+            guard hasVideo && !showingLibrary && !isModalPresented else { return .ignored }
             model.seek(by: Double(model.doubleTapSeconds))
             showHUD("+\(model.doubleTapSeconds) s")
             return .handled
         }
         .onKeyPress("j") {
-            guard hasVideo && !showingLibrary else { return .ignored }
+            guard hasVideo && !showingLibrary && !isModalPresented else { return .ignored }
             model.seek(by: -Double(model.doubleTapSeconds))
             return .handled
         }
         .onKeyPress("k") {
-            guard hasVideo && !showingLibrary else { return .ignored }
+            guard hasVideo && !showingLibrary && !isModalPresented else { return .ignored }
             model.togglePlayback()
             return .handled
         }
         .onKeyPress("l") {
-            guard hasVideo && !showingLibrary else { return .ignored }
+            guard hasVideo && !showingLibrary && !isModalPresented else { return .ignored }
             model.seek(by: Double(model.doubleTapSeconds))
             return .handled
         }
         .onKeyPress("f") {
-            guard hasVideo && !showingLibrary else { return .ignored }
+            guard hasVideo && !showingLibrary && !isModalPresented else { return .ignored }
             setFullscreen(!isFullscreen)
             return .handled
         }
         .onKeyPress("m") {
-            guard hasVideo && !showingLibrary else { return .ignored }
+            guard hasVideo && !showingLibrary && !isModalPresented else { return .ignored }
             model.toggleMute()
             return .handled
         }
@@ -718,6 +729,28 @@ struct ContentView: View {
                     } label: {
                         Label("Audio tracks", systemImage: "speaker.wave.2")
                     }
+                    if compactControls {
+                        Button {
+                            showSilenceSheet = true
+                        } label: {
+                            Label("Silence skipping", systemImage: "waveform")
+                        }
+                        Button {
+                            showSpeedSheet = true
+                        } label: {
+                            Label("Playback speed", systemImage: "gauge")
+                        }
+                        Button {
+                            showSubtitleSheet = true
+                        } label: {
+                            Label("Subtitles", systemImage: "captions.bubble")
+                        }
+                        Button {
+                            showToolsSheet = true
+                        } label: {
+                            Label("Playback tools", systemImage: "slider.horizontal.3")
+                        }
+                    }
                     if model.playlist.count > 1 {
                         Button {
                             showPlaylistSheet = true
@@ -781,8 +814,8 @@ struct ContentView: View {
             }
         }
         .padding(.horizontal, 18)
-        .padding(.top, 10)
-        .padding(.bottom, 30)
+        .padding(.top, compactControls ? 4 : 10)
+        .padding(.bottom, compactControls ? 8 : 30)
         .background(
             LinearGradient(
                 colors: [.black.opacity(0.82), .clear],
@@ -796,7 +829,7 @@ struct ContentView: View {
     // MARK: - Bottom cluster
 
     private var bottomCluster: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: compactControls ? 4 : 10) {
             HStack(spacing: 8) {
                 Text(PlayerModel.format(seconds: model.currentTime))
                     .monospacedDigit()
@@ -824,7 +857,8 @@ struct ContentView: View {
             }
             .padding(.horizontal, 20)
 
-            HStack(spacing: 12) {
+            if !compactControls {
+                HStack(spacing: 12) {
                 Button {
                     showSilenceSheet = true
                 } label: {
@@ -859,8 +893,9 @@ struct ContentView: View {
                 .tint(PlayerColors.accent)
                 .accessibilityLabel("Skip silence")
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 3)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 3)
+            }
 
             HStack(spacing: 0) {
                 Button {
@@ -931,7 +966,8 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
 
-            HStack(spacing: 8) {
+            if !compactControls {
+                HStack(spacing: 8) {
                 PlayerChip(
                     label: String(format: "%g×", model.playbackSpeed),
                     systemImage: "gauge",
@@ -953,11 +989,12 @@ struct ContentView: View {
                 PlayerChip(label: "More", systemImage: "slider.horizontal.3", stretch: true) {
                     showToolsSheet = true
                 }
+                }
+                .padding(.horizontal, 20)
             }
-            .padding(.horizontal, 20)
         }
-        .padding(.top, 26)
-        .padding(.bottom, 16)
+        .padding(.top, compactControls ? 4 : 26)
+        .padding(.bottom, compactControls ? 6 : 16)
         .background(
             LinearGradient(
                 colors: [.clear, .black.opacity(0.9)],
