@@ -1505,7 +1505,8 @@ private fun SkipSilencePlayerScreen(
             )
         }
 
-        if (audioOnly && player.mediaItemCount > 0 && !activity.pipMode) {
+        if (audioOnly && player.mediaItemCount > 0 &&
+            !activity.pipMode && !showLibrary) {
             Column(
                 modifier = Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -2921,9 +2922,13 @@ private fun SkipSilencePlayerScreen(
                                 ?: item.mediaId,
                             selected = index == player.currentMediaItemIndex,
                             onClick = {
-                                player.seekTo(index, 0)
-                                player.prepare()
+                                if (index != player.currentMediaItemIndex) {
+                                    player.seekTo(index, 0)
+                                    player.prepare()
+                                }
                                 player.play()
+                                showLibrary = false
+                                controlsVisible = true
                                 showPlaylistSheet = false
                             }
                         )
