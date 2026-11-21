@@ -1511,7 +1511,7 @@ private fun SkipSilencePlayerScreen(
                 )
                 Text(
                     stringResource(R.string.ui_audio_only),
-                    color = Color.White.copy(alpha = 0.4f),
+                    color = Color.White.copy(alpha = 0.78f),
                     fontWeight = FontWeight.SemiBold
                 )
             }
