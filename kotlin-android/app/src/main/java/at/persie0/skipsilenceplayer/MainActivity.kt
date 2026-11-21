@@ -497,6 +497,16 @@ private fun SkipSilencePlayerScreen(
     var showAdvancedSilence by remember { mutableStateOf(false) }
     var pendingDestructiveAction by remember { mutableStateOf<String?>(null) }
 
+    // A media overlay is a focused operation. Auto-hide must not run behind
+    // Settings, modal sheets or confirmation prompts, then should restart
+    // when the user returns to playback.
+    val playbackOverlayOpen =
+        showLibrary || overflowOpen || showSpeedSheet || showSilenceSheet ||
+            showSubtitleSheet || showAudioSheet || showToolsSheet ||
+            showMarkersSheet || showPlaylistSheet || showRecentSheet ||
+            showPreferencesSheet || pendingResume != null ||
+            pendingDestructiveAction != null
+
     var aspectMode by remember {
         mutableStateOf(
             runCatching {
@@ -1070,8 +1080,19 @@ private fun SkipSilencePlayerScreen(
         }
     }
 
-    LaunchedEffect(isPlaying, controlsVisible, isFullscreen, activity.pipMode) {
-        if (isPlaying && controlsVisible && !activity.pipMode && !gestureLocked) {
+    LaunchedEffect(playbackOverlayOpen) {
+        if (playbackOverlayOpen && player.mediaItemCount > 0) {
+            controlsVisible = true
+        }
+    }
+
+    LaunchedEffect(
+        isPlaying, controlsVisible, isFullscreen, activity.pipMode,
+        gestureLocked, playbackOverlayOpen
+    ) {
+        if (isPlaying && controlsVisible && !activity.pipMode &&
+            !gestureLocked && !playbackOverlayOpen
+        ) {
             delay(if (isFullscreen) 2_500L else 4_000L)
             controlsVisible = false
         }
