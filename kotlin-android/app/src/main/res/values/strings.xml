@@ -158,4 +158,10 @@
   <string name="ui_native_smooth_active">Smooth processing active · no timeline jumps</string>
   <string name="ui_gestures">Playback gestures</string>
   <string name="ui_player_gestures_help">Double-tap the left or right side to seek. Swipe vertically on the left for brightness, or on the right for volume. Swipe horizontally to scrub. Lock controls from More options.</string>
+  <string name="ui_open_another_video">Open another video</string>
+  <string name="ui_error_recovery_hint">If this file is missing or unsupported, choose a different video. Retry is useful for temporary decoder errors.</string>
+  <string name="ui_choose_another_folder">Choose another folder</string>
+  <string name="ui_playback_speed_title">Playback speed</string>
+  <string name="ui_normal_playback_speed">Normal playback speed</string>
+  <string name="ui_playback_speed_hint">Changes speech and regular playback. Silence acceleration is configured separately under Skip silence.</string>
 </resources>
