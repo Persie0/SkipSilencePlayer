@@ -2385,7 +2385,13 @@ private fun SkipSilencePlayerScreen(
                         modifier = Modifier.padding(vertical = 8.dp)
                     )
                     Text(
-                        stringResource(R.string.ui_silence_help),
+                        stringResource(
+                            if (silencePlaybackMode == SilencePlaybackMode.SMOOTH) {
+                                R.string.ui_silence_smooth_audio_hint
+                            } else {
+                                R.string.ui_silence_help
+                            }
+                        ),
                         fontSize = 12.sp,
                         color = Color.White.copy(alpha = 0.75f),
                         modifier = Modifier.padding(bottom = 10.dp)
