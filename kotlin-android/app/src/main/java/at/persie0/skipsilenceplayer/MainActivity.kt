@@ -2906,7 +2906,11 @@ private fun SkipSilencePlayerScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { player.seekTo(bookmark.positionMs) }
+                                    .clickable {
+                                        player.seekTo(bookmark.positionMs)
+                                        showMarkersSheet = false
+                                        controlsVisible = true
+                                    }
                                     .heightIn(min = 48.dp)
                                     .padding(vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -2970,7 +2974,11 @@ private fun SkipSilencePlayerScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { player.seekTo(chapter.startMs) }
+                                    .clickable {
+                                        player.seekTo(chapter.startMs)
+                                        showMarkersSheet = false
+                                        controlsVisible = true
+                                    }
                                     .heightIn(min = 48.dp)
                                     .padding(vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically,
