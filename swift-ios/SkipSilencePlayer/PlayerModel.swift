@@ -546,12 +546,25 @@ final class PlayerModel: NSObject, ObservableObject {
         return "Resume at " + Self.format(seconds: seconds)
     }
 
-    func openRecent(_ recent: RecentVideo) {
+    @discardableResult
+    func openRecent(_ recent: RecentVideo) -> Bool {
         guard let url = Self.resolveBookmark(recent.bookmarkBase64) else {
             playbackError = "Could not reopen \(recent.name). The file may have moved or access expired."
-            return
+            return false
         }
+
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer {
+            if scoped { url.stopAccessingSecurityScopedResource() }
+        }
+        guard (try? url.checkResourceIsReachable()) == true else {
+            playbackError = "Could not reopen \(recent.name). Choose the file again from Files."
+            return false
+        }
+
+        playbackError = nil
         requestLoad(urls: [url])
+        return true
     }
 
     func openExternalURL(_ url: URL) {
