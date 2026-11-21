@@ -2162,19 +2162,33 @@ private struct SeekBar: View {
                     .frame(height: 4)
 
                 if duration > 0 {
-                    ForEach(silenceRanges.indices, id: \.self) { index in
-                        let range = silenceRanges[index]
-                        let start = min(max(range.start / duration, 0), 1)
-                        let end = min(max(range.end / duration, start), 1)
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.white.opacity(0.42))
-                            .frame(
-                                width: max(width * (end - start), 1),
-                                height: 8
+                    // A long recording may have thousands of quiet sections.
+                    // Drawing them in one Canvas avoids creating thousands of
+                    // SwiftUI nodes on every playback-position update.
+                    Canvas { context, _ in
+                        var silencePath = Path()
+                        for range in silenceRanges {
+                            let start = min(max(range.start / duration, 0), 1)
+                            let end = min(max(range.end / duration, start), 1)
+                            guard end > start else { continue }
+                            silencePath.addRoundedRect(
+                                in: CGRect(
+                                    x: width * start,
+                                    y: 2,
+                                    width: max(width * (end - start), 1),
+                                    height: 8
+                                ),
+                                cornerSize: CGSize(width: 2, height: 2)
                             )
-                            .offset(x: width * start)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        context.fill(
+                            silencePath,
+                            with: .color(.white.opacity(0.42))
+                        )
                     }
+                    .frame(height: 12)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                 }
 
                 Capsule()
