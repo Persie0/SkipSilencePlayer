@@ -1249,7 +1249,15 @@ struct ContentView: View {
     // MARK: - Sheets
 
     private var speedSheet: some View {
-        SheetCard(title: "Speed") {
+        SheetCard(title: "Playback speed") {
+            Text(
+                "Controls speech and normal playback. Quiet-part acceleration " +
+                "is configured separately under Silence skipping."
+            )
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(
@@ -1268,7 +1276,7 @@ struct ContentView: View {
             }
 
             SheetSliderRow(
-                label: "Speed",
+                label: "Normal playback speed",
                 valueText: String(format: "%.2g×", model.playbackSpeed),
                 value: Binding(
                     get: { model.playbackSpeed },
