@@ -447,6 +447,7 @@ private fun SkipSilencePlayerScreen(
     var isFullscreen by remember { mutableStateOf(false) }
     var gestureLocked by remember { mutableStateOf(false) }
     var gestureText by remember { mutableStateOf<String?>(null) }
+    var libraryError by remember { mutableStateOf<String?>(null) }
 
     var overflowOpen by remember { mutableStateOf(false) }
     var showSpeedSheet by remember { mutableStateOf(false) }
@@ -1055,13 +1056,19 @@ private fun SkipSilencePlayerScreen(
         if (treeUri != null) {
             takePersistableTreePermission(activity, treeUri)
             scope.launch {
-                val entries = withContext(Dispatchers.IO) {
-                    collectVideoDocuments(context, treeUri)
-                }
-                if (entries.isEmpty()) {
-                    gestureText = "No videos found in folder"
-                } else {
-                    requestOpen(entries)
+                try {
+                    val entries = withContext(Dispatchers.IO) {
+                        collectVideoDocuments(context, treeUri)
+                    }
+                    if (entries.isEmpty()) {
+                        libraryError = context.getString(R.string.choice_no_videos_found_in_folder)
+                    } else {
+                        requestOpen(entries)
+                    }
+                } catch (error: Exception) {
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    libraryError = error.localizedMessage
+                        ?: context.getString(R.string.ui_open_folder_failed)
                 }
             }
         }
@@ -1585,6 +1592,19 @@ private fun SkipSilencePlayerScreen(
                     fontWeight = FontWeight.Medium
                 )
             }
+        }
+
+        libraryError?.let { message ->
+            AlertDialog(
+                onDismissRequest = { libraryError = null },
+                title = { Text(stringResource(R.string.ui_open_folder_failed)) },
+                text = { Text(message) },
+                confirmButton = {
+                    TextButton(onClick = { libraryError = null }) {
+                        Text(stringResource(R.string.ui_dismiss))
+                    }
+                }
+            )
         }
 
         playerError?.let { error ->
