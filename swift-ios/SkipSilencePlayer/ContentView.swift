@@ -1625,6 +1625,15 @@ struct ContentView: View {
                 }
             }
 
+            SectionLabel(text: "Playback gestures")
+            Text(
+                "Double-tap left or right to seek. Swipe vertically on the left " +
+                "for brightness, or the right for volume. Swipe horizontally " +
+                "to scrub. Lock controls from More options."
+            )
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
