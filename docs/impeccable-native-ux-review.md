@@ -140,3 +140,11 @@ Previous provisional assessment: **37/40**. This third pass fixes the remaining 
 - [ ] Verify media sessions/background audio/PiP and file permission errors with real providers
 
 Questions skipped: user explicitly requested implementing all prioritized fixes; unverified native device behavior is the remaining acceptance constraint.
+
+### Round 3 final source-pinned CI and screenshot limitations
+
+- **Native build and Android unit tests: PASSED** in [public Playground run 44953305558](https://github.com/Persie0/Playground/actions/runs/44953305558). Both the iOS simulator compile and Android unit-test/debug-APK jobs completed successfully at source commit `ac79ad452f176de36627a5c8ba5ccd02cf96ee1b`.
+- **iPhone pre-centering capture: usable** in [public run 44952560304](https://github.com/Persie0/Playground/actions/runs/44952560304); led to fixing top-heavy intro composition.
+- **Android pre-centering capture: usable** in [public run 44952918697](https://github.com/Persie0/Playground/actions/runs/44952918697); led to corresponding empty-state and status-bar adjustments.
+- **Centered Android capture** in [public run 44953309446](https://github.com/Persie0/Playground/actions/runs/44953309446) showed the new centered composition and readable status-bar icons but was obscured by a **Pixel Launcher system-process ANR dialog**. This is a snapshot validation failure and cannot count as a clean UI pass or an app crash. A clean screenshot attempt is recorded in [public run 44953670294](https://github.com/Persie0/Playground/actions/runs/44953670294).
+- Device screen-reader and in-media gesture testing remain unverified. **Do not interpret build success or first-run screenshots as a certified 40/40.**
