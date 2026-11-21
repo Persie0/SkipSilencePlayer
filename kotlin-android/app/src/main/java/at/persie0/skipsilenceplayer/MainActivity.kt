@@ -1590,6 +1590,7 @@ private fun SkipSilencePlayerScreen(
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .statusBarsPadding()
                     .padding(top = 14.dp)
                     .background(
                         Color.Black.copy(alpha = 0.72f),
