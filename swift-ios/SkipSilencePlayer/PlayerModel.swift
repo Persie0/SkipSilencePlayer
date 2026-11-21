@@ -719,9 +719,14 @@ final class PlayerModel: NSObject, ObservableObject {
             player.currentItem?.canPlayFastForward == true
     }
 
+    /// The highest quiet-section speed currently permitted by this media item.
+    /// The actual rate ramps below this limit near speech boundaries.
+    var availableSilenceAccelerationSpeed: Double {
+        highSpeedSilenceAvailable ? silenceAccelerationSpeed : 2.0
+    }
+
     private var effectiveSilenceAccelerationSpeed: Double {
-        let maxSupported = highSpeedSilenceAvailable ? silenceAccelerationSpeed : 2.0
-        return max(playbackSpeed, maxSupported)
+        max(playbackSpeed, availableSilenceAccelerationSpeed)
     }
 
     func setAdaptiveSilenceEnabled(_ enabled: Bool) {
@@ -2186,7 +2191,23 @@ final class PlayerModel: NSObject, ObservableObject {
         let progress = min(1, max(0, (currentTime - range.start) / edge))
         let fadeOut = min(1, max(0, remaining / edge))
         let blend = min(progress, fadeOut)
-        let target = playbackSpeed + (fastRate - playbackSpeed) * blend
+        let desiredRate = playbackSpeed + (fastRate - playbackSpeed) * blend
+
+        // The player observer runs approximately every 80 ms, but its
+        // callbacks can be delayed by frame decoding and UI work. At 8× one
+        // tick can traverse over half a second of media. Slow down *before*
+        // reaching the end of the detected silence so the next observation
+        // does not land well inside the following speech.
+        //
+        // 160 ms of wall-clock lookahead plus 180 ms of media guard is a
+        // conservative safety margin, not a promise of sample-accurate edits.
+        let protectedTailSeconds = 0.18
+        let observationHorizonSeconds = 0.16
+        let boundarySafeRate = max(
+            playbackSpeed,
+            (remaining - protectedTailSeconds) / observationHorizonSeconds
+        )
+        let target = min(desiredRate, boundarySafeRate)
 
         if abs(Double(player.rate) - target) >= 0.10 {
             player.rate = Float(target)
