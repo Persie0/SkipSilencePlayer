@@ -972,19 +972,21 @@ struct ContentView: View {
 
     private var speedSheet: some View {
         SheetCard(title: "Speed") {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(
-                        [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0],
-                        id: \.self
-                    ) { speed in
-                        PlayerChip(
-                            label: String(format: "%g×", speed),
-                            selected: abs(model.playbackSpeed - speed) < 0.01
-                        ) {
-                            model.setPlaybackSpeed(speed)
-                            model.commitPlaybackSpeed()
-                        }
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 74), spacing: 8)],
+                spacing: 8
+            ) {
+                ForEach(
+                    [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0],
+                    id: \.self
+                ) { speed in
+                    PlayerChip(
+                        label: String(format: "%g×", speed),
+                        selected: abs(model.playbackSpeed - speed) < 0.01,
+                        stretch: true
+                    ) {
+                        model.setPlaybackSpeed(speed)
+                        model.commitPlaybackSpeed()
                     }
                 }
             }
@@ -1030,24 +1032,25 @@ struct ContentView: View {
 
             SectionLabel(text: "Preset")
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(SilencePreset.allCases) { preset in
-                        PlayerChip(
-                            label: preset.label,
-                            selected: model.currentPreset == preset
-                        ) {
-                            model.applyPreset(preset)
-                            showHUD(preset.label)
-                        }
-                    }
-                    if model.currentPreset == nil {
-                        Text("Custom")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 12)
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 110), spacing: 8)],
+                spacing: 8
+            ) {
+                ForEach(SilencePreset.allCases) { preset in
+                    PlayerChip(
+                        label: preset.label,
+                        selected: model.currentPreset == preset,
+                        stretch: true
+                    ) {
+                        model.applyPreset(preset)
+                        showHUD(preset.label)
                     }
                 }
+            }
+            if model.currentPreset == nil {
+                Text("Custom settings")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             DisclosureGroup(isExpanded: $showAdvancedSilenceSettings) {
