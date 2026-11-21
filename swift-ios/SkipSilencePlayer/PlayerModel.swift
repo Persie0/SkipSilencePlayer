@@ -707,7 +707,7 @@ final class PlayerModel: NSObject, ObservableObject {
     func setSilenceAccelerationSpeed(_ speed: Double) {
         guard speed.isFinite else { return }
         let next = (speed * 2).rounded() / 2
-        silenceAccelerationSpeed = next.coerceIn(2.0, 8.0)
+        silenceAccelerationSpeed = min(max(next, 2.0), 8.0)
         defaults.set(silenceAccelerationSpeed, forKey: "silenceAccelerationSpeed")
         recalculateEstimatedWatchTime()
     }
