@@ -16,6 +16,7 @@ private enum PlayerColors {
 
 struct ContentView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var subtitleBaseFontSize: CGFloat = 18
     @StateObject private var model = PlayerModel()
     @StateObject private var pipManager = PictureInPictureManager()
@@ -51,6 +52,7 @@ struct ContentView: View {
     @State private var showingLibrary = false
     @State private var librarySearch = ""
     @State private var bottomControlsHeight: CGFloat = 0
+    @State private var playerViewportWidth: CGFloat = 800
     @State private var pendingDestructiveAction: String?
     @State private var showingDestructiveConfirmation = false
     @State private var confirmationQueuedAfterSheetDismiss = false
@@ -61,6 +63,11 @@ struct ContentView: View {
 
     private var compactLandscape: Bool {
         verticalSizeClass == .compact
+    }
+
+    private var narrowCompactLandscape: Bool {
+        compactLandscape &&
+            (playerViewportWidth < 620 || dynamicTypeSize.isAccessibilitySize)
     }
 
     private var filteredRecentVideos: [RecentVideo] {
@@ -165,6 +172,17 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: PlayerViewportWidthKey.self,
+                    value: proxy.size.width
+                )
+            }
+        )
+        .onPreferenceChange(PlayerViewportWidthKey.self) {
+            playerViewportWidth = $0
+        }
         .statusBarHidden(isFullscreen)
         .focusable()
         .focused($playerKeyboardFocus)
@@ -819,6 +837,12 @@ struct ContentView: View {
                     hideGeneration += 1
                 }
 
+                if model.playlist.count > 1 {
+                    playerIconButton("list.number", label: "Up Next") {
+                        showPlaylistSheet = true
+                    }
+                }
+
                 playerIconButton(
                     isFullscreen
                         ? "arrow.down.right.and.arrow.up.left"
@@ -862,13 +886,6 @@ struct ContentView: View {
                         showAudioSheet = true
                     } label: {
                         Label("Audio tracks", systemImage: "speaker.wave.2")
-                    }
-                    if model.playlist.count > 1 {
-                        Button {
-                            showPlaylistSheet = true
-                        } label: {
-                            Label("Playlist", systemImage: "list.number")
-                        }
                     }
                     Divider()
                     Button {
@@ -1079,13 +1096,15 @@ struct ContentView: View {
 
     private var compactTransportControls: some View {
         HStack(spacing: 12) {
-            Button {
-                model.seek(by: -Double(model.doubleTapSeconds))
-            } label: {
-                Image(systemName: "gobackward")
-                    .frame(minWidth: 44, minHeight: 44)
+            if !narrowCompactLandscape {
+                Button {
+                    model.seek(by: -Double(model.doubleTapSeconds))
+                } label: {
+                    Image(systemName: "gobackward")
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .accessibilityLabel("Seek backward \(model.doubleTapSeconds) seconds")
             }
-            .accessibilityLabel("Seek backward \(model.doubleTapSeconds) seconds")
 
             Button {
                 model.togglePlayback()
@@ -1098,13 +1117,15 @@ struct ContentView: View {
             }
             .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
 
-            Button {
-                model.seek(by: Double(model.doubleTapSeconds))
-            } label: {
-                Image(systemName: "goforward")
-                    .frame(minWidth: 44, minHeight: 44)
+            if !narrowCompactLandscape {
+                Button {
+                    model.seek(by: Double(model.doubleTapSeconds))
+                } label: {
+                    Image(systemName: "goforward")
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .accessibilityLabel("Seek forward \(model.doubleTapSeconds) seconds")
             }
-            .accessibilityLabel("Seek forward \(model.doubleTapSeconds) seconds")
 
             Spacer(minLength: 2)
 
@@ -1114,12 +1135,16 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Skip silence")
                         .font(.caption.weight(.semibold))
-                    Text(silenceStatusSummary)
-                        .font(.caption2)
-                        .lineLimit(1)
+                    if !narrowCompactLandscape {
+                        Text(silenceStatusSummary)
+                            .font(.caption2)
+                            .lineLimit(1)
+                    }
                 }
                 .frame(minHeight: 44)
             }
+            .accessibilityLabel("Silence skipping settings")
+            .accessibilityValue(silenceStatusSummary)
             .accessibilityHint("Adjust silence skipping")
 
             Toggle("Skip silence", isOn: Binding(
@@ -1128,6 +1153,7 @@ struct ContentView: View {
             ))
             .labelsHidden()
             .tint(PlayerColors.accent)
+            .accessibilityLabel("Skip silence")
 
             Button {
                 showToolsSheet = true
@@ -1878,6 +1904,14 @@ struct ContentView: View {
 }
 
 // MARK: - Reusable components
+
+private struct PlayerViewportWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat { 0 }
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
 
 private struct PlayerBottomControlsHeightKey: PreferenceKey {
     static var defaultValue: CGFloat { 0 }
