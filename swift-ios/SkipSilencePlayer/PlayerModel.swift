@@ -54,6 +54,19 @@ private struct PersistedPlaylistState: Codable {
     let selectedID: String?
 }
 
+enum SilencePlaybackMode: String, CaseIterable, Identifiable {
+    case smooth
+    case jump
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .smooth: return "Smooth"
+        case .jump: return "Jump"
+        }
+    }
+}
+
 enum ResumeMode: String, CaseIterable, Identifiable {
     case ask
     case always
@@ -167,6 +180,7 @@ final class PlayerModel: NSObject, ObservableObject {
     @Published private(set) var estimatedWatchTime = 0.0
 
     @Published private(set) var silenceEnabled: Bool
+    @Published private(set) var silencePlaybackMode: SilencePlaybackMode
     @Published private(set) var adaptiveSilenceEnabled: Bool
     @Published private(set) var effectiveSilenceThresholdDB = -42.0
     @Published private(set) var silenceThresholdDB: Double
@@ -226,6 +240,8 @@ final class PlayerModel: NSObject, ObservableObject {
 
     var hasLoadedMedia: Bool { selectedURL != nil }
     private var jumpingOverSilence = false
+    private var smoothSilenceActive = false
+    private var lastSmoothSampleUptime: TimeInterval?
     private var skipSeekGeneration = 0
     private var manualSeekPending = false
     private var manualSeekGeneration = 0
@@ -247,6 +263,9 @@ final class PlayerModel: NSObject, ObservableObject {
     override init() {
         silenceEnabled =
             (UserDefaults.standard.object(forKey: "silenceEnabled") as? Bool) ?? true
+        silencePlaybackMode = SilencePlaybackMode(
+            rawValue: UserDefaults.standard.string(forKey: "silencePlaybackMode") ?? ""
+        ) ?? .smooth
         adaptiveSilenceEnabled =
             (UserDefaults.standard.object(forKey: "adaptiveSilenceEnabled") as? Bool)
                 ?? true
@@ -609,6 +628,7 @@ final class PlayerModel: NSObject, ObservableObject {
     }
 
     func pause() {
+        resetSmoothSilenceRate()
         player.pause()
         isPlaying = false
         saveCurrentVideoState()
@@ -629,6 +649,7 @@ final class PlayerModel: NSObject, ObservableObject {
     }
 
     func seek(to seconds: Double) {
+        resetSmoothSilenceRate()
         let upper = duration > 0 ? duration : max(currentTime, 0)
         let target = min(max(0, seconds), max(upper, 0))
         skipSeekGeneration += 1
@@ -658,10 +679,21 @@ final class PlayerModel: NSObject, ObservableObject {
         if !enabled {
             skipSeekGeneration += 1
             jumpingOverSilence = false
+            resetSmoothSilenceRate()
         }
         silenceEnabled = enabled
         defaults.set(enabled, forKey: "silenceEnabled")
         saveCurrentVideoState()
+        recalculateEstimatedWatchTime()
+    }
+
+    func setSilencePlaybackMode(_ mode: SilencePlaybackMode) {
+        guard silencePlaybackMode != mode else { return }
+        skipSeekGeneration += 1
+        jumpingOverSilence = false
+        resetSmoothSilenceRate()
+        silencePlaybackMode = mode
+        defaults.set(mode.rawValue, forKey: "silencePlaybackMode")
         recalculateEstimatedWatchTime()
     }
 
@@ -685,6 +717,7 @@ final class PlayerModel: NSObject, ObservableObject {
     func applySilenceSettings() {
         skipSeekGeneration += 1
         jumpingOverSilence = false
+        resetSmoothSilenceRate()
         silenceThresholdDB = silenceThresholdDB.rounded()
         minimumSilence = (minimumSilence * 20).rounded() / 20
         edgePadding = (edgePadding * 100).rounded() / 100
@@ -709,6 +742,9 @@ final class PlayerModel: NSObject, ObservableObject {
     func setPlaybackSpeed(_ value: Double) {
         playbackSpeed = min(max((value * 4).rounded() / 4, 0.5), 3)
         player.defaultRate = Float(playbackSpeed)
+        // The next observer tick will recompute the quiet-region acceleration
+        // using this new baseline. Avoid persisting the accelerated rate.
+        resetSmoothSilenceRate()
         if isPlaying {
             player.rate = Float(playbackSpeed)
         }
@@ -992,6 +1028,7 @@ final class PlayerModel: NSObject, ObservableObject {
 
     func resetSettings() {
         silenceEnabled = true
+        silencePlaybackMode = .smooth
         silenceThresholdDB = -42
         adaptiveSilenceEnabled = true
         minimumSilence = 0.45
@@ -1010,6 +1047,7 @@ final class PlayerModel: NSObject, ObservableObject {
         resumeMode = .ask
 
         defaults.set(true, forKey: "silenceEnabled")
+        defaults.set(SilencePlaybackMode.smooth.rawValue, forKey: "silencePlaybackMode")
         defaults.set(-42.0, forKey: "silenceThresholdDB")
         defaults.set(true, forKey: "adaptiveSilenceEnabled")
         defaults.set(0.45, forKey: "minimumSilence")
@@ -1056,6 +1094,7 @@ final class PlayerModel: NSObject, ObservableObject {
         position: Double,
         autoPlay: Bool = true
     ) {
+        resetSmoothSilenceRate()
         guard playlist.indices.contains(playlistIndex) else { return }
 
         if hasSecurityScope {
@@ -1131,6 +1170,7 @@ final class PlayerModel: NSObject, ObservableObject {
         abEnd = nil
 
         let item = AVPlayerItem(url: url)
+        item.audioTimePitchAlgorithm = .spectral
         player.replaceCurrentItem(with: item)
         player.defaultRate = Float(playbackSpeed)
 
@@ -1482,9 +1522,19 @@ final class PlayerModel: NSObject, ObservableObject {
         updateNowPlaying()
     }
 
+    private func ifSmoothEstimatedSkip() -> Double {
+        guard silenceEnabled else { return 0 }
+        if silencePlaybackMode == .jump { return totalSkippableTime }
+        // Smooth mode accelerates rather than completely removing quiet media.
+        // At 2× relative to 1×, about half the time in a quiet segment is saved.
+        let fastRate = min(2.0, max(playbackSpeed, 2.0))
+        guard fastRate > playbackSpeed else { return 0 }
+        return totalSkippableTime * (1 - playbackSpeed / fastRate)
+    }
+
     private func recalculateEstimatedWatchTime() {
         let mediaSeconds = duration > 0 ? duration : 0
-        let skip = silenceEnabled ? totalSkippableTime : 0
+        let skip = ifSmoothEstimatedSkip()
         estimatedWatchTime =
             max(0, mediaSeconds - skip) / max(playbackSpeed, 0.5)
     }
