@@ -100,6 +100,16 @@
   <string name="ui_unlock">Unlock</string>
   <string name="ui_home_subtitle">Skip quiet pauses in your videos</string>
   <string name="ui_home_hint">Double-tap to seek · swipe for brightness and volume</string>
+  <string name="ui_player_guide">Gestures &amp; player guide</string>
+  <string name="ui_guide_intro">Play local videos and skip quiet sections. Audio analysis stays on your device.</string>
+  <string name="ui_guide_touch">Touch gestures</string>
+  <string name="ui_guide_seek">Double-tap the left or right half to seek backward or forward.</string>
+  <string name="ui_guide_swipe">Swipe horizontally to scrub. Swipe vertically on the left for brightness or on the right for volume.</string>
+  <string name="ui_guide_pinch_lock">Pinch to zoom. Lock gestures from More to prevent accidental touches.</string>
+  <string name="ui_guide_silence_title">Silence skipping</string>
+  <string name="ui_guide_silence">Balanced with Adaptive noise floor is the recommended starting point. It detects sustained quiet passages, not individual words.</string>
+  <string name="ui_guide_more_title">Playback tools</string>
+  <string name="ui_guide_more">Use Speed, Subtitles and Tools for playback rate, subtitle adjustments, bookmarks, A–B repeat and the sleep timer. On short screens these appear under More.</string>
   <string name="ui_import_subtitle">Import subtitle</string>
   <string name="ui_no_bookmarks">No bookmarks yet</string>
   <string name="ui_threshold">Threshold</string>
