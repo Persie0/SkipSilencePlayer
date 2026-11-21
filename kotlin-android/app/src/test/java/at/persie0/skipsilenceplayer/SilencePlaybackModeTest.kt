@@ -8,8 +8,8 @@ import org.junit.Test
 class SilencePlaybackModeTest {
     @Test
     fun smoothNeverUsesDecoderSeekEvenWithFullAnalysis() {
-        assertTrue(SilencePlaybackPolicy.nativeEnabled(true, SilencePlaybackMode.SMOOTH, true))
-        assertTrue(SilencePlaybackPolicy.nativeEnabled(true, SilencePlaybackMode.SMOOTH, false))
+        assertFalse(SilencePlaybackPolicy.nativeEnabled(true, SilencePlaybackMode.SMOOTH, true))
+        assertFalse(SilencePlaybackPolicy.nativeEnabled(true, SilencePlaybackMode.SMOOTH, false))
         assertFalse(SilencePlaybackPolicy.timelineEnabled(true, SilencePlaybackMode.SMOOTH, true))
         assertFalse(SilencePlaybackPolicy.timelineEnabled(true, SilencePlaybackMode.SMOOTH, false))
     }
