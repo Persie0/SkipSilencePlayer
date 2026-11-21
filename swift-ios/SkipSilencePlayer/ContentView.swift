@@ -45,6 +45,7 @@ struct ContentView: View {
     @State private var showSettingsPage = false
     @State private var showMarkersSheet = false
     @State private var toolsDestinationAfterDismiss: String?
+    @State private var locateFileAfterRecentDismiss = false
     @State private var showPlaylistSheet = false
     @State private var showRecentSheet = false
     @State private var showAdvancedSilenceSettings = false
@@ -309,7 +310,7 @@ struct ContentView: View {
         .sheet(isPresented: $showPlaylistSheet) {
             playlistSheet
         }
-        .sheet(isPresented: $showRecentSheet, onDismiss: presentQueuedConfirmation) {
+        .sheet(isPresented: $showRecentSheet, onDismiss: handleRecentDismiss) {
             recentSheet
         }
         .alert(
@@ -1763,9 +1764,9 @@ struct ContentView: View {
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
                 Button("Locate file…") {
-                    showRecentSheet = false
+                    locateFileAfterRecentDismiss = true
                     model.dismissPlaybackError()
-                    showingVideoImporter = true
+                    showRecentSheet = false
                 }
                 .buttonStyle(.borderedProminent)
             }
@@ -1821,6 +1822,13 @@ struct ContentView: View {
     private func openFromTools(_ destination: String) {
         toolsDestinationAfterDismiss = destination
         showToolsSheet = false
+    }
+
+    private func handleRecentDismiss() {
+        presentQueuedConfirmation()
+        guard locateFileAfterRecentDismiss else { return }
+        locateFileAfterRecentDismiss = false
+        showingVideoImporter = true
     }
 
     private func handleToolsDismiss() {
