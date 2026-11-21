@@ -161,34 +161,50 @@ struct ContentView: View {
             }
 
             if let error = model.playbackError {
-                VStack(spacing: 10) {
+                VStack(spacing: 12) {
                     Text("Playback error")
                         .font(.headline)
                     Text(error)
-                        .font(.caption)
+                        .font(.subheadline)
                         .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Try a different file if this video is missing or unsupported.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Button {
+                        model.dismissPlaybackError()
+                        showingVideoImporter = true
+                    } label: {
+                        Label(
+                            error.hasPrefix("Could not reopen")
+                                ? "Locate file"
+                                : "Open another video",
+                            systemImage: "folder"
+                        )
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(PlayerColors.accent)
+
                     HStack {
                         Button("Dismiss") {
                             model.dismissPlaybackError()
                         }
                         .buttonStyle(.bordered)
 
-                        if error.hasPrefix("Could not reopen") {
-                            Button("Locate file") {
-                                model.dismissPlaybackError()
-                                showingVideoImporter = true
-                            }
-                            .buttonStyle(.borderedProminent)
-                        } else {
+                        if !error.hasPrefix("Could not reopen") {
                             Button("Retry") {
                                 model.retryPlayback()
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.bordered)
                         }
                     }
                 }
                 .padding(18)
-                .background(.black.opacity(0.9), in: RoundedRectangle(cornerRadius: 14))
+                .frame(maxWidth: 360)
+                .background(.black.opacity(0.92), in: RoundedRectangle(cornerRadius: 14))
                 .padding(24)
             }
         }
