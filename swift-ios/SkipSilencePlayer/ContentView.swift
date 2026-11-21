@@ -631,7 +631,7 @@ struct ContentView: View {
                                     .foregroundStyle(.tertiary)
                                 Text(recent.name)
                                     .foregroundStyle(.white)
-                                    .lineLimit(1)
+                                    .lineLimit(2)
                                 Spacer()
                             }
                             .padding(.horizontal, 26)
@@ -1163,7 +1163,7 @@ struct ContentView: View {
 
     private var subtitleSheet: some View {
         SheetCard(title: "Subtitles") {
-            HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 Button {
                     showingSubtitleImporter = true
                 } label: {
@@ -1171,15 +1171,17 @@ struct ContentView: View {
                         model.externalSubtitleName ?? "Import subtitle",
                         systemImage: "captions.bubble"
                     )
-                    .lineLimit(1)
+                    .lineLimit(2)
                 }
+                .frame(minHeight: 44)
                 .buttonStyle(.bordered)
                 .tint(PlayerColors.accent)
 
                 if model.externalSubtitleName != nil {
-                    Button("Remove", role: .destructive) {
+                    Button("Remove subtitle", role: .destructive) {
                         model.clearExternalSubtitle()
                     }
+                    .frame(minHeight: 44)
                     .buttonStyle(.bordered)
                 }
             }
@@ -1412,10 +1414,10 @@ struct ContentView: View {
                                 .foregroundStyle(PlayerColors.accent)
                             Text(chapter.title)
                                 .foregroundStyle(.white)
-                                .lineLimit(1)
+                                .lineLimit(2)
                             Spacer()
                         }
-                        .padding(.vertical, 7)
+                        .frame(minHeight: 44)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
