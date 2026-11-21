@@ -119,6 +119,9 @@
   <string name="cd_next">Next</string>
   <string name="cd_seek_back">Seek back</string>
   <string name="cd_seek_forward">Seek forward</string>
+  <string name="cd_seek_back_seconds">Seek backward %1$d seconds</string>
+  <string name="cd_seek_forward_seconds">Seek forward %1$d seconds</string>
+  <string name="playback_speed_accessibility">Playback speed, %1$s</string>
   <string name="ui_more">More</string>
   <string name="ui_adjust">Adjust</string>
   <string name="ui_playback_preferences">Playback preferences</string>
