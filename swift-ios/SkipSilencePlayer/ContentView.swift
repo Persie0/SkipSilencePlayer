@@ -1240,6 +1240,52 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            if model.silencePlaybackMode == .smooth {
+                SectionLabel(text: "Quiet-part speed")
+
+                HStack {
+                    Text("Accelerate silence")
+                        .font(.subheadline)
+                    Spacer()
+                    Text(String(format: "%g×", model.silenceAccelerationSpeed))
+                        .monospacedDigit()
+                        .foregroundStyle(PlayerColors.accent)
+                        .font(.subheadline.weight(.semibold))
+                }
+
+                Slider(
+                    value: Binding(
+                        get: { model.silenceAccelerationSpeed },
+                        set: { model.setSilenceAccelerationSpeed($0) }
+                    ),
+                    in: 2...8,
+                    step: 0.5
+                )
+                .tint(PlayerColors.accent)
+                .disabled(!model.silenceEnabled)
+                .accessibilityLabel("Smooth silence acceleration speed")
+                .accessibilityValue(
+                    String(format: "%g times", model.silenceAccelerationSpeed)
+                )
+
+                HStack {
+                    Text("2×")
+                    Spacer()
+                    Text("8×")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                if model.silenceAccelerationSpeed > 2 {
+                    Text(model.highSpeedSilenceAvailable
+                        ? "Fast playback is available for this video. Very high speeds may skip frames or distort audio."
+                        : "This video or decoder does not support fast playback above 2×. Smooth will use up to 2× until a supported video is loaded.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             Toggle(
                 "Adaptive noise floor (recommended)",
                 isOn: Binding(
