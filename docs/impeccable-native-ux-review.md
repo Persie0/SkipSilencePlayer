@@ -114,6 +114,12 @@ Questions skipped: the user already requested implementing all fixes; device-onl
 | P2 | iOS subtitle import and destructive actions crowd narrow settings sheets | ContentView Subtitle/Tools sheets | Stacked import/removal and destructive actions; long filenames wrap |
 | P2 | Android locked-player unlock button sat in the top screen region without a status-bar inset | MainActivity unlock overlay | Applied statusBarsPadding so the unlock action clears the status bar/cutout |
 
+### First native screenshot review
+
+- **iPhone simulator first-run:** the application title, import cards, and guide clustered in the upper portion of the screen with a large empty lower area. The empty-state content is now centered vertically within the available height, without centering a populated Library or disabling scrolling.
+- **Android emulator (130% font):** the same first-run imbalance was present. The empty-state container now centers the import actions when no recent or active video exists; populated Library remains top-aligned. The dark player also forces light system-bar icon appearance to avoid low-contrast status icons when the device's system theme is light.
+- Captured renders: [iOS native screenshot run](https://github.com/Persie0/Playground/actions/runs/44952560304) and [Android native screenshot run](https://github.com/Persie0/Playground/actions/runs/44952918697). These screenshots were taken before the centering correction and motivated the change.
+
 ### Native checks
 
 - Android unit tests/debug APK and iOS simulator compilation: [Public Playground CI](https://github.com/Persie0/Playground/actions/runs/44952448005).
