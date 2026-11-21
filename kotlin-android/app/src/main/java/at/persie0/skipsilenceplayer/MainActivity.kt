@@ -2403,8 +2403,13 @@ private fun SkipSilencePlayerScreen(
                     }
 
                     Text(
-                        PlaybackRuntime.analysisStatus,
-                        fontSize = 12.sp,
+                        when {
+                            !skipSilence -> stringResource(R.string.ui_skipping_off)
+                            silencePlaybackMode == SilencePlaybackMode.SMOOTH ->
+                                stringResource(R.string.ui_native_smooth_active)
+                            else -> PlaybackRuntime.analysisStatus
+                        },
+                        fontSize = 13.sp,
                         color = PlayerAccent,
                         modifier = Modifier.padding(vertical = 8.dp)
                     )
@@ -2820,6 +2825,13 @@ private fun SkipSilencePlayerScreen(
                         }
                     }
 
+                    SectionLabel(stringResource(R.string.ui_gestures))
+                    Text(
+                        stringResource(R.string.ui_player_gestures_help),
+                        color = Color.White.copy(alpha = 0.82f),
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(vertical = 10.dp)
+                    )
                 }
             }
         }
@@ -3217,15 +3229,25 @@ private fun HomeScreen(
             .padding(horizontal = 22.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(if (currentVideoName == null) 48.dp else 24.dp))
+        if (currentVideoName == null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onSettings) {
+                    Text(stringResource(R.string.ui_settings))
+                }
+            }
+        }
+        Spacer(Modifier.height(if (currentVideoName == null) 12.dp else 24.dp))
 
         if (currentVideoName == null) {
             Box(
                 modifier = Modifier
-                    .size(76.dp)
+                    .size(64.dp)
                     .background(
                         PlayerAccent.copy(alpha = 0.16f),
-                        RoundedCornerShape(22.dp)
+                        RoundedCornerShape(16.dp)
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -3391,12 +3413,6 @@ private fun HomeScreen(
             }
         }
 
-        if (currentVideoName == null) {
-            TextButton(onClick = onSettings) {
-                Text(stringResource(R.string.ui_settings))
-            }
-        }
-
         if (recentVideos.isNotEmpty()) {
             Row(
                 modifier = Modifier
@@ -3476,8 +3492,8 @@ private fun HomeScreen(
 
         Text(
             stringResource(R.string.ui_home_hint),
-            color = Color.White.copy(alpha = 0.4f),
-            fontSize = 12.sp,
+            color = Color.White.copy(alpha = 0.8f),
+            fontSize = 13.sp,
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .padding(top = 26.dp, bottom = 40.dp)
