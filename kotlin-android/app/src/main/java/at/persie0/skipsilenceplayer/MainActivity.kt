@@ -25,6 +25,7 @@ import android.provider.Settings
 import android.util.Rational
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -192,7 +193,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // Video and Library both use a dark canvas. The default automatic
+        // edge-to-edge style can choose *dark icons* on that dark surface when
+        // the device is in light mode, making the clock and system icons
+        // nearly invisible. Keep light icons regardless of device theme.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        )
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         handleOpenIntent(intent)
 
@@ -3344,7 +3352,7 @@ private fun HomeScreen(
                 onClick = onOpenVideo
             )
             HomeCard(
-                label = stringResource(R.string.ui_folder),
+                label = stringResource(R.string.ui_open_folder),
                 icon = Icons.Filled.Folder,
                 modifier = Modifier.weight(1f),
                 onClick = onOpenFolder
