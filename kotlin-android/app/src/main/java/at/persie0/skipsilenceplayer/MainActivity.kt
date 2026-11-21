@@ -49,6 +49,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,7 +61,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -135,6 +138,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
@@ -188,7 +192,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         handleOpenIntent(intent)
 
         val sessionToken = SessionToken(
@@ -1310,14 +1313,25 @@ private fun SkipSilencePlayerScreen(
         rootFocusRequester.requestFocus()
     }
 
+    LaunchedEffect(isPlaying, showLibrary, activity.pipMode) {
+        if (isPlaying && !showLibrary && !activity.pipMode) {
+            activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     BackHandler(
-        enabled = player.mediaItemCount > 0 && !showLibrary && !gestureLocked &&
+        enabled = player.mediaItemCount > 0 && !showLibrary &&
             !showSpeedSheet && !showSilenceSheet && !showSubtitleSheet &&
             !showAudioSheet && !showToolsSheet && !showPlaylistSheet &&
             !showRecentSheet && !showPreferencesSheet &&
             pendingResume == null && pendingDestructiveAction == null
     ) {
-        if (isFullscreen) {
+        if (gestureLocked) {
+            gestureLocked = false
+            controlsVisible = true
+        } else if (isFullscreen) {
             isFullscreen = false
             activity.setPlayerFullscreen(false)
         } else {
@@ -1547,11 +1561,12 @@ private fun SkipSilencePlayerScreen(
                         PlayerAccent.copy(alpha = 0.6f),
                         RoundedCornerShape(50)
                     )
+                    .heightIn(min = 48.dp)
                     .clickable {
                         gestureLocked = false
                         controlsVisible = true
                     }
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = 18.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -1562,39 +1577,24 @@ private fun SkipSilencePlayerScreen(
                     modifier = Modifier.size(14.dp)
                 )
                 Text(
-                    stringResource(R.string.ui_unlock),
+                    stringResource(R.string.ui_unlock_gestures),
                     color = Color.White,
-                    fontSize = 12.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Medium
                 )
             }
         }
 
         playerError?.let { error ->
-            Column(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .background(
-                        Color.Black.copy(alpha = 0.88f),
-                        MaterialTheme.shapes.medium
-                    )
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(stringResource(R.string.ui_playback_error), color = Color.White, fontWeight = FontWeight.Bold)
-                Text(
-                    error,
-                    color = Color.White.copy(alpha = 0.8f),
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            AlertDialog(
+                onDismissRequest = {
+                    dismissedError = error
+                    playerError = null
+                },
+                title = { Text(stringResource(R.string.ui_playback_error)) },
+                text = { Text(error) },
+                confirmButton = {
                     TextButton(onClick = {
-                        dismissedError = error
-                        playerError = null
-                    }) {
-                        Text(stringResource(R.string.ui_dismiss))
-                    }
-                    Button(onClick = {
                         dismissedError = null
                         playerError = null
                         player.prepare()
@@ -1602,8 +1602,16 @@ private fun SkipSilencePlayerScreen(
                     }) {
                         Text(stringResource(R.string.ui_retry))
                     }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        dismissedError = error
+                        playerError = null
+                    }) {
+                        Text(stringResource(R.string.ui_dismiss))
+                    }
                 }
-            }
+            )
         }
 
         AnimatedVisibility(
@@ -1635,26 +1643,6 @@ private fun SkipSilencePlayerScreen(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            fileName,
-                            color = Color.White,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            maxLines = 1
-                        )
-                        if (fileInfo.isNotBlank()) {
-                            Text(
-                                fileInfo,
-                                color = Color.White.copy(alpha = 0.55f),
-                                fontSize = 11.sp,
-                                maxLines = 1
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.width(4.dp))
-
                     playerIconButton(
                         icon = Icons.Filled.ArrowBack,
                         contentDescription = stringResource(R.string.ui_library)
@@ -1667,6 +1655,26 @@ private fun SkipSilencePlayerScreen(
                         }
                         showLibrary = true
                         controlsVisible = false
+                    }
+
+                    Spacer(Modifier.width(4.dp))
+
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            fileName,
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            maxLines = 1
+                        )
+                        if (fileInfo.isNotBlank()) {
+                            Text(
+                                fileInfo,
+                                color = Color.White.copy(alpha = 0.75f),
+                                fontSize = 12.sp,
+                                maxLines = 1
+                            )
+                        }
                     }
 
                     Spacer(Modifier.width(4.dp))
@@ -1884,6 +1892,7 @@ private fun SkipSilencePlayerScreen(
                     Column(
                         modifier = Modifier
                             .weight(1f)
+                            .heightIn(min = 48.dp)
                             .clickable { showSilenceSheet = true }
                             .padding(vertical = 6.dp)
                     ) {
@@ -1959,7 +1968,9 @@ private fun SkipSilencePlayerScreen(
                     ) {
                         Icon(
                             Icons.Filled.FastRewind,
-                            contentDescription = stringResource(R.string.cd_seek_back),
+                            contentDescription = stringResource(
+                                R.string.cd_seek_back_seconds, doubleTapSeconds
+                            ),
                             tint = Color.White
                         )
                     }
@@ -1977,7 +1988,9 @@ private fun SkipSilencePlayerScreen(
                     ) {
                         Icon(
                             if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = stringResource(R.string.cd_play_pause),
+                            contentDescription = stringResource(
+                                if (isPlaying) R.string.cd_pause else R.string.cd_play
+                            ),
                             tint = PlayerAccentDark,
                             modifier = Modifier.size(30.dp)
                         )
@@ -1991,7 +2004,9 @@ private fun SkipSilencePlayerScreen(
                     ) {
                         Icon(
                             Icons.Filled.FastForward,
-                            contentDescription = stringResource(R.string.cd_seek_forward),
+                            contentDescription = stringResource(
+                                R.string.cd_seek_forward_seconds, doubleTapSeconds
+                            ),
                             tint = Color.White
                         )
                     }
@@ -2019,6 +2034,9 @@ private fun SkipSilencePlayerScreen(
                         selected = abs(playbackSpeed - 1f) > 0.01f,
                         onClick = { showSpeedSheet = true },
                         icon = Icons.Outlined.Speed,
+                        accessibilityLabel = stringResource(
+                            R.string.playback_speed_accessibility, formatSpeedLabel(playbackSpeed)
+                        ),
                         modifier = Modifier.weight(1f)
                     )
                     PlayerChip(
@@ -2892,171 +2910,179 @@ private fun HomeScreen(
     onOpenRecent: (RecentVideo) -> Unit,
     onSeeAllRecents: () -> Unit
 ) {
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
                     listOf(Color(0xFF101720), Color.Black)
                 )
-            )
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 22.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            ),
+        contentAlignment = Alignment.TopCenter
     ) {
-        Spacer(Modifier.height(if (currentVideoName == null) 48.dp else 24.dp))
+        Column(
+            modifier = Modifier
+                .widthIn(max = 640.dp)
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 22.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(Modifier.height(if (currentVideoName == null) 48.dp else 24.dp))
 
-        if (currentVideoName == null) {
-            Box(
-                modifier = Modifier
-                    .size(76.dp)
-                    .background(
-                        PlayerAccent.copy(alpha = 0.16f),
-                        RoundedCornerShape(22.dp)
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Outlined.GraphicEq,
-                    contentDescription = null,
-                    tint = PlayerAccent,
-                    modifier = Modifier.size(34.dp)
-                )
-            }
-    
-            Text(
-                stringResource(R.string.app_name),
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 20.sp,
-                modifier = Modifier.padding(top = 14.dp)
-            )
-    
-            Text(
-                stringResource(R.string.ui_home_subtitle),
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = 13.sp,
-                modifier = Modifier.padding(top = 3.dp)
-            )
-        } else {
-            Text(
-                stringResource(R.string.ui_library),
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 24.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 6.dp, bottom = 10.dp)
-            )
-        }
-
-        if (currentVideoName != null) {
-            OutlinedButton(
-                onClick = onContinue,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 22.dp)
-            ) {
-                Icon(
-                    Icons.Filled.PlayArrow,
-                    contentDescription = null,
-                    tint = PlayerAccent
-                )
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        stringResource(R.string.ui_continue_watching),
-                        color = PlayerAccent,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        currentVideoName,
-                        color = Color.White,
-                        maxLines = 1,
-                        fontSize = 12.sp
+            if (currentVideoName == null) {
+                Box(
+                    modifier = Modifier
+                        .size(76.dp)
+                        .background(
+                            PlayerAccent.copy(alpha = 0.16f),
+                            RoundedCornerShape(22.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Outlined.GraphicEq,
+                        contentDescription = null,
+                        tint = PlayerAccent,
+                        modifier = Modifier.size(34.dp)
                     )
                 }
+    
+                Text(
+                    stringResource(R.string.app_name),
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 20.sp,
+                    modifier = Modifier.padding(top = 14.dp)
+                )
+    
+                Text(
+                    stringResource(R.string.ui_home_subtitle),
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 3.dp)
+                )
+            } else {
+                Text(
+                    stringResource(R.string.ui_library),
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 24.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp, bottom = 10.dp)
+                )
             }
-        }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 30.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            HomeCard(
-                label = stringResource(R.string.ui_open_video),
-                icon = Icons.Filled.FolderOpen,
-                modifier = Modifier.weight(1f),
-                onClick = onOpenVideo
-            )
-            HomeCard(
-                label = stringResource(R.string.ui_folder),
-                icon = Icons.Filled.Folder,
-                modifier = Modifier.weight(1f),
-                onClick = onOpenFolder
-            )
-        }
+            if (currentVideoName != null) {
+                OutlinedButton(
+                    onClick = onContinue,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 22.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        tint = PlayerAccent
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            stringResource(R.string.ui_continue_watching),
+                            color = PlayerAccent,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            currentVideoName,
+                            color = Color.White,
+                            maxLines = 2,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            }
 
-        if (recentVideos.isNotEmpty()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 28.dp, bottom = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(top = 30.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    stringResource(R.string.ui_recent),
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold
+                HomeCard(
+                    label = stringResource(R.string.ui_open_video),
+                    icon = Icons.Filled.FolderOpen,
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenVideo
                 )
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onSeeAllRecents) {
-                    Text(
-                        stringResource(R.string.ui_see_all),
-                        color = PlayerAccent,
-                        fontSize = 12.sp
-                    )
-                }
+                HomeCard(
+                    label = stringResource(R.string.ui_folder),
+                    icon = Icons.Filled.Folder,
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenFolder
+                )
             }
 
-            recentVideos.take(4).forEach { recent ->
+            if (recentVideos.isNotEmpty()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onOpenRecent(recent) }
-                        .padding(horizontal = 4.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(top = 28.dp, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.Outlined.History,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.4f),
-                        modifier = Modifier.size(15.dp)
-                    )
                     Text(
-                        recent.name,
+                        stringResource(R.string.ui_recent),
                         color = Color.White,
-                        fontSize = 13.sp,
-                        maxLines = 1
+                        fontWeight = FontWeight.SemiBold
                     )
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onSeeAllRecents) {
+                        Text(
+                            stringResource(R.string.ui_see_all),
+                            color = PlayerAccent,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                recentVideos.take(4).forEach { recent ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .clickable { onOpenRecent(recent) }
+                            .padding(horizontal = 4.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.History,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.4f),
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            recent.name,
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            maxLines = 2
+                        )
+                    }
                 }
             }
-        }
 
-        Text(
-            stringResource(R.string.ui_home_hint),
-            color = Color.White.copy(alpha = 0.4f),
-            fontSize = 11.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .padding(top = 26.dp, bottom = 40.dp)
-                .fillMaxWidth()
-        )
+            Text(
+                stringResource(R.string.ui_home_hint),
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .padding(top = 26.dp, bottom = 40.dp)
+                    .fillMaxWidth()
+            )
+        }
     }
 }
 
@@ -3087,7 +3113,7 @@ private fun HomeCard(
         Text(
             label,
             color = Color.White,
-            fontSize = 13.sp
+            fontSize = 14.sp
         )
     }
 }
@@ -3121,10 +3147,14 @@ private fun PlayerChip(
     selected: Boolean,
     onClick: () -> Unit,
     icon: ImageVector? = null,
+    accessibilityLabel: String? = null,
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
+            .semantics {
+                if (accessibilityLabel != null) contentDescription = accessibilityLabel
+            }
             .heightIn(min = 48.dp)
             .background(
                 if (selected) {
@@ -3172,12 +3202,12 @@ private fun <T> ChoiceChips(
     label: @Composable (T) -> String,
     onSelect: (T) -> Unit
 ) {
-    Row(
+    FlowRow(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
             .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         options.forEach { option ->
             PlayerChip(
@@ -3199,12 +3229,13 @@ private fun PlayerSeekBar(
     modifier: Modifier = Modifier
 ) {
     var scrubPositionMs by remember(durationMs) { mutableStateOf<Long?>(null) }
+    val seekbarDescription = stringResource(R.string.cd_playback_position)
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(48.dp)
             .semantics {
-                contentDescription = "Playback position and detected silence"
+                contentDescription = seekbarDescription
                 stateDescription = formatTime(scrubPositionMs ?: positionMs) +
                     " of " + formatTime(durationMs)
                 progressBarRangeInfo = ProgressBarRangeInfo(
@@ -3310,15 +3341,20 @@ private fun PlayerSeekBar(
                 }
             }
 
+            val thumbRadius = 6.dp.toPx()
+            val thumbX = (size.width * fraction).coerceIn(
+                thumbRadius,
+                (size.width - thumbRadius).coerceAtLeast(thumbRadius)
+            )
             drawCircle(
                 color = PlayerAccent,
-                radius = 6.dp.toPx(),
-                center = Offset(size.width * fraction, barCy)
+                radius = thumbRadius,
+                center = Offset(thumbX, barCy)
             )
             drawCircle(
                 color = Color.White,
                 radius = 2.dp.toPx(),
-                center = Offset(size.width * fraction, barCy)
+                center = Offset(thumbX, barCy)
             )
         }
     }
@@ -3440,7 +3476,7 @@ private fun SelectRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .heightIn(min = 48.dp)
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -3448,13 +3484,13 @@ private fun SelectRow(
     ) {
         RadioButton(
             selected = selected,
-            onClick = onClick
+            onClick = null
         )
         Text(
             text,
             color = if (selected) PlayerAccent else Color.White,
-            fontSize = 13.sp,
-            maxLines = 1
+            fontSize = 14.sp,
+            maxLines = 2
         )
     }
 }

@@ -65,6 +65,9 @@
 <string name="choice_start_over">Start over</string>
   <string name="cd_back">Back</string>
   <string name="cd_play_pause">Play pause</string>
+  <string name="cd_play">Play video</string>
+  <string name="cd_pause">Pause video</string>
+  <string name="cd_playback_position">Playback position and detected silence</string>
   <string name="cd_forward">Forward</string>
   <string name="cd_brightness">Brightness</string>
   <string name="cd_volume">Volume</string>
@@ -116,6 +119,9 @@
   <string name="cd_next">Next</string>
   <string name="cd_seek_back">Seek back</string>
   <string name="cd_seek_forward">Seek forward</string>
+  <string name="cd_seek_back_seconds">Seek backward %1$d seconds</string>
+  <string name="cd_seek_forward_seconds">Seek forward %1$d seconds</string>
+  <string name="playback_speed_accessibility">Playback speed, %1$s</string>
   <string name="ui_more">More</string>
   <string name="ui_adjust">Adjust</string>
   <string name="ui_playback_preferences">Playback preferences</string>
