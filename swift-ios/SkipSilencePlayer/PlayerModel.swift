@@ -181,6 +181,7 @@ final class PlayerModel: NSObject, ObservableObject {
 
     @Published private(set) var silenceEnabled: Bool
     @Published private(set) var silencePlaybackMode: SilencePlaybackMode
+    @Published private(set) var silenceAccelerationSpeed: Double
     @Published private(set) var adaptiveSilenceEnabled: Bool
     @Published private(set) var effectiveSilenceThresholdDB = -42.0
     @Published private(set) var silenceThresholdDB: Double
@@ -266,6 +267,9 @@ final class PlayerModel: NSObject, ObservableObject {
         silencePlaybackMode = SilencePlaybackMode(
             rawValue: UserDefaults.standard.string(forKey: "silencePlaybackMode") ?? ""
         ) ?? .smooth
+        silenceAccelerationSpeed = Self.savedDouble(
+            "silenceAccelerationSpeed", fallback: 2.0
+        ).coerceIn(2.0, 8.0)
         adaptiveSilenceEnabled =
             (UserDefaults.standard.object(forKey: "adaptiveSilenceEnabled") as? Bool)
                 ?? true
@@ -697,6 +701,26 @@ final class PlayerModel: NSObject, ObservableObject {
         recalculateEstimatedWatchTime()
     }
 
+    func setSilenceAccelerationSpeed(_ speed: Double) {
+        guard speed.isFinite else { return }
+        let next = (speed * 2).rounded() / 2
+        silenceAccelerationSpeed = next.coerceIn(2.0, 8.0)
+        defaults.set(silenceAccelerationSpeed, forKey: "silenceAccelerationSpeed")
+        recalculateEstimatedWatchTime()
+    }
+
+    /// Apple only guarantees 1–2× playback. Rates above 2× are allowed
+    /// when the loaded AVPlayerItem advertises canPlayFastForward.
+    var highSpeedSilenceAvailable: Bool {
+        player.currentItem?.status == .readyToPlay &&
+            player.currentItem?.canPlayFastForward == true
+    }
+
+    private var effectiveSilenceAccelerationSpeed: Double {
+        let maxSupported = highSpeedSilenceAvailable ? silenceAccelerationSpeed : 2.0
+        return max(playbackSpeed, maxSupported)
+    }
+
     func setAdaptiveSilenceEnabled(_ enabled: Bool) {
         adaptiveSilenceEnabled = enabled
         applySilenceSettings()
@@ -1029,6 +1053,7 @@ final class PlayerModel: NSObject, ObservableObject {
     func resetSettings() {
         silenceEnabled = true
         silencePlaybackMode = .smooth
+        silenceAccelerationSpeed = 2.0
         silenceThresholdDB = -42
         adaptiveSilenceEnabled = true
         minimumSilence = 0.45
@@ -1048,6 +1073,7 @@ final class PlayerModel: NSObject, ObservableObject {
 
         defaults.set(true, forKey: "silenceEnabled")
         defaults.set(SilencePlaybackMode.smooth.rawValue, forKey: "silencePlaybackMode")
+        defaults.set(2.0, forKey: "silenceAccelerationSpeed")
         defaults.set(-42.0, forKey: "silenceThresholdDB")
         defaults.set(true, forKey: "adaptiveSilenceEnabled")
         defaults.set(0.45, forKey: "minimumSilence")
@@ -1526,8 +1552,8 @@ final class PlayerModel: NSObject, ObservableObject {
         guard silenceEnabled else { return 0 }
         if silencePlaybackMode == .jump { return totalSkippableTime }
         // Smooth mode accelerates rather than completely removing quiet media.
-        // At 2× relative to 1×, about half the time in a quiet segment is saved.
-        let fastRate = min(2.0, max(playbackSpeed, 2.0))
+        // The estimate respects the current media item's fast-forward support.
+        let fastRate = effectiveSilenceAccelerationSpeed
         guard fastRate > playbackSpeed else { return 0 }
         return totalSkippableTime * (1 - playbackSpeed / fastRate)
     }
@@ -2146,9 +2172,9 @@ final class PlayerModel: NSObject, ObservableObject {
             return
         }
 
-        // Respect the native decoder's 2× path and preserve the user's normal
-        // speed. If they already prefer >2×, the smooth mode just plays normally.
-        let fastRate = max(playbackSpeed, 2.0)
+        // AVFoundation only guarantees up to 2× for all ready items.
+        // Faster rates are attempted only when this item supports fast-forward.
+        let fastRate = effectiveSilenceAccelerationSpeed
         guard fastRate > playbackSpeed + 0.05 else {
             resetSmoothSilenceRate()
             return
