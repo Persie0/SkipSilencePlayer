@@ -61,6 +61,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
@@ -121,6 +122,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -465,7 +467,7 @@ private fun SkipSilencePlayerScreen(
     val latestAnalyzedQuietSeconds by rememberUpdatedState(analyzedQuietSeconds)
 
     var controlsVisible by remember { mutableStateOf(true) }
-    var showLibrary by remember { mutableStateOf(false) }
+    var showLibrary by rememberSaveable { mutableStateOf(false) }
     var libraryError by remember { mutableStateOf<String?>(null) }
     var rootHeightPx by remember { mutableIntStateOf(0) }
     var bottomControlsHeightPx by remember { mutableIntStateOf(0) }
@@ -476,12 +478,12 @@ private fun SkipSilencePlayerScreen(
     var gestureText by remember { mutableStateOf<String?>(null) }
 
     var overflowOpen by remember { mutableStateOf(false) }
-    var showSpeedSheet by remember { mutableStateOf(false) }
-    var showSilenceSheet by remember { mutableStateOf(false) }
-    var showSubtitleSheet by remember { mutableStateOf(false) }
-    var showAudioSheet by remember { mutableStateOf(false) }
-    var showToolsSheet by remember { mutableStateOf(false) }
-    var showMarkersSheet by remember { mutableStateOf(false) }
+    var showSpeedSheet by rememberSaveable { mutableStateOf(false) }
+    var showSilenceSheet by rememberSaveable { mutableStateOf(false) }
+    var showSubtitleSheet by rememberSaveable { mutableStateOf(false) }
+    var showAudioSheet by rememberSaveable { mutableStateOf(false) }
+    var showToolsSheet by rememberSaveable { mutableStateOf(false) }
+    var showMarkersSheet by rememberSaveable { mutableStateOf(false) }
     val localConfiguration = LocalConfiguration.current
     val compactLandscape = localConfiguration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
         localConfiguration.screenHeightDp < 500
@@ -489,9 +491,9 @@ private fun SkipSilencePlayerScreen(
         (localConfiguration.screenWidthDp < 620 || localConfiguration.fontScale >= 1.3f)
     val compactPortraitActions =
         localConfiguration.screenWidthDp < 380 || localConfiguration.fontScale >= 1.3f
-    var showPlaylistSheet by remember { mutableStateOf(false) }
-    var showRecentSheet by remember { mutableStateOf(false) }
-    var showPreferencesSheet by remember { mutableStateOf(false) }
+    var showPlaylistSheet by rememberSaveable { mutableStateOf(false) }
+    var showRecentSheet by rememberSaveable { mutableStateOf(false) }
+    var showPreferencesSheet by rememberSaveable { mutableStateOf(false) }
     var showAdvancedSilence by remember { mutableStateOf(false) }
     var pendingDestructiveAction by remember { mutableStateOf<String?>(null) }
 
@@ -2224,6 +2226,7 @@ private fun SkipSilencePlayerScreen(
                 Column(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
+                        .widthIn(max = 560.dp)
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 22.dp)
