@@ -381,6 +381,13 @@ private fun SkipSilencePlayerScreen(
     var skipSilence by remember {
         mutableStateOf(preferences.getBoolean("skip_silence", true))
     }
+    var silencePlaybackMode by remember {
+        mutableStateOf(
+            SilencePlaybackMode.fromPreference(
+                preferences.getString("silence_playback_mode", null)
+            )
+        )
+    }
     var silenceThresholdDb by remember {
         mutableFloatStateOf(preferences.getFloat("silence_threshold_db", -42f))
     }
@@ -963,6 +970,16 @@ private fun SkipSilencePlayerScreen(
                 silencePreviewRanges.sumOf { it.durationMs }.toFloat() / 1000f
             estimatedSkippedSeconds = when {
                 !skipSilence -> 0f
+                silencePlaybackMode == SilencePlaybackMode.SMOOTH -> {
+                    // Native audio skipping deliberately retains some silence.
+                    // Do not advertise the full hard-cut timeline as saved time.
+                    if (currentMs > 30_000L && durationMs > currentMs) {
+                        (skippedSeconds * durationMs.toFloat() / currentMs.toFloat())
+                            .coerceIn(skippedSeconds, durationMs / 1000f)
+                    } else {
+                        skippedSeconds
+                    }
+                }
                 analyzedSkippedSeconds > 0f -> analyzedSkippedSeconds
                 durationMs > 0 && currentMs > 30_000L -> {
                     val predicted =
@@ -1197,6 +1214,12 @@ private fun SkipSilencePlayerScreen(
         saveCurrentState()
     }
 
+    fun setSilenceMode(mode: SilencePlaybackMode) {
+        silencePlaybackMode = mode
+        PlaybackRuntime.setSilencePlaybackMode(mode)
+        preferences.edit().putString("silence_playback_mode", mode.name).apply()
+    }
+
     fun clearHistory() {
         recentVideos = emptyList()
         recentFolders = emptyList()
@@ -1212,6 +1235,7 @@ private fun SkipSilencePlayerScreen(
         playbackSpeed = 1f
         doubleTapSeconds = 10
         skipSilence = true
+        silencePlaybackMode = SilencePlaybackMode.SMOOTH
         adaptiveSilence = true
         videoZoom = 1f
         aspectMode = AspectMode.FIT
@@ -1227,6 +1251,7 @@ private fun SkipSilencePlayerScreen(
             .putFloat("playback_speed", 1f)
             .putInt("double_tap_seconds", 10)
             .putBoolean("skip_silence", true)
+            .putString("silence_playback_mode", SilencePlaybackMode.SMOOTH.name)
             .putBoolean("adaptive_silence", true)
             .putFloat("video_zoom", 1f)
             .putString("aspect_mode", AspectMode.FIT.name)
@@ -1244,6 +1269,7 @@ private fun SkipSilencePlayerScreen(
             .apply()
         player.setPlaybackSpeed(1f)
         PlaybackRuntime.setSkipSilenceEnabled(true)
+        PlaybackRuntime.setSilencePlaybackMode(SilencePlaybackMode.SMOOTH)
         applySilenceSettings()
         gestureText = "Defaults restored"
     }
@@ -2319,6 +2345,34 @@ private fun SkipSilencePlayerScreen(
                         label = stringResource(R.string.ui_skip_silence),
                         checked = skipSilence,
                         onCheckedChange = { setSkipSilence(it) }
+                    )
+
+                    SectionLabel(stringResource(R.string.ui_silence_mode_title))
+                    ChoiceChips(
+                        options = SilencePlaybackMode.entries.toList(),
+                        selected = { silencePlaybackMode == it },
+                        label = { mode ->
+                            stringResource(
+                                if (mode == SilencePlaybackMode.SMOOTH) {
+                                    R.string.ui_silence_smooth
+                                } else {
+                                    R.string.ui_silence_jump
+                                }
+                            )
+                        },
+                        onSelect = { setSilenceMode(it) }
+                    )
+                    Text(
+                        stringResource(
+                            if (silencePlaybackMode == SilencePlaybackMode.SMOOTH) {
+                                R.string.ui_silence_smooth_explanation
+                            } else {
+                                R.string.ui_silence_jump_explanation
+                            }
+                        ),
+                        color = Color.White.copy(alpha = 0.78f),
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(vertical = 8.dp)
                     )
 
                     SheetSwitchRow(
