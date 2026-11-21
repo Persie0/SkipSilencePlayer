@@ -707,13 +707,36 @@ struct ContentView: View {
             .padding(.horizontal, 24)
             .padding(.top, 26)
 
-            HStack(spacing: 12) {
-                HomeCard(label: "Open video", systemImage: "play.rectangle") {
+            VStack(spacing: 10) {
+                Button {
                     showingVideoImporter = true
+                } label: {
+                    Label("Open video", systemImage: "play.rectangle.fill")
+                        .font(.headline)
+                        .foregroundStyle(PlayerColors.accentDark)
+                        .frame(maxWidth: .infinity, minHeight: 54)
+                        .background(
+                            PlayerColors.accent,
+                            in: RoundedRectangle(cornerRadius: 14)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 14))
                 }
-                HomeCard(label: "Open folder", systemImage: "folder") {
+                .buttonStyle(.plain)
+
+                Button {
                     showingFolderImporter = true
+                } label: {
+                    Label("Open folder", systemImage: "folder")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 52)
+                        .background(
+                            Color.white.opacity(0.09),
+                            in: RoundedRectangle(cornerRadius: 14)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 14))
                 }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 22)
             .padding(.top, 12)
@@ -2071,32 +2094,6 @@ private struct PlayerBottomControlsHeightKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
-    }
-}
-
-private struct HomeCard: View {
-    let label: String
-    let systemImage: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 10) {
-                Image(systemName: systemImage)
-                    .font(.title2)
-                    .foregroundStyle(PlayerColors.accent)
-                Text(label)
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 24)
-            .background(
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color.white.opacity(0.08))
-            )
-        }
-        .buttonStyle(.plain)
     }
 }
 
