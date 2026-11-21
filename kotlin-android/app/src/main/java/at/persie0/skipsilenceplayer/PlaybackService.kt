@@ -112,6 +112,10 @@ object PlaybackRuntime {
         service?.setSkipSilenceEnabled(enabled)
     }
 
+    fun setSilencePlaybackMode(mode: SilencePlaybackMode) {
+        service?.setSilencePlaybackMode(mode)
+    }
+
     fun setRepeatEndMs(endMs: Long?) {
         service?.setRepeatEndMs(endMs)
     }
@@ -135,6 +139,7 @@ class PlaybackService : MediaSessionService() {
     private var analysisCoverageEndMs = 0L
     private var selectedAudioSignature = ""
     private var requestedSkipSilence = true
+    private var silencePlaybackMode = SilencePlaybackMode.SMOOTH
     private var timelineSkipSeconds = 0f
      private var repeatEndMs: Long? = null
     private var currentConfig = SilenceConfig(-42f, 0.45f, 0.08f)
@@ -153,6 +158,9 @@ class PlaybackService : MediaSessionService() {
         )
         currentConfig = config
         requestedSkipSilence = prefs.getBoolean("skip_silence", true)
+        silencePlaybackMode = SilencePlaybackMode.fromPreference(
+            prefs.getString("silence_playback_mode", null)
+        )
         val initial = createPlayer(config)
         bundle = initial
         attachListeners(initial.player)
@@ -215,6 +223,15 @@ class PlaybackService : MediaSessionService() {
 
     fun setSkipSilenceEnabled(enabled: Boolean) {
         requestedSkipSilence = enabled
+        if (!enabled) seekCoordinator.cancel()
+        syncNativeSilence()
+    }
+
+    fun setSilencePlaybackMode(mode: SilencePlaybackMode) {
+        if (silencePlaybackMode == mode) return
+        seekCoordinator.cancel()
+        sampleNativeSkippedSeconds()
+        silencePlaybackMode = mode
         syncNativeSilence()
     }
 
@@ -232,10 +249,17 @@ class PlaybackService : MediaSessionService() {
 
     private fun syncNativeSilence() {
         val player = bundle?.player ?: return
-        // Once the analyzed map falls behind a seek or playback, native
-        // skipping resumes until analysis catches up.
-        val nativeRequired =
-            requestedSkipSilence && !withinAnalyzedCoverage(player.currentPosition)
+        // SMOOTH stays in the audio processor continuously. Switching to
+        // repeated player.seekTo() once analysis completes causes disruptive
+        // video decoder resets and visible jumps on local media.
+        //
+        // JUMP remains an explicit opt-in, and uses the native processor
+        // only where there is no safe analyzed timeline to jump through.
+        val nativeRequired = SilencePlaybackPolicy.nativeEnabled(
+            skipEnabled = requestedSkipSilence,
+            mode = silencePlaybackMode,
+            analyzedCoverage = withinAnalyzedCoverage(player.currentPosition)
+        )
         if (player.skipSilenceEnabled != nativeRequired) {
             sampleNativeSkippedSeconds()
             player.skipSilenceEnabled = nativeRequired
@@ -261,7 +285,12 @@ class PlaybackService : MediaSessionService() {
     private fun maybeSkipSilence() {
         val player = bundle?.player ?: return
         syncNativeSilence()
-        if (!requestedSkipSilence || !withinAnalyzedCoverage(player.currentPosition)) {
+        if (!SilencePlaybackPolicy.timelineEnabled(
+                skipEnabled = requestedSkipSilence,
+                mode = silencePlaybackMode,
+                analyzedCoverage = withinAnalyzedCoverage(player.currentPosition)
+            )
+        ) {
             return
         }
         if (
