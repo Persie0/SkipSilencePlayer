@@ -1,12 +1,12 @@
 package at.persie0.skipsilenceplayer
 
 /**
- * SMOOTH uses Media3's audio processor to shorten quiet PCM without repeatedly
- * seeking the video decoder. This retains edge audio and volume ramps.
+ * SMOOTH accelerates the full media timeline over analyzer-confirmed quiet sections,
+ * with gentle rate ramps; it never skips only the audio or seeks the video.
  *
  * JUMP preserves the old, more aggressive analyzed-timeline behavior for users
  * who prefer removing entire detected quiet spans. Outside analyzed coverage,
- * both modes use Media3's native processor instead of blind seeks.
+ * JUMP may use native audio-only fallback if the timeline is not yet analyzed.
  */
 enum class SilencePlaybackMode {
     SMOOTH,
@@ -24,9 +24,9 @@ internal object SilencePlaybackPolicy {
         skipEnabled: Boolean,
         mode: SilencePlaybackMode,
         analyzedCoverage: Boolean
-    ): Boolean = skipEnabled && (
-        mode == SilencePlaybackMode.SMOOTH || !analyzedCoverage
-    )
+    ): Boolean = skipEnabled &&
+        mode == SilencePlaybackMode.JUMP &&
+        !analyzedCoverage
 
     fun timelineEnabled(
         skipEnabled: Boolean,
