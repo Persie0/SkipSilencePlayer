@@ -145,10 +145,18 @@ struct ContentView: View {
                         }
                         .buttonStyle(.bordered)
 
-                        Button("Retry") {
-                            model.retryPlayback()
+                        if error.hasPrefix("Could not reopen") {
+                            Button("Locate file") {
+                                model.dismissPlaybackError()
+                                showingVideoImporter = true
+                            }
+                            .buttonStyle(.borderedProminent)
+                        } else {
+                            Button("Retry") {
+                                model.retryPlayback()
+                            }
+                            .buttonStyle(.borderedProminent)
                         }
-                        .buttonStyle(.borderedProminent)
                     }
                 }
                 .padding(18)
@@ -723,9 +731,10 @@ struct ContentView: View {
                 VStack(spacing: 2) {
                     ForEach(filteredRecentVideos.prefix(8)) { recent in
                         Button {
-                            model.openRecent(recent)
-                            showingLibrary = false
-                            showControls()
+                            if model.openRecent(recent) {
+                                showingLibrary = false
+                                showControls()
+                            }
                         } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: "clock.arrow.circlepath")
@@ -1671,7 +1680,12 @@ struct ContentView: View {
                 ForEach(model.playlist.indices, id: \.self) { index in
                     let entry = model.playlist[index]
                     Button {
-                        model.jumpToPlaylistIndex(index)
+                        if index == model.playlistIndex {
+                            model.play()
+                        } else {
+                            model.jumpToPlaylistIndex(index)
+                        }
+                        showingLibrary = false
                         showPlaylistSheet = false
                         showControls()
                     } label: {
@@ -1708,6 +1722,18 @@ struct ContentView: View {
 
     private var recentSheet: some View {
         SheetCard(title: "Recent") {
+            if let error = model.playbackError, error.hasPrefix("Could not reopen") {
+                Text(error)
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Locate file…") {
+                    showRecentSheet = false
+                    model.dismissPlaybackError()
+                    showingVideoImporter = true
+                }
+                .buttonStyle(.borderedProminent)
+            }
             if model.recentVideos.isEmpty {
                 Text("No recent videos")
                     .font(.caption2)
@@ -1715,10 +1741,11 @@ struct ContentView: View {
             } else {
                 ForEach(model.recentVideos) { recent in
                     Button {
-                        model.openRecent(recent)
-                        showingLibrary = false
-                        showRecentSheet = false
-                        showControls()
+                        if model.openRecent(recent) {
+                            showingLibrary = false
+                            showRecentSheet = false
+                            showControls()
+                        }
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "clock.arrow.circlepath")
