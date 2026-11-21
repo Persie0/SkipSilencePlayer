@@ -2371,9 +2371,16 @@ private fun SkipSilencePlayerScreen(
                         .padding(horizontal = 22.dp)
                         .padding(bottom = 28.dp)
                 ) {
-                    SheetHeader(stringResource(R.string.ui_speed)) {
+                    SheetHeader(stringResource(R.string.ui_playback_speed_title)) {
                         showSpeedSheet = false
                     }
+
+                    Text(
+                        stringResource(R.string.ui_playback_speed_hint),
+                        fontSize = 13.sp,
+                        color = Color.White.copy(alpha = 0.82f),
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
 
                     ChoiceChips(
                         options = listOf(
@@ -2386,7 +2393,7 @@ private fun SkipSilencePlayerScreen(
                     )
 
                     SheetSliderRow(
-                        label = stringResource(R.string.ui_speed),
+                        label = stringResource(R.string.ui_normal_playback_speed),
                         valueText = formatSpeedLabel(playbackSpeed),
                         value = playbackSpeed,
                         onValueChange = {
