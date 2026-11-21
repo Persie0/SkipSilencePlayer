@@ -36,6 +36,12 @@ The app uses an `AVAudioSession` playback session, `MPNowPlayingInfoCenter`, and
 ## Silence skipping
 
 - Enable/disable silence skipping.
+- **Smooth (default):** avoid abrupt timeline seeks. Android uses Media3's
+  silence-shortening PCM processor with edge retention and its audio ramp;
+  iOS gradually accelerates video through analyzed quiet intervals (up to 2×),
+  restoring normal playback speed before speech resumes.
+- **Jump (optional):** seek across analyzed quiet intervals for more aggressive
+  time saving. Jump may visibly interrupt video frames/rebuffer.
 - Silence threshold from -60 dB to -20 dB.
 - Minimum silence duration from 0.2 s to 2.0 s.
 - Adjustable edge retention/padding.
@@ -53,9 +59,17 @@ Balanced defaults:
 | Playback speed | 1.0× |
 | Double-tap seek | 10 s |
 
-Android uses a configurable Media3 `SilenceSkippingAudioProcessor` during playback.
+Android keeps a configurable Media3 `SilenceSkippingAudioProcessor` active in
+Smooth mode, even after background analysis completes. Only Jump mode uses
+hard `seekTo()` for analyzed quiet ranges; outside safe decoded coverage it
+falls back to the native processor. Adaptive noise-floor detection controls
+the Jump mode's timeline map; Smooth's audio processor uses the selected
+threshold/minimum/padding directly.
 
-iOS analyzes decoded PCM locally with `AVAssetReader`, detects sustained low-RMS ranges, and seeks across those ranges during `AVPlayer` playback. The analysis stays on-device.
+iOS analyzes decoded PCM locally with `AVAssetReader`, detects sustained
+low-RMS ranges, and accelerates `AVPlayer` through those quiet ranges in
+Smooth mode. Jump mode retains confirmed timeline seeks. The analysis remains
+on-device and normal playback speed is restored on pause/seek/media changes.
 
 ## Playback-state follow-up (November 2026)
 
@@ -87,8 +101,9 @@ real-world playback remain device-QA requirements.
   time. Failed, superseded, or manual seeks are not counted as automatic savings.
 - A pending automatic seek blocks duplicate seeks while Media3 processes it.
   Analyzed ranges are used only within their verified decoded coverage.
-- When playback runs beyond a progressive analysis map, Android temporarily
-  returns to native Media3 silence skipping until the analyzed range catches up.
+- Android Smooth always uses native Media3 silence shortening. Jump uses the
+  analyzed timeline where verified and falls back to native processing where
+  the progressive analysis map has not yet reached.
 - The Android and iOS loudness calibration uses a bounded 0.1 dB histogram
   instead of sorting the entire recording at every progress update.
 - Audio analysis adapts its PCM window size for long recordings to constrain
@@ -112,16 +127,17 @@ silence. The default **Adaptive noise floor** setting calibrates a conservative
 threshold for each recording and protects quiet speech when the voice/noise
 distributions overlap. Switch Adaptive off to enforce the manual dB threshold.
 
-- The silent regions shown on the seek bar are the same ranges used for
-  timestamp-based skipping on Android and iOS.
+- The silent regions on the seek bar visualize locally decoded audio ranges.
+  They guide Jump mode on both platforms and smooth acceleration on iOS; on
+  Android Smooth uses its independent real-time PCM silence detector.
 - Both platforms publish provisional ranges after initial audio decoding and
   refine the map as analysis continues. The displayed watch-time estimate is
   provisional until analysis completes.
-- Android owns the analysis and seek loop in the media service, so background
-  playback does not depend on a Compose UI being mounted.
-- The native Media3 processor is only used as a fallback before a map becomes
-  available or when platform decoding fails. The two strategies are never
-  intentionally active at the same time.
+- Android owns silence processing and the optional Jump seek loop in the
+  media service, so background playback does not depend on a Compose UI.
+- Smooth mode never issues automatic timeline seeks. Only Jump mode may seek,
+  and never while native silence shortening is active for that portion of the
+  analyzed timeline. Changing modes does not recreate the player.
 - Conservative minimum duration and edge padding are designed to avoid
   clipping speech. A noise floor that cannot be reliably distinguished from
   quiet dialogue is intentionally left unskipped.
