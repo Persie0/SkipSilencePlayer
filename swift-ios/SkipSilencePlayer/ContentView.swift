@@ -45,6 +45,7 @@ struct ContentView: View {
     @State private var showToolsSheet = false
     @State private var showPlaylistSheet = false
     @State private var showRecentSheet = false
+    @State private var showHelpSheet = false
     @State private var showAdvancedSilenceSettings = false
     @State private var showAdvancedSubtitleSettings = false
     @State private var showingLibrary = false
@@ -64,7 +65,7 @@ struct ContentView: View {
 
     private var isModalPresented: Bool {
         showSpeedSheet || showSilenceSheet || showSubtitleSheet || showAudioSheet ||
-        showToolsSheet || showPlaylistSheet || showRecentSheet ||
+        showToolsSheet || showPlaylistSheet || showRecentSheet || showHelpSheet ||
         showingVideoImporter || showingFolderImporter || showingSubtitleImporter ||
         showingDestructiveConfirmation || importError != nil ||
         model.playbackError != nil || model.resumePromptSeconds != nil
@@ -273,6 +274,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showRecentSheet, onDismiss: presentQueuedConfirmation) {
             recentSheet
+        }
+        .sheet(isPresented: $showHelpSheet) {
+            helpSheet
         }
         .alert(
             "Resume playback?",
@@ -639,14 +643,16 @@ struct ContentView: View {
                 }
             }
 
-            Text(
-                "Double-tap to seek · swipe for brightness and volume"
-            )
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 40)
-            .padding(.top, 26)
+            Button {
+                showHelpSheet = true
+            } label: {
+                Label("Gestures & player guide", systemImage: "questionmark.circle")
+                    .font(.subheadline)
+                    .foregroundStyle(PlayerColors.accent)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 18)
 
                 Spacer(minLength: 24)
             }
@@ -723,6 +729,11 @@ struct ContentView: View {
                         showRecentSheet = true
                     } label: {
                         Label("Recent…", systemImage: "clock.arrow.circlepath")
+                    }
+                    Button {
+                        showHelpSheet = true
+                    } label: {
+                        Label("Player guide", systemImage: "questionmark.circle")
                     }
                     if PictureInPictureManager.isSupported {
                         Button {
@@ -1311,6 +1322,7 @@ struct ContentView: View {
                 ) {
                     model.setA()
                 }
+                .frame(maxWidth: .infinity, minHeight: 44)
                 .buttonStyle(.bordered)
 
                 Button(
@@ -1318,15 +1330,16 @@ struct ContentView: View {
                 ) {
                     model.setB()
                 }
+                .frame(maxWidth: .infinity, minHeight: 44)
                 .buttonStyle(.bordered)
                 .disabled(model.abStart == nil)
-
-                Button("Clear A–B", role: .destructive) {
-                    model.clearAB()
-                }
-                .buttonStyle(.bordered)
-                .disabled(model.abStart == nil && model.abEnd == nil)
             }
+            Button("Clear A–B", role: .destructive) {
+                model.clearAB()
+            }
+            .frame(minHeight: 44)
+            .buttonStyle(.bordered)
+            .disabled(model.abStart == nil && model.abEnd == nil)
 
             SectionLabel(text: "Bookmarks")
 
@@ -1442,15 +1455,17 @@ struct ContentView: View {
 
             SectionLabel(text: "Data")
 
-            HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 Button("Clear history", role: .destructive) {
                     requestConfirmationFromSheet("history", dismiss: "tools")
                 }
+                .frame(minHeight: 44)
                 .buttonStyle(.bordered)
 
                 Button("Reset settings", role: .destructive) {
                     requestConfirmationFromSheet("settings", dismiss: "tools")
                 }
+                .frame(minHeight: 44)
                 .buttonStyle(.bordered)
             }
         }
@@ -1484,7 +1499,7 @@ struct ContentView: View {
                                         ? PlayerColors.accent
                                         : .white
                                 )
-                                .lineLimit(1)
+                                .lineLimit(2)
                             Spacer()
                             if index == model.playlistIndex {
                                 Text("Now")
@@ -1492,10 +1507,11 @@ struct ContentView: View {
                                     .foregroundStyle(PlayerColors.accent)
                             }
                         }
-                        .padding(.vertical, 8)
+                        .frame(minHeight: 44)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityAddTraits(index == model.playlistIndex ? .isSelected : [])
                 }
             }
         }
@@ -1520,10 +1536,10 @@ struct ContentView: View {
                                 .foregroundStyle(.tertiary)
                             Text(recent.name)
                                 .foregroundStyle(.white)
-                                .lineLimit(1)
+                                .lineLimit(2)
                             Spacer()
                         }
-                        .padding(.vertical, 9)
+                        .frame(minHeight: 44)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -1535,6 +1551,30 @@ struct ContentView: View {
                 .buttonStyle(.bordered)
                 .padding(.top, 8)
             }
+        }
+    }
+
+    private var helpSheet: some View {
+        SheetCard(title: "Player guide") {
+            Text("Play local videos and skip quiet sections without sending audio to a server.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            SectionLabel(text: "Touch gestures")
+            Label("Double-tap the left or right half to seek backward or forward.", systemImage: "hand.tap")
+            Label("Swipe horizontally over the video to scrub.", systemImage: "arrow.left.and.right")
+            Label("Swipe vertically on the left for brightness or on the right for volume.", systemImage: "hand.draw")
+            Label("Pinch to zoom. Choose Lock controls under More to prevent accidental gestures.", systemImage: "lock")
+
+            SectionLabel(text: "Silence skipping")
+            Text("Balanced with Adaptive noise floor is the recommended starting point. It analyzes audio locally to find sustained quiet passages, not individual spoken words.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            SectionLabel(text: "Playback controls")
+            Text("Use Speed, Subtitles and Tools for playback rate, subtitle adjustments, bookmarks, A–B repeat and the sleep timer. On short screens these appear under More.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
     }
 
