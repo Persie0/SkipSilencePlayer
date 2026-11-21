@@ -891,6 +891,10 @@ private fun SkipSilencePlayerScreen(
 
     LaunchedEffect(player) {
         var persistenceTick = 0
+        var lastFileSizeUri: Uri? = null
+        var cachedFileSize = ""
+        var lastSilenceRanges: List<SilenceRangeMs>? = null
+        var cachedAnalyzedSkippedSeconds = 0f
         while (isActive) {
             currentMs = player.currentPosition.coerceAtLeast(0L)
             val rawDuration = player.duration
@@ -922,7 +926,7 @@ private fun SkipSilencePlayerScreen(
                 dismissedError = null
                 fileName = currentItem.mediaMetadata.title?.toString()
                     ?: queryDisplayName(context, uri)
-                fileInfo = queryFileSize(context, uri)
+                fileInfo = ""
                 applyVideoPreferences(uri)
                 lastKnownPositionMs = currentMs
 
@@ -949,16 +953,29 @@ private fun SkipSilencePlayerScreen(
                 }
             }
 
-            val sizeText = activeUri?.let { queryFileSize(context, it) }.orEmpty()
+            val sizeUri = activeUri
+            if (sizeUri != lastFileSizeUri) {
+                lastFileSizeUri = sizeUri
+                cachedFileSize = if (sizeUri != null) {
+                    withContext(Dispatchers.IO) { queryFileSize(context, sizeUri) }
+                } else {
+                    ""
+                }
+            }
             fileInfo = listOf(
-                sizeText,
+                cachedFileSize,
                 if (durationMs > 0) formatTime(durationMs) else "",
                 diagnostics.summary
             ).filter { it.isNotBlank() }.joinToString(" · ")
 
             skippedSeconds = PlaybackRuntime.skippedSeconds()
-            val analyzedSkippedSeconds =
-                silencePreviewRanges.sumOf { it.durationMs }.toFloat() / 1000f
+            val currentSilenceRanges = PlaybackRuntime.silenceRanges
+            if (currentSilenceRanges !== lastSilenceRanges) {
+                lastSilenceRanges = currentSilenceRanges
+                cachedAnalyzedSkippedSeconds =
+                    currentSilenceRanges.sumOf { it.durationMs }.toFloat() / 1000f
+            }
+            val analyzedSkippedSeconds = cachedAnalyzedSkippedSeconds
             estimatedSkippedSeconds = when {
                 !skipSilence -> 0f
                 analyzedSkippedSeconds > 0f -> analyzedSkippedSeconds
