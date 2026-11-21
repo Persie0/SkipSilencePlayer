@@ -467,6 +467,8 @@ private fun SkipSilencePlayerScreen(
         localConfiguration.screenHeightDp < 500
     val narrowLandscape = compactLandscape &&
         (localConfiguration.screenWidthDp < 620 || localConfiguration.fontScale >= 1.3f)
+    val compactPortraitActions =
+        localConfiguration.screenWidthDp < 380 || localConfiguration.fontScale >= 1.3f
     var showPlaylistSheet by remember { mutableStateOf(false) }
     var showRecentSheet by remember { mutableStateOf(false) }
     var showPreferencesSheet by remember { mutableStateOf(false) }
@@ -2021,83 +2023,23 @@ private fun SkipSilencePlayerScreen(
                         }
                     }
                 } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { showSilenceSheet = true }
-                            .padding(vertical = 6.dp)
-                    ) {
-                        Text(
-                            stringResource(R.string.ui_skip_silence) + " · " +
-                                stringResource(R.string.ui_adjust),
-                            color = if (skipSilence) PlayerAccent else Color.White,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp
-                        )
-                        val status = PlaybackRuntime.analysisStatus
-                        Text(
-                            stringResource(
-                                when {
-                                    !skipSilence -> R.string.ui_skipping_off
-                                    status.startsWith("Analysis complete") ->
-                                        R.string.ui_analysis_ready
-                                    status.startsWith("Analysis capped") ->
-                                        R.string.ui_analysis_partial
-                                    status.startsWith("Analysis stopped") ->
-                                        R.string.ui_analysis_partial
-                                    status.contains("no audio", ignoreCase = true) ->
-                                        R.string.ui_no_audio_track
-                                    status.contains("No local") -> R.string.ui_analysis_unavailable
-                                    else -> R.string.ui_analyzing_audio
-                                }
-                            ),
-                            color = Color.White.copy(alpha = 0.72f),
-                            fontSize = 12.sp,
-                            maxLines = 1
-                        )
-                        if (skipSilence) {
-                            Text(
-                                stringResource(
-                                    R.string.playback_time_saved,
-                                    formatSeconds(skippedSeconds),
-                                    formatSeconds(estimatedWatchSeconds)
-                                ),
-                                color = Color.White.copy(alpha = 0.75f),
-                                fontSize = 12.sp,
-                                maxLines = 2
-                            )
-                        }
-                    }
-                    Switch(
-                        checked = skipSilence,
-                        onCheckedChange = { setSkipSilence(it) },
-                        modifier = Modifier.semantics {
-                            contentDescription = "Skip silence"
-                        }
-                    )
-                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = { player.seekToPreviousMediaItem() },
-                        enabled = player.hasPreviousMediaItem()
-                    ) {
-                        Icon(
-                            Icons.Filled.SkipPrevious,
-                            contentDescription = stringResource(R.string.cd_prev),
-                            tint = Color.White
-                        )
+                    if (player.mediaItemCount > 1) {
+                        IconButton(
+                            onClick = { player.seekToPreviousMediaItem() },
+                            enabled = player.hasPreviousMediaItem()
+                        ) {
+                            Icon(
+                                Icons.Filled.SkipPrevious,
+                                contentDescription = stringResource(R.string.cd_prev),
+                                tint = Color.White
+                            )
+                        }
                     }
 
                     IconButton(
@@ -2143,46 +2085,96 @@ private fun SkipSilencePlayerScreen(
                         )
                     }
 
-                    IconButton(
-                        onClick = { player.seekToNextMediaItem() },
-                        enabled = player.hasNextMediaItem()
-                    ) {
-                        Icon(
-                            Icons.Filled.SkipNext,
-                            contentDescription = stringResource(R.string.cd_next),
-                            tint = Color.White
-                        )
+                    if (player.mediaItemCount > 1) {
+                        IconButton(
+                            onClick = { player.seekToNextMediaItem() },
+                            enabled = player.hasNextMediaItem()
+                        ) {
+                            Icon(
+                                Icons.Filled.SkipNext,
+                                contentDescription = stringResource(R.string.cd_next),
+                                tint = Color.White
+                            )
+                        }
                     }
                 }
 
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 4.dp, start = 20.dp, end = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(top = 2.dp, start = 14.dp, end = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    PlayerChip(
-                        text = formatSpeedLabel(playbackSpeed),
-                        selected = abs(playbackSpeed - 1f) > 0.01f,
-                        onClick = { showSpeedSheet = true },
-                        icon = Icons.Outlined.Speed,
-                        modifier = Modifier.weight(1f)
+                    TextButton(
+                        onClick = { showSilenceSheet = true },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.Start
+                        ) {
+                            Text(
+                                stringResource(R.string.ui_skip_silence),
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                color = if (skipSilence) PlayerAccent else Color.White,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                if (!skipSilence) {
+                                    stringResource(R.string.ui_off)
+                                } else {
+                                    stringResource(
+                                        R.string.ui_silence_compact_saved,
+                                        stringResource(
+                                            if (silencePlaybackMode == SilencePlaybackMode.SMOOTH) {
+                                                R.string.ui_silence_smooth
+                                            } else {
+                                                R.string.ui_silence_jump
+                                            }
+                                        ),
+                                        formatSeconds(skippedSeconds)
+                                    )
+                                },
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                color = Color.White.copy(alpha = 0.78f)
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = skipSilence,
+                        onCheckedChange = { setSkipSilence(it) },
+                        modifier = Modifier.semantics {
+                            contentDescription = "Skip silence"
+                        }
                     )
-                    PlayerChip(
-                        text = stringResource(R.string.ui_subtitles),
-                        selected = subtitleName != null ||
-                            selectedTrackName(currentTracks, C.TRACK_TYPE_TEXT) != null,
-                        onClick = { showSubtitleSheet = true },
-                        icon = Icons.Outlined.Subtitles,
-                        modifier = Modifier.weight(1f)
-                    )
-                    PlayerChip(
-                        text = stringResource(R.string.ui_tools),
-                        selected = false,
-                        onClick = { showToolsSheet = true },
-                        icon = Icons.Outlined.Build,
-                        modifier = Modifier.weight(1f)
-                    )
+                    if (!compactPortraitActions) {
+                        TextButton(onClick = { showSpeedSheet = true }) {
+                            Text(
+                                formatSpeedLabel(playbackSpeed),
+                                fontSize = 13.sp,
+                                color = Color.White
+                            )
+                        }
+                        IconButton(onClick = { showSubtitleSheet = true }) {
+                            Icon(
+                                Icons.Outlined.Subtitles,
+                                contentDescription = stringResource(R.string.ui_subtitles),
+                                tint = Color.White
+                            )
+                        }
+                    }
+                    IconButton(onClick = { showToolsSheet = true }) {
+                        Icon(
+                            Icons.Outlined.MoreVert,
+                            contentDescription = stringResource(R.string.ui_tools),
+                            tint = Color.White
+                        )
+                    }
                 }
                 }
             }
@@ -2675,7 +2667,7 @@ private fun SkipSilencePlayerScreen(
                     SheetHeader(stringResource(R.string.ui_tools)) {
                         showToolsSheet = false
                     }
-                    if (compactLandscape) {
+                    if (compactLandscape || compactPortraitActions) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
