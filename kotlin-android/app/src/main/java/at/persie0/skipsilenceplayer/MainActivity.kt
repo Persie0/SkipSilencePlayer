@@ -1968,7 +1968,9 @@ private fun SkipSilencePlayerScreen(
                     ) {
                         Icon(
                             Icons.Filled.FastRewind,
-                            contentDescription = stringResource(R.string.cd_seek_back),
+                            contentDescription = stringResource(
+                                R.string.cd_seek_back_seconds, doubleTapSeconds
+                            ),
                             tint = Color.White
                         )
                     }
@@ -2002,7 +2004,9 @@ private fun SkipSilencePlayerScreen(
                     ) {
                         Icon(
                             Icons.Filled.FastForward,
-                            contentDescription = stringResource(R.string.cd_seek_forward),
+                            contentDescription = stringResource(
+                                R.string.cd_seek_forward_seconds, doubleTapSeconds
+                            ),
                             tint = Color.White
                         )
                     }
@@ -2030,6 +2034,9 @@ private fun SkipSilencePlayerScreen(
                         selected = abs(playbackSpeed - 1f) > 0.01f,
                         onClick = { showSpeedSheet = true },
                         icon = Icons.Outlined.Speed,
+                        accessibilityLabel = stringResource(
+                            R.string.playback_speed_accessibility, formatSpeedLabel(playbackSpeed)
+                        ),
                         modifier = Modifier.weight(1f)
                     )
                     PlayerChip(
@@ -3140,10 +3147,14 @@ private fun PlayerChip(
     selected: Boolean,
     onClick: () -> Unit,
     icon: ImageVector? = null,
+    accessibilityLabel: String? = null,
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
+            .semantics {
+                if (accessibilityLabel != null) contentDescription = accessibilityLabel
+            }
             .heightIn(min = 48.dp)
             .background(
                 if (selected) {
