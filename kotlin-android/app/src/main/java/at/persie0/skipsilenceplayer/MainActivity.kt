@@ -2316,6 +2316,7 @@ private fun SkipSilencePlayerScreen(
                     SheetSwitchRow(
                         label = stringResource(R.string.ui_adaptive_silence),
                         checked = adaptiveSilence,
+                        enabled = skipSilence,
                         onCheckedChange = {
                             adaptiveSilence = it
                             applySilenceSettings()
@@ -2676,15 +2677,16 @@ private fun SkipSilencePlayerScreen(
                                 maxLines = 1
                             )
                         }
-                        TextButton(
-                            onClick = {
-                                abStartMs = null
-                                abEndMs = null
-                            },
-                            enabled = abStartMs != null || abEndMs != null
-                        ) {
-                            Text(stringResource(R.string.ui_clear_a_b))
-                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            abStartMs = null
+                            abEndMs = null
+                        },
+                        enabled = abStartMs != null || abEndMs != null,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        Text(stringResource(R.string.ui_clear_a_b))
                     }
 
                     SectionLabel(stringResource(R.string.ui_bookmarks))
@@ -2772,6 +2774,7 @@ private fun SkipSilencePlayerScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { player.seekTo(chapter.startMs) }
+                                    .heightIn(min = 48.dp)
                                     .padding(vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -2784,8 +2787,8 @@ private fun SkipSilencePlayerScreen(
                                 Text(
                                     chapter.title,
                                     color = Color.White,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
+                                    fontSize = 14.sp,
+                                    maxLines = 2,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -2794,11 +2797,10 @@ private fun SkipSilencePlayerScreen(
 
                     SectionLabel(stringResource(R.string.ui_sleep_timer))
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         listOf(15L, 30L, 45L, 60L).forEach { minutes ->
                             PlayerChip(
@@ -2825,31 +2827,29 @@ private fun SkipSilencePlayerScreen(
                                 sleepAtEnd = true
                             }
                         )
-                        if (sleepDeadline != null || sleepAtEnd) {
-                            PlayerChip(
-                                text = stringResource(R.string.ui_cancel_timer),
-                                selected = false,
-                                onClick = {
-                                    sleepDeadline = null
-                                    selectedSleepMinutes = null
-                                    sleepAtEnd = false
-                                }
-                            )
+                    }
+                    if (sleepDeadline != null || sleepAtEnd) {
+                        TextButton(
+                            onClick = {
+                                sleepDeadline = null
+                                selectedSleepMinutes = null
+                                sleepAtEnd = false
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Text(stringResource(R.string.ui_cancel_timer))
                         }
                     }
 
                     SectionLabel(stringResource(R.string.ui_data))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
                             onClick = {
                                 showToolsSheet = false
                                 pendingDestructiveAction = "history"
                             },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.heightIn(min = 48.dp)
                         ) {
                             Text(stringResource(R.string.ui_clear_history))
                         }
@@ -2858,7 +2858,7 @@ private fun SkipSilencePlayerScreen(
                                 showToolsSheet = false
                                 pendingDestructiveAction = "settings"
                             },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.heightIn(min = 48.dp)
                         ) {
                             Text(stringResource(R.string.ui_reset_settings))
                         }
@@ -2923,21 +2923,31 @@ private fun SkipSilencePlayerScreen(
                         )
                     } else {
                         recentVideos.forEach { recent ->
-                            SelectRow(
-                                text = recent.name,
-                                selected = false,
-                                onClick = {
-                                    showRecentSheet = false
-                                    requestOpen(
-                                        listOf(
-                                            VideoEntry(
-                                                Uri.parse(recent.uri),
-                                                recent.name
-                                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .clickable {
+                                        showRecentSheet = false
+                                        requestOpen(
+                                            listOf(VideoEntry(Uri.parse(recent.uri), recent.name))
                                         )
-                                    )
-                                }
-                            )
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Outlined.History,
+                                    contentDescription = null,
+                                    tint = PlayerAccent
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    recent.name,
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 2
+                                )
+                            }
                         }
                         TextButton(onClick = {
                             showRecentSheet = false
@@ -3584,22 +3594,32 @@ private fun SheetSliderRow(
 private fun SheetSwitchRow(
     label: String,
     checked: Boolean,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange
+            )
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             label,
-            color = Color.White,
+            color = if (enabled) Color.White else Color.White.copy(alpha = 0.6f),
+            style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f)
         )
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange
+            enabled = enabled,
+            onCheckedChange = null
         )
     }
 }
