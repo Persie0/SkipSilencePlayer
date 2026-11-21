@@ -3057,6 +3057,7 @@ private fun HomeScreen(
     onSeeAllRecents: () -> Unit,
     onHelp: () -> Unit
 ) {
+    val centerIntro = currentVideoName == null && recentVideos.isEmpty()
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -3065,7 +3066,7 @@ private fun HomeScreen(
                     listOf(Color(0xFF101720), Color.Black)
                 )
             ),
-        contentAlignment = Alignment.TopCenter
+        contentAlignment = if (centerIntro) Alignment.Center else Alignment.TopCenter
     ) {
         Column(
             modifier = Modifier
@@ -3077,7 +3078,12 @@ private fun HomeScreen(
                 .padding(horizontal = 22.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.height(if (currentVideoName == null) 48.dp else 24.dp))
+            Spacer(
+                Modifier.height(
+                    if (centerIntro) 0.dp
+                    else if (currentVideoName == null) 48.dp else 24.dp
+                )
+            )
 
             if (currentVideoName == null) {
                 Box(
