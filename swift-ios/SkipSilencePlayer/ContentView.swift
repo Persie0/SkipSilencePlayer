@@ -23,6 +23,7 @@ struct ContentView: View {
     @State private var showingVideoImporter = false
     @State private var showingFolderImporter = false
     @State private var showingSubtitleImporter = false
+    @State private var importError: String?
     @State private var dragControl: DragControl?
     @State private var dragStartValue = 0.0
     @State private var dragStartTime = 0.0
@@ -62,7 +63,8 @@ struct ContentView: View {
         showSpeedSheet || showSilenceSheet || showSubtitleSheet || showAudioSheet ||
         showToolsSheet || showPlaylistSheet || showRecentSheet ||
         showingVideoImporter || showingFolderImporter || showingSubtitleImporter ||
-        showingDestructiveConfirmation || model.resumePromptSeconds != nil
+        showingDestructiveConfirmation || importError != nil ||
+        model.resumePromptSeconds != nil
     }
 
     private var silenceStatusSummary: String {
@@ -130,20 +132,22 @@ struct ContentView: View {
         }
         .preferredColorScheme(.dark)
         .alert(
-            "Playback error",
+            importError == nil ? "Playback error" : "Couldn't open file",
             isPresented: Binding(
-                get: { model.playbackError != nil },
-                set: { if !$0 { model.dismissPlaybackError() } }
+                get: { importError != nil || model.playbackError != nil },
+                set: { if !$0 { dismissVisibleError() } }
             )
         ) {
             Button("Dismiss", role: .cancel) {
-                model.dismissPlaybackError()
+                dismissVisibleError()
             }
-            Button("Retry") {
-                model.retryPlayback()
+            if importError == nil {
+                Button("Retry") {
+                    model.retryPlayback()
+                }
             }
         } message: {
-            Text(model.playbackError ?? "This video could not be played.")
+            Text(importError ?? model.playbackError ?? "This file could not be opened.")
         }
         .statusBarHidden(isFullscreen)
         .focusable()
@@ -212,7 +216,7 @@ struct ContentView: View {
                     showControls()
                 }
             case .failure(let error):
-                gestureHUD = error.localizedDescription
+                importError = error.localizedDescription
             }
         }
         .fileImporter(
@@ -228,7 +232,7 @@ struct ContentView: View {
                     showControls()
                 }
             case .failure(let error):
-                gestureHUD = error.localizedDescription
+                importError = error.localizedDescription
             }
         }
         .fileImporter(
@@ -243,7 +247,7 @@ struct ContentView: View {
                     showControls()
                 }
             case .failure(let error):
-                gestureHUD = error.localizedDescription
+                importError = error.localizedDescription
             }
         }
         .sheet(isPresented: $showSpeedSheet) {
@@ -1547,6 +1551,14 @@ struct ContentView: View {
         guard confirmationQueuedAfterSheetDismiss else { return }
         confirmationQueuedAfterSheetDismiss = false
         showingDestructiveConfirmation = true
+    }
+
+    private func dismissVisibleError() {
+        if importError != nil {
+            importError = nil
+        } else {
+            model.dismissPlaybackError()
+        }
     }
 
     private func playerIconButton(
