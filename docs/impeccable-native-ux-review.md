@@ -85,7 +85,8 @@ The after score represents code-level expectations, *not* a verified device scor
 
 - **Public Playground run #1:** [native Android tests + APK and iOS simulator build](https://github.com/Persie0/Playground/actions/runs/44940775188), both successful.
 - **Public Playground run #2:** [native Android tests + APK and iOS simulator build](https://github.com/Persie0/Playground/actions/runs/44941139888), both successful, including compact layout and SAF/performance fixes.
-- No workflows were run in the application repository. The newest wording/contrast-only changes still require final HEAD verification.
+- **Public Playground run #3:** [final validation of PR head `4cd962daa91f`](https://github.com/Persie0/Playground/actions/runs/44941333270), Android unit tests + debug APK **passed**, iOS simulator compilation **passed**. The tested commit included the final wording/contrast-only fixes.
+- No workflows were run in the application repository. All three validations executed only in the public `Persie0/Playground` repository.
 - Native build success does not substitute for screenshots, VoiceOver/TalkBack, emulator rotation, large text and real-device media testing.
 
 ### Score and finish criteria
