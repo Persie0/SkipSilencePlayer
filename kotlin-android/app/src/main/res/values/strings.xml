@@ -148,4 +148,10 @@
   <string name="ui_resume_at">Resume at %1$s</string>
   <string name="ui_no_recent_matches">No matching recent videos</string>
   <string name="ui_recent_folders">Recent folders</string>
+  <string name="ui_silence_mode_title">Silence behavior</string>
+  <string name="ui_silence_smooth">Smooth</string>
+  <string name="ui_silence_jump">Jump</string>
+  <string name="ui_silence_smooth_explanation">Recommended for video: shorten quiet audio with natural transitions, without repeatedly seeking the video. The original video stays continuous.</string>
+  <string name="ui_silence_jump_explanation">Faster, more aggressive: seek over detected quiet sections. Video frames may visibly jump or buffer after a seek.</string>
+  <string name="ui_silence_compact_saved">%1$s · saved %2$s</string>
 </resources>
