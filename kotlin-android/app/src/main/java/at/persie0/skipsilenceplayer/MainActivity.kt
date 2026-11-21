@@ -1496,6 +1496,12 @@ private fun SkipSilencePlayerScreen(
                     )
                 }
             },
+            onRelease = { view ->
+                // A released AndroidView must not retain the service's
+                // video output. Recreated views (for example after a
+                // configuration/window transition) attach a fresh surface.
+                view.player = null
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer(
