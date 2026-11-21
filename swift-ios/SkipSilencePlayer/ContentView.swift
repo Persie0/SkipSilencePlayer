@@ -85,6 +85,12 @@ struct ContentView: View {
 
     private var silenceStatusSummary: String {
         if !model.silenceEnabled { return "Skipping off" }
+        if model.silencePlaybackMode == .smooth {
+            return String(
+                format: "Smooth · up to %g×",
+                model.availableSilenceAccelerationSpeed
+            )
+        }
         let status = model.analysisStatus
         if status.hasPrefix("Analysis complete") { return "Analysis ready" }
         if status.hasPrefix("Analysis capped") { return "Partially analyzed" }
@@ -1039,12 +1045,18 @@ struct ContentView: View {
                             .foregroundStyle(model.silenceEnabled ? PlayerColors.accent : .white)
                             .lineLimit(1)
                         Text(model.silenceEnabled
-                            ? "\(model.silencePlaybackMode.label) · saved " +
-                                PlayerModel.format(seconds: model.skippedTime)
+                            ? (model.silencePlaybackMode == .smooth
+                                ? String(
+                                    format: "Smooth up to %g× · saved %@",
+                                    model.availableSilenceAccelerationSpeed,
+                                    PlayerModel.format(seconds: model.skippedTime)
+                                )
+                                : "Jump · saved " + PlayerModel.format(seconds: model.skippedTime))
                             : "Off")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                            .minimumScaleFactor(0.85)
                     }
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 }
@@ -1277,12 +1289,16 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
 
                 if model.silenceAccelerationSpeed > 2 {
-                    Text(model.highSpeedSilenceAvailable
-                        ? "Fast playback is available for this video. Very high speeds may skip frames or distort audio."
-                        : "This video or decoder does not support fast playback above 2×. Smooth will use up to 2× until a supported video is loaded.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        !model.hasLoadedMedia
+                            ? "Open a video to check whether high-speed playback is supported."
+                            : (model.highSpeedSilenceAvailable
+                                ? "This video supports higher playback speeds. Acceleration slows near speech boundaries; very high rates may drop frames."
+                                : "This video's decoder supports up to 2×. Your higher-speed preference is saved for compatible videos.")
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
