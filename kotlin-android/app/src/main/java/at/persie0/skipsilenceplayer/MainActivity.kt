@@ -64,6 +64,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -462,6 +463,7 @@ private fun SkipSilencePlayerScreen(
     var showPlaylistSheet by remember { mutableStateOf(false) }
     var showRecentSheet by remember { mutableStateOf(false) }
     var showPreferencesSheet by remember { mutableStateOf(false) }
+    var showHelpSheet by remember { mutableStateOf(false) }
     var showAdvancedSilence by remember { mutableStateOf(false) }
     var pendingDestructiveAction by remember { mutableStateOf<String?>(null) }
 
@@ -1355,7 +1357,7 @@ private fun SkipSilencePlayerScreen(
         enabled = player.mediaItemCount > 0 && !showLibrary &&
             !showSpeedSheet && !showSilenceSheet && !showSubtitleSheet &&
             !showAudioSheet && !showToolsSheet && !showPlaylistSheet &&
-            !showRecentSheet && !showPreferencesSheet &&
+            !showRecentSheet && !showPreferencesSheet && !showHelpSheet &&
             pendingResume == null && pendingDestructiveAction == null
     ) {
         if (gestureLocked) {
@@ -1389,6 +1391,7 @@ private fun SkipSilencePlayerScreen(
                         showPlaylistSheet ||
                         showRecentSheet ||
                         showPreferencesSheet ||
+                        showHelpSheet ||
                         playerError != null ||
                         libraryError != null ||
                         pendingResume != null ||
@@ -1493,7 +1496,8 @@ private fun SkipSilencePlayerScreen(
                         listOf(VideoEntry(Uri.parse(recent.uri), recent.name))
                     )
                 },
-                onSeeAllRecents = { showRecentSheet = true }
+                onSeeAllRecents = { showRecentSheet = true },
+                onHelp = { showHelpSheet = true }
             )
         }
 
@@ -1809,6 +1813,13 @@ private fun SkipSilencePlayerScreen(
                                 onClick = {
                                     overflowOpen = false
                                     showPreferencesSheet = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.ui_player_guide)) },
+                                onClick = {
+                                    overflowOpen = false
+                                    showHelpSheet = true
                                 }
                             )
                             DropdownMenuItem(
@@ -2139,6 +2150,45 @@ private fun SkipSilencePlayerScreen(
                         modifier = Modifier.weight(1f)
                     )
                 }
+                }
+            }
+        }
+
+        if (showHelpSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showHelpSheet = false },
+                containerColor = PlayerSheetColor
+            ) {
+                Column(
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 22.dp)
+                        .padding(bottom = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    SheetHeader(stringResource(R.string.ui_player_guide)) {
+                        showHelpSheet = false
+                    }
+                    Text(
+                        stringResource(R.string.ui_guide_intro),
+                        color = Color.White.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    SectionLabel(stringResource(R.string.ui_guide_touch))
+                    Text(stringResource(R.string.ui_guide_seek),
+                        color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.ui_guide_swipe),
+                        color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.ui_guide_pinch_lock),
+                        color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                    SectionLabel(stringResource(R.string.ui_guide_silence_title))
+                    Text(stringResource(R.string.ui_guide_silence),
+                        color = Color.White.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.bodyMedium)
+                    SectionLabel(stringResource(R.string.ui_guide_more_title))
+                    Text(stringResource(R.string.ui_guide_more),
+                        color = Color.White.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
@@ -2993,7 +3043,8 @@ private fun HomeScreen(
     onOpenVideo: () -> Unit,
     onOpenFolder: () -> Unit,
     onOpenRecent: (RecentVideo) -> Unit,
-    onSeeAllRecents: () -> Unit
+    onSeeAllRecents: () -> Unit,
+    onHelp: () -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -3158,15 +3209,14 @@ private fun HomeScreen(
                 }
             }
 
-            Text(
-                stringResource(R.string.ui_home_hint),
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
+            TextButton(
+                onClick = onHelp,
                 modifier = Modifier
-                    .padding(top = 26.dp, bottom = 40.dp)
-                    .fillMaxWidth()
-            )
+                    .padding(top = 18.dp, bottom = 32.dp)
+                    .heightIn(min = 48.dp)
+            ) {
+                Text(stringResource(R.string.ui_player_guide), color = PlayerAccent)
+            }
         }
     }
 }
