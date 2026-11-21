@@ -38,8 +38,10 @@ The app uses an `AVAudioSession` playback session, `MPNowPlayingInfoCenter`, and
 - Enable/disable silence skipping.
 - **Smooth (default):** avoid abrupt timeline seeks. Android uses Media3's
   silence-shortening PCM processor with edge retention and its audio ramp;
-  iOS gradually accelerates video through analyzed quiet intervals (up to 2×),
-  restoring normal playback speed before speech resumes.
+  iOS gradually accelerates video through analyzed quiet intervals (adjustable
+  2×–8×), restoring normal playback speed before speech resumes. Rates above
+  2× require AVPlayerItem.canPlayFastForward and may be choppy for some codecs;
+  unsupported files fall back to 2× while preserving the saved preference.
 - **Jump (optional):** seek across analyzed quiet intervals for more aggressive
   time saving. Jump may visibly interrupt video frames/rebuffer.
 - Silence threshold from -60 dB to -20 dB.
@@ -70,6 +72,25 @@ iOS analyzes decoded PCM locally with `AVAssetReader`, detects sustained
 low-RMS ranges, and accelerates `AVPlayer` through those quiet ranges in
 Smooth mode. Jump mode retains confirmed timeline seeks. The analysis remains
 on-device and normal playback speed is restored on pause/seek/media changes.
+
+## Overlay rotation and high-speed playback (November 2026)
+
+- iOS Smooth quiet-part speed is independently configurable in **Silence
+  skipping → Smooth → Accelerate silence**, from 2× to 8× in half-step
+  increments. The preferred value is persisted and reset with other settings.
+  Playback at speeds over 2× is requested only when the current AVPlayerItem
+  reports high-speed support; video/audio fidelity can vary by codec/device.
+- Android displays video in a Media3 **TextureView** rather than a SurfaceView
+  to keep the output surface in the Compose hierarchy while a full-screen
+  Settings overlay is shown and the device rotates. This avoids the known
+  SurfaceView-plus-overlay recreation failure mode but may use more GPU/power.
+- iOS retains the same AVPlayerLayer/player binding across SwiftUI recomposition
+  when Settings is shown or the device rotates.
+- On-device regression cases: play a video, open Settings, rotate portrait ↔
+  landscape, dismiss Settings, confirm moving video frames *and* audio;
+  repeat with silence mode toggled and with Picture-in-Picture disabled.
+  Test iOS fast forward on items that support and do not support >2×, with
+  external subtitles and audio interruptions.
 
 ## Playback-state follow-up (November 2026)
 
