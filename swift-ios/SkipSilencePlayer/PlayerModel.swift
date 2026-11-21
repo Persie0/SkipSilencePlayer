@@ -267,9 +267,12 @@ final class PlayerModel: NSObject, ObservableObject {
         silencePlaybackMode = SilencePlaybackMode(
             rawValue: UserDefaults.standard.string(forKey: "silencePlaybackMode") ?? ""
         ) ?? .smooth
-        silenceAccelerationSpeed = Self.savedDouble(
+        let savedAcceleration = Self.savedDouble(
             "silenceAccelerationSpeed", fallback: 2.0
-        ).coerceIn(2.0, 8.0)
+        )
+        silenceAccelerationSpeed = savedAcceleration.isFinite
+            ? min(max(savedAcceleration, 2.0), 8.0)
+            : 2.0
         adaptiveSilenceEnabled =
             (UserDefaults.standard.object(forKey: "adaptiveSilenceEnabled") as? Bool)
                 ?? true
