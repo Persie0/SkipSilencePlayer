@@ -1215,6 +1215,24 @@ struct ContentView: View {
             )
             .tint(PlayerColors.accent)
 
+            Picker("Silence behavior", selection: Binding(
+                get: { model.silencePlaybackMode },
+                set: { model.setSilencePlaybackMode($0) }
+            )) {
+                ForEach(SilencePlaybackMode.allCases) { mode in
+                    Text(mode.label).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(!model.silenceEnabled)
+
+            Text(model.silencePlaybackMode == .smooth
+                ? "Smooth: quiet parts play faster, with continuous video and no jumping."
+                : "Jump: cuts analyzed quiet sections immediately. May interrupt video decoding.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Toggle(
                 "Adaptive noise floor (recommended)",
                 isOn: Binding(
