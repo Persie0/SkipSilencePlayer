@@ -1718,27 +1718,59 @@ private fun SkipSilencePlayerScreen(
             Column(
                 modifier = Modifier
                     .align(Alignment.Center)
+                    .padding(horizontal = 20.dp)
+                    .widthIn(max = 420.dp)
+                    .fillMaxWidth()
                     .background(
-                        Color.Black.copy(alpha = 0.88f),
+                        PlayerSheetColor,
                         MaterialTheme.shapes.medium
                     )
                     .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(stringResource(R.string.ui_playback_error), color = Color.White, fontWeight = FontWeight.Bold)
+                Text(
+                    stringResource(R.string.ui_playback_error),
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold
+                )
                 Text(
                     error,
-                    color = Color.White.copy(alpha = 0.8f),
-                    modifier = Modifier.padding(vertical = 8.dp)
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    stringResource(R.string.ui_error_recovery_hint),
+                    color = Color.White.copy(alpha = 0.78f),
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center
+                )
+                Button(
+                    onClick = {
+                        dismissedError = error
+                        playerError = null
+                        openVideos()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                ) {
+                    Icon(Icons.Filled.FolderOpen, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.ui_open_another_video))
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
                     TextButton(onClick = {
                         dismissedError = error
                         playerError = null
                     }) {
                         Text(stringResource(R.string.ui_dismiss))
                     }
-                    Button(onClick = {
+                    OutlinedButton(onClick = {
                         dismissedError = null
                         playerError = null
                         player.prepare()
