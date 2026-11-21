@@ -71,6 +71,11 @@ struct ContentView: View {
             (playerViewportWidth < 620 || dynamicTypeSize.isAccessibilitySize)
     }
 
+    private var compactPortraitActions: Bool {
+        !compactLandscape &&
+            (playerViewportWidth < 380 || dynamicTypeSize.isAccessibilitySize)
+    }
+
     private var filteredRecentVideos: [RecentVideo] {
         guard !librarySearch.isEmpty else { return model.recentVideos }
         return model.recentVideos.filter {
@@ -951,45 +956,8 @@ struct ContentView: View {
             if compactLandscape {
                 compactTransportControls
             } else {
-            HStack(spacing: 12) {
-                Button {
-                    showSilenceSheet = true
-                } label: {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Label("Skip silence", systemImage: "waveform")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(model.silenceEnabled ? PlayerColors.accent : .white)
-                        Text(silenceStatusSummary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        if model.silenceEnabled {
-                            Text("Saved " + PlayerModel.format(seconds: model.skippedTime) +
-                                 " · Est. watch " + PlayerModel.format(seconds: model.estimatedWatchTime))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("Opens silence skipping presets and advanced tuning")
-
-                Toggle(
-                    "Skip silence",
-                    isOn: Binding(
-                        get: { model.silenceEnabled },
-                        set: { model.setSilenceEnabled($0) }
-                    )
-                )
-                .labelsHidden()
-                .tint(PlayerColors.accent)
-                .accessibilityLabel("Skip silence")
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 3)
-
             HStack(spacing: 0) {
+                if model.playlist.count > 1 {
                 Button {
                     model.previous()
                 } label: {
@@ -1000,6 +968,7 @@ struct ContentView: View {
                 .disabled(!model.hasPrevious)
                 .foregroundStyle(.white)
                 .accessibilityLabel("Previous video")
+                }
 
                 Button {
                     model.seek(by: -Double(model.doubleTapSeconds))
@@ -1045,6 +1014,7 @@ struct ContentView: View {
                 .foregroundStyle(.white)
                 .accessibilityLabel("Seek forward \(model.doubleTapSeconds) seconds")
 
+                if model.playlist.count > 1 {
                 Button {
                     model.next()
                 } label: {
@@ -1055,31 +1025,68 @@ struct ContentView: View {
                 .disabled(!model.hasNext)
                 .foregroundStyle(.white)
                 .accessibilityLabel("Next video")
+                }
             }
             .buttonStyle(.plain)
 
-            HStack(spacing: 8) {
-                PlayerChip(
-                    label: String(format: "%g×", model.playbackSpeed),
-                    systemImage: "gauge",
-                    selected: abs(model.playbackSpeed - 1) > 0.01,
-                    stretch: true
-                ) {
-                    showSpeedSheet = true
+            HStack(spacing: 6) {
+                Button {
+                    showSilenceSheet = true
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Skip silence")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(model.silenceEnabled ? PlayerColors.accent : .white)
+                            .lineLimit(1)
+                        Text(model.silenceEnabled
+                            ? "\(model.silencePlaybackMode.label) · saved " +
+                                PlayerModel.format(seconds: model.skippedTime)
+                            : "Off")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 }
-                PlayerChip(
-                    label: "Subtitles",
-                    systemImage: "captions.bubble",
-                    selected: model.selectedSubtitleIndex != nil ||
-                        model.externalSubtitleName != nil,
-                    stretch: true
-                ) {
-                    showSubtitleSheet = true
+                .accessibilityLabel("Silence skipping settings")
+
+                Toggle("Skip silence", isOn: Binding(
+                    get: { model.silenceEnabled },
+                    set: { model.setSilenceEnabled($0) }
+                ))
+                .labelsHidden()
+                .tint(PlayerColors.accent)
+                .accessibilityLabel("Skip silence")
+
+                if !compactPortraitActions {
+                    Button {
+                        showSpeedSheet = true
+                    } label: {
+                        Text(String(format: "%g×", model.playbackSpeed))
+                            .font(.subheadline.weight(.medium))
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .accessibilityLabel("Playback speed")
+
+                    Button {
+                        showSubtitleSheet = true
+                    } label: {
+                        Image(systemName: "captions.bubble")
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .accessibilityLabel("Subtitles")
                 }
-                PlayerChip(label: "More", systemImage: "slider.horizontal.3", stretch: true) {
+
+                Button {
                     showToolsSheet = true
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(minWidth: 44, minHeight: 44)
                 }
+                .accessibilityLabel("Playback tools")
             }
+            .foregroundStyle(.white)
+            .buttonStyle(.plain)
             .padding(.horizontal, 20)
             }
         }
@@ -1473,7 +1480,7 @@ struct ContentView: View {
 
     private var toolsSheet: some View {
         SheetCard(title: "Playback tools") {
-            if compactLandscape {
+            if compactLandscape || compactPortraitActions {
                 HStack(spacing: 12) {
                     Button {
                         openFromTools("speed")
