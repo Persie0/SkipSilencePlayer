@@ -4,6 +4,7 @@ package at.persie0.skipsilenceplayer
 
 import android.app.PendingIntent
 import android.os.SystemClock
+import android.util.Log
 import android.net.Uri
 import android.content.Intent
 import androidx.compose.runtime.getValue
@@ -13,6 +14,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Metadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.Tracks
@@ -35,6 +37,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
@@ -53,7 +56,7 @@ data class SilenceConfig(
 
 private data class PlayerBundle(
     val player: ExoPlayer,
-    val silenceProcessor: SilenceSkippingAudioProcessor
+    val silenceProcessor: SilenceSkippingAudioProcessor?
 )
 
 object PlaybackRuntime {
@@ -116,6 +119,14 @@ object PlaybackRuntime {
         service?.setSilencePlaybackMode(mode)
     }
 
+    fun setBasePlaybackSpeed(speed: Float) {
+        service?.setBasePlaybackSpeed(speed)
+    }
+
+    fun setQuietSpeedMultiplier(multiplier: Float) {
+        service?.setQuietSpeedMultiplier(multiplier)
+    }
+
     fun setRepeatEndMs(endMs: Long?) {
         service?.setRepeatEndMs(endMs)
     }
@@ -140,8 +151,16 @@ class PlaybackService : MediaSessionService() {
     private var selectedAudioSignature = ""
     private var requestedSkipSilence = true
     private var silencePlaybackMode = SilencePlaybackMode.SMOOTH
+    private var basePlaybackSpeed = 1f
+    private var quietSpeedMultiplier = 4f
+    private var smoothSavedSeconds = 0f
+    private var lastSpeedSampleMs = 0L
+    private var lastSpeedPositionMs = -1L
+    private var lastSpeedValue = 1f
+    private var fallbackAudioSink = false
+    private var recoveredMediaId: String? = null
     private var timelineSkipSeconds = 0f
-     private var repeatEndMs: Long? = null
+    private var repeatEndMs: Long? = null
     private var currentConfig = SilenceConfig(-42f, 0.45f, 0.08f)
 
 
@@ -161,6 +180,9 @@ class PlaybackService : MediaSessionService() {
         silencePlaybackMode = SilencePlaybackMode.fromPreference(
             prefs.getString("silence_playback_mode", null)
         )
+        basePlaybackSpeed = prefs.getFloat("playback_speed", 1f).coerceIn(0.5f, 3f)
+        quietSpeedMultiplier = prefs.getFloat("quiet_acceleration", 4f)
+            .coerceIn(2f, 8f)
         val initial = createPlayer(config)
         bundle = initial
         attachListeners(initial.player)
@@ -225,6 +247,7 @@ class PlaybackService : MediaSessionService() {
         requestedSkipSilence = enabled
         if (!enabled) seekCoordinator.cancel()
         syncNativeSilence()
+        bundle?.player?.let(::updateSmoothSpeed)
     }
 
     fun setSilencePlaybackMode(mode: SilencePlaybackMode) {
@@ -233,6 +256,17 @@ class PlaybackService : MediaSessionService() {
         sampleNativeSkippedSeconds()
         silencePlaybackMode = mode
         syncNativeSilence()
+        bundle?.player?.let(::updateSmoothSpeed)
+    }
+
+    fun setBasePlaybackSpeed(speed: Float) {
+        basePlaybackSpeed = speed.coerceIn(0.5f, 3f)
+        bundle?.player?.let(::updateSmoothSpeed)
+    }
+
+    fun setQuietSpeedMultiplier(multiplier: Float) {
+        quietSpeedMultiplier = multiplier.coerceIn(2f, 8f)
+        bundle?.player?.let(::updateSmoothSpeed)
     }
 
     fun setRepeatEndMs(endMs: Long?) {
@@ -249,13 +283,9 @@ class PlaybackService : MediaSessionService() {
 
     private fun syncNativeSilence() {
         val player = bundle?.player ?: return
-        // SMOOTH stays in the audio processor continuously. Switching to
-        // repeated player.seekTo() once analysis completes causes disruptive
-        // video decoder resets and visible jumps on local media.
-        //
-        // JUMP remains an explicit opt-in, and uses the native processor
-        // only where there is no safe analyzed timeline to jump through.
-        val nativeRequired = SilencePlaybackPolicy.nativeEnabled(
+        // Never advance only audio in Smooth mode: the video must speed up too.
+        // A platform-sink recovery deliberately disables native PCM processing.
+        val nativeRequired = !fallbackAudioSink && SilencePlaybackPolicy.nativeEnabled(
             skipEnabled = requestedSkipSilence,
             mode = silencePlaybackMode,
             analyzedCoverage = withinAnalyzedCoverage(player.currentPosition)
@@ -268,7 +298,8 @@ class PlaybackService : MediaSessionService() {
 
     private fun sampleNativeSkippedSeconds(): Float {
         val current = bundle ?: return observedNativeSavedSeconds
-        val frames = current.silenceProcessor.skippedFrames
+        val frames = current.silenceProcessor?.skippedFrames
+            ?: return observedNativeSavedSeconds
         // Media3 may reset its processor counter when its stream is flushed.
         if (frames >= lastObservedNativeFrames) {
             val sampleRate =
@@ -280,11 +311,57 @@ class PlaybackService : MediaSessionService() {
         return observedNativeSavedSeconds
     }
 
-    fun skippedSeconds(): Float = timelineSkipSeconds + sampleNativeSkippedSeconds()
+    fun skippedSeconds(): Float =
+        timelineSkipSeconds + smoothSavedSeconds + sampleNativeSkippedSeconds()
+
+    private fun updateSmoothSpeed(player: ExoPlayer) {
+        val now = SystemClock.elapsedRealtime()
+        val position = player.currentPosition.coerceAtLeast(0L)
+        val oldSpeed = player.playbackParameters.speed
+        val elapsedMs = now - lastSpeedSampleMs
+        val mediaDeltaMs = position - lastSpeedPositionMs
+        // Count only actual continuous acceleration, never manual seeks or
+        // discontinuities. Duration is media time minus normal-speed wall time.
+        if (
+            player.isPlaying &&
+            silencePlaybackMode == SilencePlaybackMode.SMOOTH &&
+            requestedSkipSilence &&
+            lastSpeedPositionMs >= 0L &&
+            elapsedMs in 15L..500L &&
+            mediaDeltaMs > 0L &&
+            mediaDeltaMs < elapsedMs * 9L + 300L &&
+            lastSpeedValue > basePlaybackSpeed + 0.1f
+        ) {
+            smoothSavedSeconds += (
+                mediaDeltaMs / basePlaybackSpeed - elapsedMs.toFloat()
+            ).coerceAtLeast(0f) / 1000f
+        }
+        lastSpeedSampleMs = now
+        lastSpeedPositionMs = position
+        lastSpeedValue = oldSpeed
+
+        val canAccelerate = player.isPlaying &&
+            requestedSkipSilence &&
+            silencePlaybackMode == SilencePlaybackMode.SMOOTH &&
+            analyzedUri == player.currentMediaItem?.localConfiguration?.uri &&
+            withinAnalyzedCoverage(position) &&
+            (repeatEndMs == null || position < repeatEndMs!!)
+        val target = SmoothPlaybackSpeed.target(
+            baseSpeed = basePlaybackSpeed,
+            quietMultiplier = quietSpeedMultiplier,
+            positionMs = position,
+            silentRanges = PlaybackRuntime.silenceRanges,
+            active = canAccelerate
+        )
+        if (abs(oldSpeed - target) >= 0.08f) {
+            player.setPlaybackSpeed(target)
+        }
+    }
 
     private fun maybeSkipSilence() {
         val player = bundle?.player ?: return
         syncNativeSilence()
+        updateSmoothSpeed(player)
         if (!SilencePlaybackPolicy.timelineEnabled(
                 skipEnabled = requestedSkipSilence,
                 mode = silencePlaybackMode,
@@ -385,6 +462,9 @@ class PlaybackService : MediaSessionService() {
             observedNativeSavedSeconds = 0f
             lastObservedNativeFrames =
                 bundle?.silenceProcessor?.skippedFrames ?: 0L
+            smoothSavedSeconds = 0f
+            lastSpeedSampleMs = 0L
+            lastSpeedPositionMs = -1L
         }
 
         analyzedUri = uri
@@ -399,11 +479,37 @@ class PlaybackService : MediaSessionService() {
             uri != null
         )
         if (uri == null) return
+        if (fallbackAudioSink) {
+            PlaybackRuntime.publishAnalysis(
+                emptyList(),
+                "Analysis disabled after decoder recovery to protect playback",
+                currentConfig.thresholdDb,
+                false
+            )
+            return
+        }
 
         val config = currentConfig
         val preferredAudioLanguage = selectedAudioInfo(player.currentTracks).second
         analysisJob = scope.launch {
             try {
+                // Give the primary video decoder first access to hardware and
+                // its file descriptor before starting a competing audio scan.
+                while (
+                    player.playbackState != Player.STATE_READY &&
+                    player.playbackState != Player.STATE_ENDED
+                ) {
+                    if (
+                        revision != analysisRevision ||
+                        bundle?.player !== player ||
+                        player.playerError != null
+                    ) return@launch
+                    delay(150L)
+                }
+                delay(500L)
+                if (revision != analysisRevision || bundle?.player !== player) {
+                    return@launch
+                }
                 val result = withContext(Dispatchers.IO) {
                     AndroidSilenceAnalyzer.analyzeDetailed(
                         context = this@PlaybackService,
@@ -413,6 +519,23 @@ class PlaybackService : MediaSessionService() {
                         edgePaddingSeconds = config.edgePaddingSeconds,
                         adaptive = config.adaptiveEnabled,
                         preferredAudioLanguage = preferredAudioLanguage,
+                        onDecodeProgress = { scannedMs ->
+                            // Audio decoding must never race arbitrarily far
+                            // ahead of a long VP9/WebM video. Seeking forward
+                            // lets scanning catch up without scanning blindly.
+                            while (true) {
+                                val playhead = withContext(Dispatchers.Main.immediate) {
+                                    if (
+                                        revision != analysisRevision ||
+                                        bundle?.player !== player
+                                    ) null else player.currentPosition
+                                } ?: throw kotlinx.coroutines.CancellationException(
+                                    "Media changed during analysis"
+                                )
+                                if (scannedMs <= playhead + 60_000L) break
+                                delay(200L)
+                            }
+                        },
                         onProgress = { partial, scannedMs ->
                             withContext(Dispatchers.Main.immediate) {
                                 if (
@@ -480,14 +603,14 @@ class PlaybackService : MediaSessionService() {
         val currentIndex = old.currentMediaItemIndex.coerceAtLeast(0)
         val position = old.currentPosition.coerceAtLeast(0L)
         val playWhenReady = old.playWhenReady
-        val playbackSpeed = old.playbackParameters.speed
+        val playbackSpeed = basePlaybackSpeed
         val oldRepeatMode = old.repeatMode
         val oldShuffle = old.shuffleModeEnabled
         val trackSelectionParameters = old.trackSelectionParameters
         val volume = old.volume
         val skipSilence = requestedSkipSilence
 
-        val replacement = createPlayer(config)
+        val replacement = createPlayer(config, fallbackAudioSink)
         replacement.player.apply {
             repeatMode = oldRepeatMode
             shuffleModeEnabled = oldShuffle
@@ -510,14 +633,17 @@ class PlaybackService : MediaSessionService() {
         attachListeners(replacement.player)
         mediaSession?.setPlayer(replacement.player)
         bundle = replacement
-        lastObservedNativeFrames = replacement.silenceProcessor.skippedFrames
+        lastObservedNativeFrames = replacement.silenceProcessor?.skippedFrames ?: 0L
         syncNativeSilence()
         old.release()
         PlaybackRuntime.playerReplaced()
         startAnalysis(replacement.player, resetForNewMedia = false)
     }
 
-    private fun createPlayer(config: SilenceConfig): PlayerBundle {
+    private fun createPlayer(
+        config: SilenceConfig,
+        platformAudio: Boolean = false
+    ): PlayerBundle {
         val minimumUs =
             (config.minimumSilenceSeconds.coerceIn(0.2f, 2f) * 1_000_000L).toLong()
         val edgeUs =
@@ -554,17 +680,75 @@ class PlaybackService : MediaSessionService() {
             }
         }
 
+        // A failed custom audio pipeline gets one retry with the standard
+        // platform sink. Decoder fallback also helps devices with fragile VP9.
+        renderersFactory.setEnableDecoderFallback(true)
         val audioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
             .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
             .build()
 
-        val player = ExoPlayer.Builder(this, renderersFactory)
+        val selectedFactory = if (platformAudio) {
+            DefaultRenderersFactory(this).setEnableDecoderFallback(true)
+        } else {
+            renderersFactory
+        }
+        val player = ExoPlayer.Builder(this, selectedFactory)
             .setAudioAttributes(audioAttributes, true)
             .build()
         player.setHandleAudioBecomingNoisy(true)
 
-        return PlayerBundle(player, silenceProcessor)
+        return PlayerBundle(player, if (platformAudio) null else silenceProcessor)
+    }
+
+    /**
+     * Retry a decoder/runtime failure once for this media item without the
+     * custom audio sink or concurrent background analysis. Keep position,
+     * queue and playback preferences. A second failure remains visible in UI.
+     */
+    private fun retryWithPlatformAudio(failed: ExoPlayer) {
+        if (bundle?.player !== failed) return
+        val previousSaved = skippedSeconds()
+        analysisJob?.cancel()
+        analysisRevision++
+        analysisReady = false
+        analysisComplete = false
+        analysisCoverageEndMs = 0L
+        PlaybackRuntime.publishAnalysis(
+            emptyList(),
+            "Analysis paused after decoder recovery; normal playback remains available",
+            currentConfig.thresholdDb,
+            false
+        )
+        fallbackAudioSink = true
+        observedNativeSavedSeconds = 0f
+        smoothSavedSeconds = 0f
+        timelineSkipSeconds = previousSaved
+        lastSpeedPositionMs = -1L
+        val items = (0 until failed.mediaItemCount).map(failed::getMediaItemAt)
+        if (items.isEmpty()) return
+        val index = failed.currentMediaItemIndex.coerceIn(0, items.lastIndex)
+        val position = failed.currentPosition.coerceAtLeast(0L)
+        val shouldPlay = failed.playWhenReady
+        val replacement = createPlayer(currentConfig, platformAudio = true)
+        replacement.player.apply {
+            repeatMode = failed.repeatMode
+            shuffleModeEnabled = failed.shuffleModeEnabled
+            trackSelectionParameters = failed.trackSelectionParameters
+            volume = failed.volume
+            setPlaybackSpeed(basePlaybackSpeed)
+            setMediaItems(items, index, position)
+            prepare()
+            playWhenReady = shouldPlay
+        }
+        attachListeners(replacement.player)
+        // Update the runtime before old-player release so async callbacks from
+        // the failed renderer are ignored by the new session.
+        bundle = replacement
+        lastObservedNativeFrames = 0L
+        mediaSession?.setPlayer(replacement.player)
+        failed.release()
+        PlaybackRuntime.playerReplaced()
     }
 
     private fun attachListeners(player: ExoPlayer) {
@@ -591,10 +775,24 @@ class PlaybackService : MediaSessionService() {
                     }
                 }
 
-                override fun onPlayerError(
-                    error: androidx.media3.common.PlaybackException
-                ) {
+                override fun onPlayerError(error: PlaybackException) {
                     seekCoordinator.cancel()
+                    Log.e("SkipSilencePlayer", "Decoder/runtime failure", error)
+                    val mediaId = player.currentMediaItem?.mediaId.orEmpty()
+                    val recoverable = error.errorCode ==
+                        PlaybackException.ERROR_CODE_FAILED_RUNTIME_CHECK ||
+                        error.errorCode in 4001..4005
+                    if (
+                        bundle?.player === player && recoverable &&
+                        mediaId.isNotBlank() && recoveredMediaId != mediaId
+                    ) {
+                        recoveredMediaId = mediaId
+                        scope.launch {
+                            if (bundle?.player === player) {
+                                retryWithPlatformAudio(player)
+                            }
+                        }
+                    }
                 }
 
                 override fun onTracksChanged(tracks: Tracks) {

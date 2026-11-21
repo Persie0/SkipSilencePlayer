@@ -87,7 +87,8 @@ object AndroidSilenceAnalyzer {
         edgePaddingSeconds: Float,
         adaptive: Boolean,
         preferredAudioLanguage: String? = null,
-        onProgress: (suspend (SilenceDetectionResult, Long) -> Unit)? = null
+        onProgress: (suspend (SilenceDetectionResult, Long) -> Unit)? = null,
+        onDecodeProgress: (suspend (Long) -> Unit)? = null
     ): SilenceDetectionResult {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
@@ -151,6 +152,7 @@ object AndroidSilenceAnalyzer {
             val bufferInfo = MediaCodec.BufferInfo()
             var stalled = 0
             var lastPublishedMs = 0L
+            var lastPacedMs = 0L
 
             while (!outputEnded && windows.size < MAX_WINDOWS) {
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
@@ -213,8 +215,9 @@ object AndroidSilenceAnalyzer {
                         val analyzedUntil = windows.lastOrNull()?.endMs ?: 0L
                         val isFirstPreview =
                             lastPublishedMs == 0L && analyzedUntil >= 10_000L
-                        val intervalMs =
-                            if (analyzedUntil > 3_600_000L) 240_000L else 90_000L
+                        // Frequent previews make short pauses usable before
+                        // a long video has finished background decoding.
+                        val intervalMs = 15_000L
                         val isNextPreview =
                             lastPublishedMs > 0L &&
                                 analyzedUntil - lastPublishedMs >= intervalMs
@@ -233,6 +236,16 @@ object AndroidSilenceAnalyzer {
                                 analyzedUntilMs = analyzedUntil
                             )
                             onProgress(partial, analyzedUntil)
+                        }
+                        // Decode only a bounded amount ahead of playback. A
+                        // fast full-file scan competing with VP9 video can
+                        // exhaust device decoder/IO resources on long WebM.
+                        if (
+                            onDecodeProgress != null &&
+                            analyzedUntil - lastPacedMs >= 2_000L
+                        ) {
+                            lastPacedMs = analyzedUntil
+                            onDecodeProgress(analyzedUntil)
                         }
                     }
                 }
