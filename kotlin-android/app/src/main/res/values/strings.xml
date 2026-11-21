@@ -65,6 +65,9 @@
 <string name="choice_start_over">Start over</string>
   <string name="cd_back">Back</string>
   <string name="cd_play_pause">Play pause</string>
+  <string name="cd_play">Play video</string>
+  <string name="cd_pause">Pause video</string>
+  <string name="cd_playback_position">Playback position and detected silence</string>
   <string name="cd_forward">Forward</string>
   <string name="cd_brightness">Brightness</string>
   <string name="cd_volume">Volume</string>
