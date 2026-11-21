@@ -2066,6 +2066,11 @@ final class PlayerModel: NSObject, ObservableObject {
             updateNowPlaying()
         }
 
+        if silencePlaybackMode == .smooth {
+            updateSmoothSilenceRate()
+            return
+        }
+
         guard
             silenceEnabled,
             isPlaying,
@@ -2106,6 +2111,66 @@ final class PlayerModel: NSObject, ObservableObject {
                 self.skippedTime += reached - beforeSeek
             }
         }
+    }
+
+    /// Keep the timeline continuous: gently increase the AVPlayer rate only
+    /// within known quiet samples, then restore the user's chosen speed before
+    /// speech resumes. No decoder seeks are issued in this mode.
+    private func updateSmoothSilenceRate() {
+        let now = ProcessInfo.processInfo.systemUptime
+        if let last = lastSmoothSampleUptime,
+           smoothSilenceActive,
+           player.rate > 0 {
+            let elapsed = min(0.25, max(0, now - last))
+            let extraMediaSeconds = max(0, Double(player.rate) - playbackSpeed)
+            skippedTime += elapsed * extraMediaSeconds
+        }
+        lastSmoothSampleUptime = now
+
+        guard silenceEnabled,
+              isPlaying,
+              player.rate > 0,
+              !manualSeekPending,
+              !jumpingOverSilence,
+              let range = SilenceAnalyzer.range(
+                containing: currentTime, in: silenceRanges
+              ) else {
+            resetSmoothSilenceRate()
+            return
+        }
+
+        let end = abEnd.map { min(range.end, $0) } ?? range.end
+        let remaining = end - currentTime
+        guard remaining > 0.06 else {
+            resetSmoothSilenceRate()
+            return
+        }
+
+        // Respect the native decoder's 2× path and preserve the user's normal
+        // speed. If they already prefer >2×, the smooth mode just plays normally.
+        let fastRate = max(playbackSpeed, 2.0)
+        guard fastRate > playbackSpeed + 0.05 else {
+            resetSmoothSilenceRate()
+            return
+        }
+        let edge = min(0.25, max(0.08, (end - range.start) / 3))
+        let progress = min(1, max(0, (currentTime - range.start) / edge))
+        let fadeOut = min(1, max(0, remaining / edge))
+        let blend = min(progress, fadeOut)
+        let target = playbackSpeed + (fastRate - playbackSpeed) * blend
+
+        if abs(Double(player.rate) - target) >= 0.10 {
+            player.rate = Float(target)
+        }
+        smoothSilenceActive = target > playbackSpeed + 0.05
+    }
+
+    private func resetSmoothSilenceRate() {
+        if smoothSilenceActive && player.rate > 0 {
+            player.rate = Float(playbackSpeed)
+        }
+        smoothSilenceActive = false
+        lastSmoothSampleUptime = nil
     }
 
     private func updateExternalSubtitle(at time: Double) {
