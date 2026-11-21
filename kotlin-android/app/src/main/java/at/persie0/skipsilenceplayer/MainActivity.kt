@@ -96,6 +96,7 @@ import androidx.compose.material.icons.outlined.Subtitles
 import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -3395,24 +3396,48 @@ private fun HomeScreen(
             }
         }
 
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 30.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(top = if (currentVideoName == null) 28.dp else 20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            HomeCard(
-                label = stringResource(R.string.ui_open_video),
-                icon = Icons.Filled.FolderOpen,
-                modifier = Modifier.weight(1f),
-                onClick = onOpenVideo
-            )
-            HomeCard(
-                label = stringResource(R.string.ui_open_folder),
-                icon = Icons.Filled.Folder,
-                modifier = Modifier.weight(1f),
-                onClick = onOpenFolder
-            )
+            Button(
+                onClick = onOpenVideo,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = PlayerAccent,
+                    contentColor = PlayerAccentDark
+                )
+            ) {
+                Icon(
+                    Icons.Filled.FolderOpen,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    stringResource(R.string.ui_open_video),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            OutlinedButton(
+                onClick = onOpenFolder,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 52.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Folder,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(stringResource(R.string.ui_open_folder), fontSize = 14.sp)
+            }
         }
 
         if (libraryError != null) {
@@ -3424,6 +3449,9 @@ private fun HomeScreen(
                     .fillMaxWidth()
                     .padding(top = 12.dp)
             )
+            TextButton(onClick = onOpenFolder) {
+                Text(stringResource(R.string.ui_choose_another_folder))
+            }
         }
 
         if (recentFolders.isNotEmpty()) {
@@ -3563,38 +3591,6 @@ private fun HomeScreen(
             modifier = Modifier
                 .padding(top = 26.dp, bottom = 40.dp)
                 .fillMaxWidth()
-        )
-    }
-}
-
-@Composable
-private fun HomeCard(
-    label: String,
-    icon: ImageVector,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    Column(
-        modifier = modifier
-            .background(
-                Color.White.copy(alpha = 0.08f),
-                RoundedCornerShape(18.dp)
-            )
-            .clickable(onClick = onClick)
-            .padding(vertical = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = PlayerAccent,
-            modifier = Modifier.size(24.dp)
-        )
-        Text(
-            label,
-            color = Color.White,
-            fontSize = 13.sp
         )
     }
 }
