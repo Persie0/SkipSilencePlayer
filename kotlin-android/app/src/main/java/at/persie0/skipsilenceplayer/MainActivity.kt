@@ -443,6 +443,14 @@ private fun SkipSilencePlayerScreen(
         mutableStateOf<List<VideoEntry>>(emptyList())
     }
     val silencePreviewRanges = PlaybackRuntime.silenceRanges
+    // Decoding publishes a new set of ranges as it progresses. Calculate
+    // their total once per analysis update, not on every 200 ms UI tick.
+    val analyzedQuietSeconds = remember(silencePreviewRanges) {
+        silencePreviewRanges.sumOf { it.durationMs }.toFloat() / 1000f
+    }
+    // LaunchedEffect(player) is long lived. A plain captured local here would
+    // remain the *initial* empty analysis map after recomposition.
+    val latestAnalyzedQuietSeconds by rememberUpdatedState(analyzedQuietSeconds)
 
     var controlsVisible by remember { mutableStateOf(true) }
     var showLibrary by remember { mutableStateOf(false) }
@@ -968,8 +976,7 @@ private fun SkipSilencePlayerScreen(
             ).filter { it.isNotBlank() }.joinToString(" · ")
 
             skippedSeconds = PlaybackRuntime.skippedSeconds()
-            val analyzedSkippedSeconds =
-                silencePreviewRanges.sumOf { it.durationMs }.toFloat() / 1000f
+            val analyzedSkippedSeconds = latestAnalyzedQuietSeconds
             estimatedSkippedSeconds = when {
                 !skipSilence -> 0f
                 silencePlaybackMode == SilencePlaybackMode.SMOOTH -> {
@@ -3607,6 +3614,9 @@ private fun PlayerSeekBar(
     modifier: Modifier = Modifier
 ) {
     var scrubPositionMs by remember(durationMs) { mutableStateOf<Long?>(null) }
+    val visualSilenceRanges = remember(silenceRanges, durationMs) {
+        timelineSilenceSpans(silenceRanges, durationMs)
+    }
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -3679,7 +3689,7 @@ private fun PlayerSeekBar(
             )
 
             if (durationMs > 0) {
-                silenceRanges.forEach { range ->
+                visualSilenceRanges.forEach { range ->
                     val start =
                         (range.startMs.toFloat() / durationMs.toFloat())
                             .coerceIn(0f, 1f)
