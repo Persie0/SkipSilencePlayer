@@ -1192,15 +1192,17 @@ struct ContentView: View {
     
                 SectionLabel(text: "Position")
     
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(SubtitlePosition.allCases) { position in
-                            PlayerChip(
-                                label: position.label,
-                                selected: model.subtitlePosition == position
-                            ) {
-                                model.setSubtitlePosition(position)
-                            }
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 92), spacing: 8)],
+                    spacing: 8
+                ) {
+                    ForEach(SubtitlePosition.allCases) { position in
+                        PlayerChip(
+                            label: position.label,
+                            selected: model.subtitlePosition == position,
+                            stretch: true
+                        ) {
+                            model.setSubtitlePosition(position)
                         }
                     }
                 }
@@ -1365,28 +1367,33 @@ struct ContentView: View {
 
             SectionLabel(text: "Sleep timer")
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach([15, 30, 45, 60], id: \.self) { minutes in
-                        PlayerChip(
-                            label: "\(minutes) min",
-                            selected: model.sleepTimerMinutes == minutes
-                        ) {
-                            model.setSleepTimer(minutes: Double(minutes))
-                        }
-                    }
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 110), spacing: 8)],
+                spacing: 8
+            ) {
+                ForEach([15, 30, 45, 60], id: \.self) { minutes in
                     PlayerChip(
-                        label: "At end of video",
-                        selected: model.sleepAtEnd
+                        label: "\(minutes) min",
+                        selected: model.sleepTimerMinutes == minutes,
+                        stretch: true
                     ) {
-                        model.setSleepAtEnd()
-                    }
-                    if model.sleepDeadline != nil || model.sleepAtEnd {
-                        PlayerChip(label: model.sleepTimerLabel) {
-                            model.cancelSleepTimer()
-                        }
+                        model.setSleepTimer(minutes: Double(minutes))
                     }
                 }
+                PlayerChip(
+                    label: "At end of video",
+                    selected: model.sleepAtEnd,
+                    stretch: true
+                ) {
+                    model.setSleepAtEnd()
+                }
+            }
+            if model.sleepDeadline != nil || model.sleepAtEnd {
+                Button("Cancel sleep timer (" + model.sleepTimerLabel + ")", role: .cancel) {
+                    model.cancelSleepTimer()
+                }
+                .buttonStyle(.bordered)
+                .frame(minHeight: 44)
             }
 
             SectionLabel(text: "Data")
