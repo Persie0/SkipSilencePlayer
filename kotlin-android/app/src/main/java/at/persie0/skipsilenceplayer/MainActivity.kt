@@ -2902,20 +2902,26 @@ private fun HomeScreen(
     onOpenRecent: (RecentVideo) -> Unit,
     onSeeAllRecents: () -> Unit
 ) {
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
                     listOf(Color(0xFF101720), Color.Black)
                 )
-            )
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 22.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            ),
+        contentAlignment = Alignment.TopCenter
     ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 640.dp)
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 22.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
         Spacer(Modifier.height(if (currentVideoName == null) 48.dp else 24.dp))
 
         if (currentVideoName == null) {
@@ -2984,8 +2990,8 @@ private fun HomeScreen(
                     Text(
                         currentVideoName,
                         color = Color.White,
-                        maxLines = 1,
-                        fontSize = 12.sp
+                        maxLines = 2,
+                        fontSize = 14.sp
                     )
                 }
             }
@@ -3037,6 +3043,7 @@ private fun HomeScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 48.dp)
                         .clickable { onOpenRecent(recent) }
                         .padding(horizontal = 4.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -3051,8 +3058,8 @@ private fun HomeScreen(
                     Text(
                         recent.name,
                         color = Color.White,
-                        fontSize = 13.sp,
-                        maxLines = 1
+                        fontSize = 14.sp,
+                        maxLines = 2
                     )
                 }
             }
@@ -3060,13 +3067,14 @@ private fun HomeScreen(
 
         Text(
             stringResource(R.string.ui_home_hint),
-            color = Color.White.copy(alpha = 0.4f),
-            fontSize = 11.sp,
+            color = Color.White.copy(alpha = 0.7f),
+            fontSize = 13.sp,
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .padding(top = 26.dp, bottom = 40.dp)
                 .fillMaxWidth()
         )
+        }
     }
 }
 
@@ -3097,7 +3105,7 @@ private fun HomeCard(
         Text(
             label,
             color = Color.White,
-            fontSize = 13.sp
+            fontSize = 14.sp
         )
     }
 }
