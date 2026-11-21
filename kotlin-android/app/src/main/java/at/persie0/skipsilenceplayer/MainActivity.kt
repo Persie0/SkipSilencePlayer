@@ -140,6 +140,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
@@ -3585,7 +3586,8 @@ private fun PlayerChip(
                 },
                 RoundedCornerShape(50)
             )
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { this.selected = selected }
             .padding(horizontal = 8.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
