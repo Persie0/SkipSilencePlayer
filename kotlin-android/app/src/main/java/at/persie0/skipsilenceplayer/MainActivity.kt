@@ -145,6 +145,7 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -442,7 +443,10 @@ private fun SkipSilencePlayerScreen(
     var rootHeightPx by remember { mutableIntStateOf(0) }
     var bottomControlsHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
-    val compactHeight = LocalConfiguration.current.screenHeightDp < 460
+    val configuration = LocalConfiguration.current
+    val compactHeight = configuration.screenHeightDp < 460 ||
+        configuration.fontScale >= 1.4f
+    val skipSilenceContentDescription = stringResource(R.string.ui_skip_silence)
     var showAdvancedSubtitle by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
     var gestureLocked by remember { mutableStateOf(false) }
@@ -1913,7 +1917,7 @@ private fun SkipSilencePlayerScreen(
                     Text(
                         formatTime(currentMs),
                         color = Color.White,
-                        fontSize = 11.sp
+                        fontSize = 12.sp
                     )
                     Spacer(Modifier.weight(1f))
                     Spacer(Modifier.weight(1f))
@@ -1924,7 +1928,7 @@ private fun SkipSilencePlayerScreen(
                             "--:--"
                         },
                         color = Color.White,
-                        fontSize = 11.sp
+                        fontSize = 12.sp
                     )
                 }
 
@@ -1988,7 +1992,7 @@ private fun SkipSilencePlayerScreen(
                                     formatSeconds(estimatedWatchSeconds)
                                 ),
                                 color = Color.White.copy(alpha = 0.75f),
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 maxLines = 2
                             )
                         }
@@ -1997,7 +2001,7 @@ private fun SkipSilencePlayerScreen(
                         checked = skipSilence,
                         onCheckedChange = { setSkipSilence(it) },
                         modifier = Modifier.semantics {
-                            contentDescription = "Skip silence"
+                            contentDescription = skipSilenceContentDescription
                         }
                     )
                 }
@@ -3209,9 +3213,11 @@ private fun PlayerChip(
     accessibilityLabel: String? = null,
     modifier: Modifier = Modifier
 ) {
+    val chipSelected = selected
     Row(
         modifier = modifier
             .semantics {
+                this.selected = chipSelected
                 if (accessibilityLabel != null) contentDescription = accessibilityLabel
             }
             .heightIn(min = 48.dp)
