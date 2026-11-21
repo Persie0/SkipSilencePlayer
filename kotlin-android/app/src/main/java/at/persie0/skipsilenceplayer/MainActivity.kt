@@ -1388,10 +1388,15 @@ private fun SkipSilencePlayerScreen(
                         showToolsSheet ||
                         showPlaylistSheet ||
                         showRecentSheet ||
-                        showPreferencesSheet
+                        showPreferencesSheet ||
+                        playerError != null ||
+                        libraryError != null ||
+                        pendingResume != null ||
+                        pendingDestructiveAction != null
 
                 if (
                     anySheetOpen ||
+                    gestureLocked ||
                     showLibrary ||
                     event.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN ||
                     event.nativeKeyEvent.repeatCount > 0
