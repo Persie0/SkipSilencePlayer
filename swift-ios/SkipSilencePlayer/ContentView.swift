@@ -1642,6 +1642,7 @@ private struct PlayerChip: View {
             .foregroundStyle(selected ? PlayerColors.accent : .white)
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -1815,6 +1816,7 @@ private struct SelectRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityValue(selected ? "Selected" : "Not selected")
     }
 }
 
