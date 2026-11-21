@@ -62,3 +62,36 @@ The after score represents code-level expectations, *not* a verified device scor
 - Confirmed all `R.string` references used in Android main UI resolve, with no duplicate string IDs.
 - No native compile, screenshot, accessibility-tree scan, runtime test, or Impeccable detector run could complete in this environment.
 - No GitHub Actions were invoked. Follow the project's public Playground verification process when running CI.
+
+## Second pass — compact playback, error recovery and performance (2026-11-21)
+
+**Assessment: DEGRADED, sequential source-only review.** No sub-agents, native screen reader, on-device screenshot comparison, or Impeccable detector binary is available.
+
+### P1 fixes beyond the first pass
+
+- **Compact-height playback:** Both players collapse the detailed silence panel and secondary chips on short landscape windows. The top-right overflow menu provides explicit access to silence skipping, speed, subtitles and playback tools; seeking and transport controls remain visible. This also activates at large system text sizes.
+- **Modal keyboard isolation:** Playback shortcuts cannot act behind iOS importer, sheets, errors or confirmations and Android sheets, errors, confirmations and gesture lock.
+- **Import recovery:** iOS failed document/folder/subtitle imports now open a native alert above Library instead of placing a hidden gesture HUD under it. Android empty/denied folder imports show an accessible dialog instead of an invisible HUD; unexpected folder read failures are recovered rather than propagated unhandled.
+- **Player UI performance:** Removed an Android `ContentResolver.query` from the 200 ms polling loop. File-size metadata is loaded on `Dispatchers.IO` once per media URI. Estimated silence skipped is refreshed when the runtime publishes a new range list, rather than repeating a full range sum each polling tick or using a stale captured list.
+
+### P2 polish
+
+- Android's audio-only mode text is brighter against black.
+- Android Library copy now says `Open folder` and explains that the app skips quiet pauses, consistent with iOS.
+- Dialog and empty-folder titles explain recovery without exposing invisible-only HUD feedback.
+- Android seek/timing labels use readable font sizes; TalkBack receives selected-state annotations and the actual seek interval.
+
+### Build evidence
+
+- **Public Playground run #1:** [native Android tests + APK and iOS simulator build](https://github.com/Persie0/Playground/actions/runs/44940775188), both successful.
+- **Public Playground run #2:** [native Android tests + APK and iOS simulator build](https://github.com/Persie0/Playground/actions/runs/44941139888), both successful, including compact layout and SAF/performance fixes.
+- No workflows were run in the application repository. The newest wording/contrast-only changes still require final HEAD verification.
+- Native build success does not substitute for screenshots, VoiceOver/TalkBack, emulator rotation, large text and real-device media testing.
+
+### Score and finish criteria
+
+The original source-only **27/40** baseline, first-pass **34/40**, and second-pass **37/40 (provisional)** are heuristic estimates. **40/40 remains unverified.** Screenshots and interaction evidence from an iPhone, iPad, Android phone, and tablet are still required for visual, gesture, orientation and accessibility certification.
+
+**Remaining device acceptance:** open Library and play a video at narrow landscape and 140–200% font scale; access all tools; import a broken file and empty folder and dismiss error; verify TalkBack/VoiceOver and min touch targets; scrub boundaries with subtitles visible; verify performance with a slow SAF provider, Bluetooth disconnect, PiP and audio-only mode.
+
+Questions skipped: the user already requested implementing all fixes; device-only validation is the remaining constraint.
