@@ -15,6 +15,8 @@ private enum PlayerColors {
 }
 
 struct ContentView: View {
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var subtitleBaseFontSize: CGFloat = 18
     @StateObject private var model = PlayerModel()
     @StateObject private var pipManager = PictureInPictureManager()
@@ -40,12 +42,18 @@ struct ContentView: View {
     @State private var showSubtitleSheet = false
     @State private var showAudioSheet = false
     @State private var showToolsSheet = false
+    @State private var showSettingsPage = false
+    @State private var showMarkersSheet = false
+    @State private var toolsDestinationAfterDismiss: String?
+    @State private var locateFileAfterRecentDismiss = false
     @State private var showPlaylistSheet = false
     @State private var showRecentSheet = false
     @State private var showAdvancedSilenceSettings = false
     @State private var showAdvancedSubtitleSettings = false
     @State private var showingLibrary = false
+    @State private var librarySearch = ""
     @State private var bottomControlsHeight: CGFloat = 0
+    @State private var playerViewportWidth: CGFloat = 800
     @State private var pendingDestructiveAction: String?
     @State private var showingDestructiveConfirmation = false
     @State private var confirmationQueuedAfterSheetDismiss = false
@@ -54,8 +62,44 @@ struct ContentView: View {
         model.hasLoadedMedia
     }
 
+    private var playbackOverlayOpen: Bool {
+        showingLibrary || showingVideoImporter || showingFolderImporter ||
+            showingSubtitleImporter || showSpeedSheet || showSilenceSheet ||
+            showSubtitleSheet || showAudioSheet || showToolsSheet ||
+            showMarkersSheet || showSettingsPage || showPlaylistSheet ||
+            showRecentSheet || showingDestructiveConfirmation ||
+            model.resumePromptSeconds != nil
+    }
+
+    private var compactLandscape: Bool {
+        verticalSizeClass == .compact
+    }
+
+    private var narrowCompactLandscape: Bool {
+        compactLandscape &&
+            (playerViewportWidth < 620 || dynamicTypeSize.isAccessibilitySize)
+    }
+
+    private var compactPortraitActions: Bool {
+        !compactLandscape &&
+            (playerViewportWidth < 380 || dynamicTypeSize.isAccessibilitySize)
+    }
+
+    private var filteredRecentVideos: [RecentVideo] {
+        guard !librarySearch.isEmpty else { return model.recentVideos }
+        return model.recentVideos.filter {
+            $0.name.localizedCaseInsensitiveContains(librarySearch)
+        }
+    }
+
     private var silenceStatusSummary: String {
         if !model.silenceEnabled { return "Skipping off" }
+        if model.silencePlaybackMode == .smooth {
+            return String(
+                format: "Smooth · up to %g×",
+                model.availableSilenceAccelerationSpeed
+            )
+        }
         let status = model.analysisStatus
         if status.hasPrefix("Analysis complete") { return "Analysis ready" }
         if status.hasPrefix("Analysis capped") { return "Partially analyzed" }
@@ -105,7 +149,7 @@ struct ContentView: View {
                     Label("Unlock", systemImage: "lock.open")
                         .font(.caption.weight(.medium))
                         .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
+                        .frame(minHeight: 44)
                         .background(Capsule().fill(Color.black.opacity(0.72)))
                         .overlay(
                             Capsule().strokeBorder(PlayerColors.accent.opacity(0.6))
@@ -117,30 +161,65 @@ struct ContentView: View {
             }
 
             if let error = model.playbackError {
-                VStack(spacing: 10) {
+                VStack(spacing: 12) {
                     Text("Playback error")
                         .font(.headline)
                     Text(error)
-                        .font(.caption)
+                        .font(.subheadline)
                         .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Try a different file if this video is missing or unsupported.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Button {
+                        model.dismissPlaybackError()
+                        showingVideoImporter = true
+                    } label: {
+                        Label(
+                            error.hasPrefix("Could not reopen")
+                                ? "Locate file"
+                                : "Open another video",
+                            systemImage: "folder"
+                        )
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(PlayerColors.accent)
+
                     HStack {
                         Button("Dismiss") {
                             model.dismissPlaybackError()
                         }
                         .buttonStyle(.bordered)
 
-                        Button("Retry") {
-                            model.retryPlayback()
+                        if !error.hasPrefix("Could not reopen") {
+                            Button("Retry") {
+                                model.retryPlayback()
+                            }
+                            .buttonStyle(.bordered)
                         }
-                        .buttonStyle(.borderedProminent)
                     }
                 }
                 .padding(18)
-                .background(.black.opacity(0.9), in: RoundedRectangle(cornerRadius: 14))
+                .frame(maxWidth: 360)
+                .background(.black.opacity(0.92), in: RoundedRectangle(cornerRadius: 14))
                 .padding(24)
             }
         }
         .preferredColorScheme(.dark)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: PlayerViewportWidthKey.self,
+                    value: proxy.size.width
+                )
+            }
+        )
+        .onPreferenceChange(PlayerViewportWidthKey.self) {
+            playerViewportWidth = $0
+        }
         .statusBarHidden(isFullscreen)
         .focusable()
         .focused($playerKeyboardFocus)
@@ -219,9 +298,10 @@ struct ContentView: View {
             switch result {
             case .success(let urls):
                 if let url = urls.first {
-                    model.requestFolder(url: url)
-                    showingLibrary = false
-                    showControls()
+                    if model.requestFolder(url: url) {
+                        showingLibrary = false
+                        showControls()
+                    }
                 }
             case .failure(let error):
                 gestureHUD = error.localizedDescription
@@ -254,13 +334,19 @@ struct ContentView: View {
         .sheet(isPresented: $showAudioSheet) {
             audioSheet
         }
-        .sheet(isPresented: $showToolsSheet, onDismiss: presentQueuedConfirmation) {
+        .sheet(isPresented: $showToolsSheet, onDismiss: handleToolsDismiss) {
             toolsSheet
+        }
+        .sheet(isPresented: $showMarkersSheet, onDismiss: presentQueuedConfirmation) {
+            markersSheet
+        }
+        .sheet(isPresented: $showSettingsPage, onDismiss: presentQueuedConfirmation) {
+            settingsPage
         }
         .sheet(isPresented: $showPlaylistSheet) {
             playlistSheet
         }
-        .sheet(isPresented: $showRecentSheet, onDismiss: presentQueuedConfirmation) {
+        .sheet(isPresented: $showRecentSheet, onDismiss: handleRecentDismiss) {
             recentSheet
         }
         .alert(
@@ -317,6 +403,16 @@ struct ContentView: View {
             } else {
                 controlsVisible = true
                 hideGeneration += 1
+            }
+        }
+        .onChange(of: playbackOverlayOpen) { _, open in
+            if open {
+                hideGeneration += 1
+                if hasVideo { controlsVisible = true }
+            } else if hasVideo && !gesturesLocked {
+                // Dismissing a sheet should reveal the player's controls,
+                // with a fresh hide countdown rather than an expired timer.
+                showControls()
             }
         }
     }
@@ -524,10 +620,20 @@ struct ContentView: View {
                 Spacer(minLength: 24)
 
             if hasVideo {
-                Text("Library")
-                    .font(.largeTitle.weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 24)
+                HStack {
+                    Text("Library")
+                        .font(.largeTitle.weight(.semibold))
+                    Spacer()
+                    Button {
+                        showSettingsPage = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Settings")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: 22)
@@ -566,6 +672,12 @@ struct ContentView: View {
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
+                            Text(
+                                PlayerModel.format(seconds: model.currentTime) +
+                                    " of " + PlayerModel.format(seconds: model.duration)
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         }
                         Spacer()
                         Image(systemName: "chevron.right")
@@ -579,20 +691,113 @@ struct ContentView: View {
                 .padding(.top, 22)
             }
 
-            HStack(spacing: 12) {
-                HomeCard(label: "Open video", systemImage: "play.rectangle") {
-                    showingVideoImporter = true
-                }
-                HomeCard(label: "Open folder", systemImage: "folder") {
-                    showingFolderImporter = true
+            HStack {
+                Text("Browse files")
+                    .font(.headline)
+                Spacer()
+                if !hasVideo {
+                    Button {
+                        showSettingsPage = true
+                    } label: {
+                        Label("Settings", systemImage: "gearshape")
+                    }
+                    .font(.subheadline)
                 }
             }
+            .padding(.horizontal, 24)
+            .padding(.top, 26)
+
+            VStack(spacing: 10) {
+                Button {
+                    showingVideoImporter = true
+                } label: {
+                    Label("Open video", systemImage: "play.rectangle.fill")
+                        .font(.headline)
+                        .foregroundStyle(PlayerColors.accentDark)
+                        .frame(maxWidth: .infinity, minHeight: 54)
+                        .background(
+                            PlayerColors.accent,
+                            in: RoundedRectangle(cornerRadius: 14)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    showingFolderImporter = true
+                } label: {
+                    Label("Open folder", systemImage: "folder")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 52)
+                        .background(
+                            Color.white.opacity(0.09),
+                            in: RoundedRectangle(cornerRadius: 14)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+            }
             .padding(.horizontal, 22)
-            .padding(.top, 30)
+            .padding(.top, 12)
+
+            if !model.recentFolders.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Recent folders")
+                        .font(.headline)
+                        .padding(.bottom, 4)
+
+                    ForEach(model.recentFolders.prefix(4)) { folder in
+                        Button {
+                            if model.openRecentFolder(folder) {
+                                showingLibrary = false
+                                showControls()
+                            }
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "folder")
+                                    .foregroundStyle(PlayerColors.accent)
+                                Text(folder.name)
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
+                .padding(.top, 20)
+            }
+
+            if model.playlist.count > 1 {
+                Button {
+                    showPlaylistSheet = true
+                } label: {
+                    HStack {
+                        Image(systemName: "list.number")
+                        Text("Up Next")
+                        Spacer()
+                        Text("\(model.playlist.count) videos")
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right")
+                    }
+                    .frame(minHeight: 44)
+                    .padding(.horizontal, 12)
+                }
+                .buttonStyle(.bordered)
+                .padding(.horizontal, 22)
+                .padding(.top, 12)
+            }
 
             if !model.recentVideos.isEmpty {
                 HStack {
-                    Text("Recent")
+                    Text("Recent videos")
                         .font(.headline)
                     Spacer()
                     Button("See all") {
@@ -604,26 +809,48 @@ struct ContentView: View {
                 .padding(.top, 28)
                 .padding(.bottom, 6)
 
+                if model.recentVideos.count > 4 {
+                    TextField("Search recent videos", text: $librarySearch)
+                        .textFieldStyle(.roundedBorder)
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 8)
+                }
+
                 VStack(spacing: 2) {
-                    ForEach(model.recentVideos.prefix(4)) { recent in
+                    ForEach(filteredRecentVideos.prefix(8)) { recent in
                         Button {
-                            model.openRecent(recent)
-                            showingLibrary = false
-                            showControls()
+                            if model.openRecent(recent) {
+                                showingLibrary = false
+                                showControls()
+                            }
                         } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: "clock.arrow.circlepath")
                                     .foregroundStyle(.tertiary)
-                                Text(recent.name)
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(recent.name)
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+                                    if let resume = model.resumeTimeLabel(for: recent) {
+                                        Text(resume)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
                                 Spacer()
                             }
                             .padding(.horizontal, 26)
-                            .padding(.vertical, 9)
+                            .frame(minHeight: 44)
+                            .padding(.vertical, 5)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                    }
+                    if filteredRecentVideos.isEmpty {
+                        Text("No matching recent videos")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 16)
                     }
                 }
             }
@@ -661,7 +888,7 @@ struct ContentView: View {
                     .lineLimit(1)
 
                 HStack(spacing: 6) {
-                    if !model.fileInfo.isEmpty {
+                    if !compactLandscape && !model.fileInfo.isEmpty {
                         Text(model.fileInfo)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -678,6 +905,12 @@ struct ContentView: View {
                     showingLibrary = true
                     controlsVisible = false
                     hideGeneration += 1
+                }
+
+                if model.playlist.count > 1 {
+                    playerIconButton("list.number", label: "Up Next") {
+                        showPlaylistSheet = true
+                    }
                 }
 
                 playerIconButton(
@@ -724,57 +957,11 @@ struct ContentView: View {
                     } label: {
                         Label("Audio tracks", systemImage: "speaker.wave.2")
                     }
-                    if model.playlist.count > 1 {
-                        Button {
-                            showPlaylistSheet = true
-                        } label: {
-                            Label("Playlist", systemImage: "list.number")
-                        }
-                    }
                     Divider()
-                    Menu {
-                        ForEach(VideoAspectMode.allCases) { mode in
-                            Button(mode.label) {
-                                model.setAspectMode(mode)
-                            }
-                        }
+                    Button {
+                        showSettingsPage = true
                     } label: {
-                        Text("Aspect: " + model.aspectMode.label)
-                    }
-                    Menu {
-                        ForEach([5, 10, 15, 30], id: \.self) { seconds in
-                            Button("\(seconds) s") {
-                                model.setDoubleTapSeconds(seconds)
-                            }
-                        }
-                    } label: {
-                        Text("Double-tap seek: \(model.doubleTapSeconds) s")
-                    }
-                    Menu {
-                        ForEach(ResumeMode.allCases) { mode in
-                            Button(mode.label) {
-                                model.setResumeMode(mode)
-                            }
-                        }
-                    } label: {
-                        Text("Resume: " + model.resumeMode.label)
-                    }
-                    Toggle(
-                        isOn: Binding(
-                            get: { model.audioOnly },
-                            set: { model.setAudioOnly($0) }
-                        )
-                    ) {
-                        Label("Audio only", systemImage: "waveform")
-                    }
-                    Divider()
-                    Button("Clear history", role: .destructive) {
-                        pendingDestructiveAction = "history"
-                        showingDestructiveConfirmation = true
-                    }
-                    Button("Reset settings", role: .destructive) {
-                        pendingDestructiveAction = "settings"
-                        showingDestructiveConfirmation = true
+                        Label("Settings", systemImage: "gearshape")
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -830,45 +1017,11 @@ struct ContentView: View {
             }
             .padding(.horizontal, 20)
 
-            HStack(spacing: 12) {
-                Button {
-                    showSilenceSheet = true
-                } label: {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Label("Skip silence", systemImage: "waveform")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(model.silenceEnabled ? PlayerColors.accent : .white)
-                        Text(silenceStatusSummary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        if model.silenceEnabled {
-                            Text("Saved " + PlayerModel.format(seconds: model.skippedTime) +
-                                 " · Est. watch " + PlayerModel.format(seconds: model.estimatedWatchTime))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("Opens silence skipping presets and advanced tuning")
-
-                Toggle(
-                    "Skip silence",
-                    isOn: Binding(
-                        get: { model.silenceEnabled },
-                        set: { model.setSilenceEnabled($0) }
-                    )
-                )
-                .labelsHidden()
-                .tint(PlayerColors.accent)
-                .accessibilityLabel("Skip silence")
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 3)
-
+            if compactLandscape {
+                compactTransportControls
+            } else {
             HStack(spacing: 0) {
+                if model.playlist.count > 1 {
                 Button {
                     model.previous()
                 } label: {
@@ -879,6 +1032,7 @@ struct ContentView: View {
                 .disabled(!model.hasPrevious)
                 .foregroundStyle(.white)
                 .accessibilityLabel("Previous video")
+                }
 
                 Button {
                     model.seek(by: -Double(model.doubleTapSeconds))
@@ -924,6 +1078,7 @@ struct ContentView: View {
                 .foregroundStyle(.white)
                 .accessibilityLabel("Seek forward \(model.doubleTapSeconds) seconds")
 
+                if model.playlist.count > 1 {
                 Button {
                     model.next()
                 } label: {
@@ -934,35 +1089,79 @@ struct ContentView: View {
                 .disabled(!model.hasNext)
                 .foregroundStyle(.white)
                 .accessibilityLabel("Next video")
+                }
             }
             .buttonStyle(.plain)
 
-            HStack(spacing: 8) {
-                PlayerChip(
-                    label: String(format: "%g×", model.playbackSpeed),
-                    systemImage: "gauge",
-                    selected: abs(model.playbackSpeed - 1) > 0.01,
-                    stretch: true
-                ) {
-                    showSpeedSheet = true
+            HStack(spacing: 6) {
+                Button {
+                    showSilenceSheet = true
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Skip silence")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(model.silenceEnabled ? PlayerColors.accent : .white)
+                            .lineLimit(1)
+                        Text(model.silenceEnabled
+                            ? (model.silencePlaybackMode == .smooth
+                                ? String(
+                                    format: "Smooth up to %g× · saved %@",
+                                    model.availableSilenceAccelerationSpeed,
+                                    PlayerModel.format(seconds: model.skippedTime)
+                                )
+                                : "Jump · saved " + PlayerModel.format(seconds: model.skippedTime))
+                            : "Off")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 }
-                PlayerChip(
-                    label: "Subtitles",
-                    systemImage: "captions.bubble",
-                    selected: model.selectedSubtitleIndex != nil ||
-                        model.externalSubtitleName != nil,
-                    stretch: true
-                ) {
-                    showSubtitleSheet = true
+                .accessibilityLabel("Silence skipping settings")
+
+                Toggle("Skip silence", isOn: Binding(
+                    get: { model.silenceEnabled },
+                    set: { model.setSilenceEnabled($0) }
+                ))
+                .labelsHidden()
+                .tint(PlayerColors.accent)
+                .accessibilityLabel("Skip silence")
+
+                if !compactPortraitActions {
+                    Button {
+                        showSpeedSheet = true
+                    } label: {
+                        Text(String(format: "%g×", model.playbackSpeed))
+                            .font(.subheadline.weight(.medium))
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .accessibilityLabel("Playback speed")
+
+                    Button {
+                        showSubtitleSheet = true
+                    } label: {
+                        Image(systemName: "captions.bubble")
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .accessibilityLabel("Subtitles")
                 }
-                PlayerChip(label: "More", systemImage: "slider.horizontal.3", stretch: true) {
+
+                Button {
                     showToolsSheet = true
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(minWidth: 44, minHeight: 44)
                 }
+                .accessibilityLabel("Playback tools")
             }
+            .foregroundStyle(.white)
+            .buttonStyle(.plain)
             .padding(.horizontal, 20)
+            }
         }
-        .padding(.top, 26)
-        .padding(.bottom, 16)
+        .padding(.top, compactLandscape ? 5 : 26)
+        .padding(.bottom, compactLandscape ? 5 : 16)
         .background(
             LinearGradient(
                 colors: [.clear, .black.opacity(0.9)],
@@ -973,10 +1172,92 @@ struct ContentView: View {
         )
     }
 
+    private var compactTransportControls: some View {
+        HStack(spacing: 12) {
+            if !narrowCompactLandscape {
+                Button {
+                    model.seek(by: -Double(model.doubleTapSeconds))
+                } label: {
+                    Image(systemName: "gobackward")
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .accessibilityLabel("Seek backward \(model.doubleTapSeconds) seconds")
+            }
+
+            Button {
+                model.togglePlayback()
+                showControls()
+            } label: {
+                Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+                    .foregroundStyle(PlayerColors.accentDark)
+                    .frame(width: 48, height: 48)
+                    .background(Circle().fill(PlayerColors.accent))
+            }
+            .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
+
+            if !narrowCompactLandscape {
+                Button {
+                    model.seek(by: Double(model.doubleTapSeconds))
+                } label: {
+                    Image(systemName: "goforward")
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .accessibilityLabel("Seek forward \(model.doubleTapSeconds) seconds")
+            }
+
+            Spacer(minLength: 2)
+
+            Button {
+                showSilenceSheet = true
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Skip silence")
+                        .font(.caption.weight(.semibold))
+                    if !narrowCompactLandscape {
+                        Text(silenceStatusSummary)
+                            .font(.caption2)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(minHeight: 44)
+            }
+            .accessibilityLabel("Silence skipping settings")
+            .accessibilityValue(silenceStatusSummary)
+            .accessibilityHint("Adjust silence skipping")
+
+            Toggle("Skip silence", isOn: Binding(
+                get: { model.silenceEnabled },
+                set: { model.setSilenceEnabled($0) }
+            ))
+            .labelsHidden()
+            .tint(PlayerColors.accent)
+            .accessibilityLabel("Skip silence")
+
+            Button {
+                showToolsSheet = true
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .accessibilityLabel("Playback tools")
+        }
+        .foregroundStyle(.white)
+        .buttonStyle(.plain)
+        .padding(.horizontal, 20)
+    }
+
     // MARK: - Sheets
 
     private var speedSheet: some View {
-        SheetCard(title: "Speed") {
+        SheetCard(title: "Playback speed") {
+            Text(
+                "Controls speech and normal playback. Quiet-part acceleration " +
+                "is configured separately under Silence skipping."
+            )
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(
@@ -995,7 +1276,7 @@ struct ContentView: View {
             }
 
             SheetSliderRow(
-                label: "Speed",
+                label: "Normal playback speed",
                 valueText: String(format: "%.2g×", model.playbackSpeed),
                 value: Binding(
                     get: { model.playbackSpeed },
@@ -1018,6 +1299,74 @@ struct ContentView: View {
                 )
             )
             .tint(PlayerColors.accent)
+
+            Picker("Silence behavior", selection: Binding(
+                get: { model.silencePlaybackMode },
+                set: { model.setSilencePlaybackMode($0) }
+            )) {
+                ForEach(SilencePlaybackMode.allCases) { mode in
+                    Text(mode.label).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(!model.silenceEnabled)
+
+            Text(model.silencePlaybackMode == .smooth
+                ? "Smooth: quiet parts play faster, with continuous video and no jumping."
+                : "Jump: cuts analyzed quiet sections immediately. May interrupt video decoding.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if model.silencePlaybackMode == .smooth {
+                SectionLabel(text: "Quiet-part speed")
+
+                HStack {
+                    Text("Accelerate silence")
+                        .font(.subheadline)
+                    Spacer()
+                    Text(String(format: "%g×", model.silenceAccelerationSpeed))
+                        .monospacedDigit()
+                        .foregroundStyle(PlayerColors.accent)
+                        .font(.subheadline.weight(.semibold))
+                }
+
+                Slider(
+                    value: Binding(
+                        get: { model.silenceAccelerationSpeed },
+                        set: { model.setSilenceAccelerationSpeed($0) }
+                    ),
+                    in: 2...8,
+                    step: 0.5
+                )
+                .tint(PlayerColors.accent)
+                .disabled(!model.silenceEnabled)
+                .accessibilityLabel("Smooth silence acceleration speed")
+                .accessibilityValue(
+                    String(format: "%g times", model.silenceAccelerationSpeed)
+                )
+
+                HStack {
+                    Text("2×")
+                    Spacer()
+                    Text("8×")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                if model.silenceAccelerationSpeed > 2 {
+                    Text(
+                        !model.hasLoadedMedia
+                            ? "Open a video to check whether high-speed playback is supported."
+                            : (model.highSpeedSilenceAvailable
+                                ? "This video supports higher playback speeds. Acceleration slows near speech boundaries; very high rates may drop frames."
+                                : "This video's decoder supports up to 2×. Your higher-speed preference is saved for compatible videos.")
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
 
             Toggle(
                 "Adaptive noise floor (recommended)",
@@ -1258,7 +1607,104 @@ struct ContentView: View {
     }
 
     private var toolsSheet: some View {
-        SheetCard(title: "Tools") {
+        SheetCard(title: "Playback tools") {
+            if compactLandscape || compactPortraitActions {
+                HStack(spacing: 12) {
+                    Button {
+                        openFromTools("speed")
+                    } label: {
+                        Label("Speed", systemImage: "gauge")
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        openFromTools("subtitles")
+                    } label: {
+                        Label("Subtitles", systemImage: "captions.bubble")
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                if narrowCompactLandscape {
+                    HStack(spacing: 12) {
+                        Button("Seek back \(model.doubleTapSeconds) s") {
+                            model.seek(by: -Double(model.doubleTapSeconds))
+                            showToolsSheet = false
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .buttonStyle(.bordered)
+
+                        Button("Seek forward \(model.doubleTapSeconds) s") {
+                            model.seek(by: Double(model.doubleTapSeconds))
+                            showToolsSheet = false
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
+            Button {
+                openFromTools("markers")
+            } label: {
+                Label("Markers · Chapters, bookmarks and A–B", systemImage: "bookmark")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+
+            Button {
+                openFromTools("audio")
+            } label: {
+                Label("Audio tracks", systemImage: "speaker.wave.2")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+
+            SectionLabel(text: "Sleep timer")
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach([15, 30, 45, 60], id: \.self) { minutes in
+                        PlayerChip(
+                            label: "\(minutes) min",
+                            selected: model.sleepTimerMinutes == minutes
+                        ) {
+                            model.setSleepTimer(minutes: Double(minutes))
+                        }
+                    }
+                    PlayerChip(
+                        label: "At end of video",
+                        selected: model.sleepAtEnd
+                    ) {
+                        model.setSleepAtEnd()
+                    }
+                    if model.sleepDeadline != nil || model.sleepAtEnd {
+                        PlayerChip(label: model.sleepTimerLabel) {
+                            model.cancelSleepTimer()
+                        }
+                    }
+                }
+            }
+
+            SectionLabel(text: "Playback gestures")
+            Text(
+                "Double-tap left or right to seek. Swipe vertically on the left " +
+                "for brightness, or the right for volume. Swipe horizontally " +
+                "to scrub. Lock controls from More options."
+            )
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var markersSheet: some View {
+        SheetCard(title: "Markers") {
             SectionLabel(text: "A–B repeat")
 
             HStack(spacing: 10) {
@@ -1302,6 +1748,7 @@ struct ContentView: View {
                     HStack(spacing: 10) {
                         Button {
                             model.seek(to: bookmark.seconds)
+                            showMarkersSheet = false
                             showControls()
                         } label: {
                             HStack(spacing: 10) {
@@ -1321,14 +1768,16 @@ struct ContentView: View {
                         } label: {
                             Image(systemName: "minus.circle")
                                 .foregroundStyle(.secondary)
+                                .frame(width: 44, height: 44)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Remove bookmark \(bookmark.label)")
                     }
                     .padding(.vertical, 6)
                 }
 
                 Button("Clear bookmarks", role: .destructive) {
-                    requestConfirmationFromSheet("bookmarks", dismiss: "tools")
+                    requestConfirmationFromSheet("bookmarks", dismiss: "markers")
                 }
                 .buttonStyle(.bordered)
             }
@@ -1343,6 +1792,7 @@ struct ContentView: View {
                 ForEach(model.chapters) { chapter in
                     Button {
                         model.seek(to: chapter.start)
+                        showMarkersSheet = false
                         showControls()
                     } label: {
                         HStack(spacing: 10) {
@@ -1355,57 +1805,73 @@ struct ContentView: View {
                                 .lineLimit(1)
                             Spacer()
                         }
-                        .padding(.vertical, 7)
+                        .frame(minHeight: 44)
+                        .padding(.vertical, 5)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
             }
 
-            SectionLabel(text: "Sleep timer")
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach([15, 30, 45, 60], id: \.self) { minutes in
-                        PlayerChip(
-                            label: "\(minutes) min",
-                            selected: model.sleepTimerMinutes == minutes
-                        ) {
-                            model.setSleepTimer(minutes: Double(minutes))
-                        }
-                    }
-                    PlayerChip(
-                        label: "At end of video",
-                        selected: model.sleepAtEnd
-                    ) {
-                        model.setSleepAtEnd()
-                    }
-                    if model.sleepDeadline != nil || model.sleepAtEnd {
-                        PlayerChip(label: model.sleepTimerLabel) {
-                            model.cancelSleepTimer()
-                        }
-                    }
-                }
-            }
-
-            SectionLabel(text: "Data")
-
-            HStack(spacing: 10) {
-                Button("Clear history", role: .destructive) {
-                    requestConfirmationFromSheet("history", dismiss: "tools")
-                }
-                .buttonStyle(.bordered)
-
-                Button("Reset settings", role: .destructive) {
-                    requestConfirmationFromSheet("settings", dismiss: "tools")
-                }
-                .buttonStyle(.bordered)
-            }
         }
     }
 
+    private var settingsPage: some View {
+        NavigationStack {
+            Form {
+                Section("Video display") {
+                    Picker("Aspect ratio", selection: Binding(
+                        get: { model.aspectMode },
+                        set: { model.setAspectMode($0) }
+                    )) {
+                        ForEach(VideoAspectMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    Toggle("Audio-only playback", isOn: Binding(
+                        get: { model.audioOnly },
+                        set: { model.setAudioOnly($0) }
+                    ))
+                }
+                Section("Controls") {
+                    Picker("Double-tap seek", selection: Binding(
+                        get: { model.doubleTapSeconds },
+                        set: { model.setDoubleTapSeconds($0) }
+                    )) {
+                        ForEach([5, 10, 15, 30], id: \.self) { seconds in
+                            Text("\(seconds) seconds").tag(seconds)
+                        }
+                    }
+                    Picker("Resume playback", selection: Binding(
+                        get: { model.resumeMode },
+                        set: { model.setResumeMode($0) }
+                    )) {
+                        ForEach(ResumeMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                }
+                Section("Data and privacy") {
+                    Button("Clear viewing history", role: .destructive) {
+                        requestConfirmationFromSheet("history", dismiss: "settings")
+                    }
+                    Button("Reset player settings", role: .destructive) {
+                        requestConfirmationFromSheet("settings", dismiss: "settings")
+                    }
+                }
+            }
+            .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showSettingsPage = false }
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
     private var playlistSheet: some View {
-        SheetCard(title: "Playlist") {
+        SheetCard(title: "Up Next") {
             if model.playlist.isEmpty {
                 Text("No videos loaded")
                     .font(.caption2)
@@ -1414,7 +1880,12 @@ struct ContentView: View {
                 ForEach(model.playlist.indices, id: \.self) { index in
                     let entry = model.playlist[index]
                     Button {
-                        model.jumpToPlaylistIndex(index)
+                        if index == model.playlistIndex {
+                            model.play()
+                        } else {
+                            model.jumpToPlaylistIndex(index)
+                        }
+                        showingLibrary = false
                         showPlaylistSheet = false
                         showControls()
                     } label: {
@@ -1435,8 +1906,8 @@ struct ContentView: View {
                                 .lineLimit(1)
                             Spacer()
                             if index == model.playlistIndex {
-                                Text("Now")
-                                    .font(.caption2)
+                                Text("Now playing")
+                                    .font(.caption)
                                     .foregroundStyle(PlayerColors.accent)
                             }
                         }
@@ -1451,6 +1922,18 @@ struct ContentView: View {
 
     private var recentSheet: some View {
         SheetCard(title: "Recent") {
+            if let error = model.playbackError, error.hasPrefix("Could not reopen") {
+                Text(error)
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Locate file…") {
+                    locateFileAfterRecentDismiss = true
+                    model.dismissPlaybackError()
+                    showRecentSheet = false
+                }
+                .buttonStyle(.borderedProminent)
+            }
             if model.recentVideos.isEmpty {
                 Text("No recent videos")
                     .font(.caption2)
@@ -1458,10 +1941,11 @@ struct ContentView: View {
             } else {
                 ForEach(model.recentVideos) { recent in
                     Button {
-                        model.openRecent(recent)
-                        showingLibrary = false
-                        showRecentSheet = false
-                        showControls()
+                        if model.openRecent(recent) {
+                            showingLibrary = false
+                            showRecentSheet = false
+                            showControls()
+                        }
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "clock.arrow.circlepath")
@@ -1491,10 +1975,38 @@ struct ContentView: View {
     private func requestConfirmationFromSheet(_ action: String, dismiss sheet: String) {
         pendingDestructiveAction = action
         confirmationQueuedAfterSheetDismiss = true
-        if sheet == "tools" {
-            showToolsSheet = false
-        } else {
-            showRecentSheet = false
+        switch sheet {
+        case "tools": showToolsSheet = false
+        case "markers": showMarkersSheet = false
+        case "settings": showSettingsPage = false
+        default: showRecentSheet = false
+        }
+    }
+
+    private func openFromTools(_ destination: String) {
+        toolsDestinationAfterDismiss = destination
+        showToolsSheet = false
+    }
+
+    private func handleRecentDismiss() {
+        presentQueuedConfirmation()
+        guard locateFileAfterRecentDismiss else { return }
+        locateFileAfterRecentDismiss = false
+        showingVideoImporter = true
+    }
+
+    private func handleToolsDismiss() {
+        presentQueuedConfirmation()
+        guard let destination = toolsDestinationAfterDismiss else { return }
+        toolsDestinationAfterDismiss = nil
+        switch destination {
+        case "markers": showMarkersSheet = true
+        case "queue": showPlaylistSheet = true
+        case "audio": showAudioSheet = true
+        case "speed": showSpeedSheet = true
+        case "subtitles": showSubtitleSheet = true
+        case "settings": showSettingsPage = true
+        default: break
         }
     }
 
@@ -1547,11 +2059,14 @@ struct ContentView: View {
         hideGeneration += 1
         let generation = hideGeneration
 
-        guard model.isPlaying, !gesturesLocked else { return }
+        guard model.isPlaying, !gesturesLocked, !playbackOverlayOpen else {
+            return
+        }
 
         let delay = isFullscreen ? 2.5 : 4.0
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            if generation == hideGeneration && model.isPlaying {
+            if generation == hideGeneration && model.isPlaying &&
+                !playbackOverlayOpen && !gesturesLocked {
                 controlsVisible = false
             }
         }
@@ -1574,37 +2089,19 @@ struct ContentView: View {
 
 // MARK: - Reusable components
 
+private struct PlayerViewportWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat { 0 }
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 private struct PlayerBottomControlsHeightKey: PreferenceKey {
     static var defaultValue: CGFloat { 0 }
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
-    }
-}
-
-private struct HomeCard: View {
-    let label: String
-    let systemImage: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 10) {
-                Image(systemName: systemImage)
-                    .font(.title2)
-                    .foregroundStyle(PlayerColors.accent)
-                Text(label)
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 24)
-            .background(
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color.white.opacity(0.08))
-            )
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -1670,19 +2167,33 @@ private struct SeekBar: View {
                     .frame(height: 4)
 
                 if duration > 0 {
-                    ForEach(silenceRanges.indices, id: \.self) { index in
-                        let range = silenceRanges[index]
-                        let start = min(max(range.start / duration, 0), 1)
-                        let end = min(max(range.end / duration, start), 1)
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.white.opacity(0.42))
-                            .frame(
-                                width: max(width * (end - start), 1),
-                                height: 8
+                    // A long recording may have thousands of quiet sections.
+                    // Drawing them in one Canvas avoids creating thousands of
+                    // SwiftUI nodes on every playback-position update.
+                    Canvas { context, _ in
+                        var silencePath = Path()
+                        for range in silenceRanges {
+                            let start = min(max(range.start / duration, 0), 1)
+                            let end = min(max(range.end / duration, start), 1)
+                            guard end > start else { continue }
+                            silencePath.addRoundedRect(
+                                in: CGRect(
+                                    x: width * start,
+                                    y: 2,
+                                    width: max(width * (end - start), 1),
+                                    height: 8
+                                ),
+                                cornerSize: CGSize(width: 2, height: 2)
                             )
-                            .offset(x: width * start)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        context.fill(
+                            silencePath,
+                            with: .color(.white.opacity(0.42))
+                        )
                     }
+                    .frame(height: 12)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                 }
 
                 Capsule()
