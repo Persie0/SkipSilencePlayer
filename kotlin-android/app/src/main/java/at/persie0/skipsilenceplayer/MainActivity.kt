@@ -1643,26 +1643,6 @@ private fun SkipSilencePlayerScreen(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            fileName,
-                            color = Color.White,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            maxLines = 1
-                        )
-                        if (fileInfo.isNotBlank()) {
-                            Text(
-                                fileInfo,
-                                color = Color.White.copy(alpha = 0.55f),
-                                fontSize = 11.sp,
-                                maxLines = 1
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.width(4.dp))
-
                     playerIconButton(
                         icon = Icons.Filled.ArrowBack,
                         contentDescription = stringResource(R.string.ui_library)
@@ -1675,6 +1655,26 @@ private fun SkipSilencePlayerScreen(
                         }
                         showLibrary = true
                         controlsVisible = false
+                    }
+
+                    Spacer(Modifier.width(4.dp))
+
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            fileName,
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            maxLines = 1
+                        )
+                        if (fileInfo.isNotBlank()) {
+                            Text(
+                                fileInfo,
+                                color = Color.White.copy(alpha = 0.75f),
+                                fontSize = 12.sp,
+                                maxLines = 1
+                            )
+                        }
                     }
 
                     Spacer(Modifier.width(4.dp))
