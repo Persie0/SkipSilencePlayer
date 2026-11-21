@@ -1454,24 +1454,44 @@ struct ContentView: View {
 
     private var toolsSheet: some View {
         SheetCard(title: "Playback tools") {
-            HStack(spacing: 12) {
-                Button {
-                    openFromTools("speed")
-                } label: {
-                    Label("Speed", systemImage: "gauge")
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: 44)
-                }
-                .buttonStyle(.bordered)
+            if compactLandscape {
+                HStack(spacing: 12) {
+                    Button {
+                        openFromTools("speed")
+                    } label: {
+                        Label("Speed", systemImage: "gauge")
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
 
-                Button {
-                    openFromTools("subtitles")
-                } label: {
-                    Label("Subtitles", systemImage: "captions.bubble")
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: 44)
+                    Button {
+                        openFromTools("subtitles")
+                    } label: {
+                        Label("Subtitles", systemImage: "captions.bubble")
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
+
+                if narrowCompactLandscape {
+                    HStack(spacing: 12) {
+                        Button("Seek back \(model.doubleTapSeconds) s") {
+                            model.seek(by: -Double(model.doubleTapSeconds))
+                            showToolsSheet = false
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .buttonStyle(.bordered)
+
+                        Button("Seek forward \(model.doubleTapSeconds) s") {
+                            model.seek(by: Double(model.doubleTapSeconds))
+                            showToolsSheet = false
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .buttonStyle(.bordered)
+                    }
+                }
             }
             Button {
                 openFromTools("markers")
@@ -1481,17 +1501,6 @@ struct ContentView: View {
                     .frame(minHeight: 44)
             }
             .buttonStyle(.bordered)
-
-            if model.playlist.count > 1 {
-                Button {
-                    openFromTools("queue")
-                } label: {
-                    Label("Up Next · \(model.playlist.count) videos", systemImage: "list.number")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .frame(minHeight: 44)
-                }
-                .buttonStyle(.bordered)
-            }
 
             Button {
                 openFromTools("audio")
