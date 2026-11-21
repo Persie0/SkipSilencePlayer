@@ -479,11 +479,37 @@ class PlaybackService : MediaSessionService() {
             uri != null
         )
         if (uri == null) return
+        if (fallbackAudioSink) {
+            PlaybackRuntime.publishAnalysis(
+                emptyList(),
+                "Analysis disabled after decoder recovery to protect playback",
+                currentConfig.thresholdDb,
+                false
+            )
+            return
+        }
 
         val config = currentConfig
         val preferredAudioLanguage = selectedAudioInfo(player.currentTracks).second
         analysisJob = scope.launch {
             try {
+                // Give the primary video decoder first access to hardware and
+                // its file descriptor before starting a competing audio scan.
+                while (
+                    player.playbackState != Player.STATE_READY &&
+                    player.playbackState != Player.STATE_ENDED
+                ) {
+                    if (
+                        revision != analysisRevision ||
+                        bundle?.player !== player ||
+                        player.playerError != null
+                    ) return@launch
+                    delay(150L)
+                }
+                delay(500L)
+                if (revision != analysisRevision || bundle?.player !== player) {
+                    return@launch
+                }
                 val result = withContext(Dispatchers.IO) {
                     AndroidSilenceAnalyzer.analyzeDetailed(
                         context = this@PlaybackService,
@@ -493,6 +519,23 @@ class PlaybackService : MediaSessionService() {
                         edgePaddingSeconds = config.edgePaddingSeconds,
                         adaptive = config.adaptiveEnabled,
                         preferredAudioLanguage = preferredAudioLanguage,
+                        onDecodeProgress = { scannedMs ->
+                            // Audio decoding must never race arbitrarily far
+                            // ahead of a long VP9/WebM video. Seeking forward
+                            // lets scanning catch up without scanning blindly.
+                            while (true) {
+                                val playhead = withContext(Dispatchers.Main.immediate) {
+                                    if (
+                                        revision != analysisRevision ||
+                                        bundle?.player !== player
+                                    ) null else player.currentPosition
+                                } ?: throw kotlinx.coroutines.CancellationException(
+                                    "Media changed during analysis"
+                                )
+                                if (scannedMs <= playhead + 60_000L) break
+                                delay(200L)
+                            }
+                        },
                         onProgress = { partial, scannedMs ->
                             withContext(Dispatchers.Main.immediate) {
                                 if (
