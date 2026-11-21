@@ -86,8 +86,16 @@ struct VideoSurface: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: PlayerLayerView, context: Context) {
-        uiView.playerLayer.player = player
-        uiView.playerLayer.videoGravity = videoGravity
+        // SwiftUI may refresh this representable many times while presenting
+        // Settings and rotating. Reassigning AVPlayerLayer.player on every
+        // refresh can unnecessarily tear down an actively rendering surface.
+        // Keep the same layer and player across those layout-only updates.
+        if uiView.playerLayer.player !== player {
+            uiView.playerLayer.player = player
+        }
+        if uiView.playerLayer.videoGravity != videoGravity {
+            uiView.playerLayer.videoGravity = videoGravity
+        }
         pictureInPictureManager.attach(to: uiView.playerLayer)
     }
 }
