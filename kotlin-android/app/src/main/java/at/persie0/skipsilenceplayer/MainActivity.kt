@@ -458,6 +458,8 @@ private fun SkipSilencePlayerScreen(
     val localConfiguration = LocalConfiguration.current
     val compactLandscape = localConfiguration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
         localConfiguration.screenHeightDp < 500
+    val narrowLandscape = compactLandscape &&
+        (localConfiguration.screenWidthDp < 620 || localConfiguration.fontScale >= 1.3f)
     var showPlaylistSheet by remember { mutableStateOf(false) }
     var showRecentSheet by remember { mutableStateOf(false) }
     var showPreferencesSheet by remember { mutableStateOf(false) }
@@ -1729,6 +1731,16 @@ private fun SkipSilencePlayerScreen(
 
                     Spacer(Modifier.width(4.dp))
 
+                    if (player.mediaItemCount > 1) {
+                        playerIconButton(
+                            icon = Icons.Outlined.PlaylistPlay,
+                            contentDescription = stringResource(R.string.ui_up_next)
+                        ) {
+                            showPlaylistSheet = true
+                        }
+                        Spacer(Modifier.width(4.dp))
+                    }
+
                     playerIconButton(
                         icon = if (isFullscreen) {
                             Icons.Outlined.FullscreenExit
@@ -1820,15 +1832,6 @@ private fun SkipSilencePlayerScreen(
                                     showAudioSheet = true
                                 }
                             )
-                            if (player.mediaItemCount > 1) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.ui_up_next)) },
-                                    onClick = {
-                                        overflowOpen = false
-                                        showPlaylistSheet = true
-                                    }
-                                )
-                            }
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.ui_pip)) },
@@ -1908,14 +1911,16 @@ private fun SkipSilencePlayerScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        IconButton(
-                            onClick = { seekBy(-doubleTapSeconds * 1000L) }
-                        ) {
-                            Icon(
-                                Icons.Filled.FastRewind,
-                                contentDescription = stringResource(R.string.cd_seek_back),
-                                tint = Color.White
-                            )
+                        if (!narrowLandscape) {
+                            IconButton(
+                                onClick = { seekBy(-doubleTapSeconds * 1000L) }
+                            ) {
+                                Icon(
+                                    Icons.Filled.FastRewind,
+                                    contentDescription = stringResource(R.string.cd_seek_back),
+                                    tint = Color.White
+                                )
+                            }
                         }
                         IconButton(
                             onClick = {
@@ -1928,14 +1933,16 @@ private fun SkipSilencePlayerScreen(
                                 tint = PlayerAccent
                             )
                         }
-                        IconButton(
-                            onClick = { seekBy(doubleTapSeconds * 1000L) }
-                        ) {
-                            Icon(
-                                Icons.Filled.FastForward,
-                                contentDescription = stringResource(R.string.cd_seek_forward),
-                                tint = Color.White
-                            )
+                        if (!narrowLandscape) {
+                            IconButton(
+                                onClick = { seekBy(doubleTapSeconds * 1000L) }
+                            ) {
+                                Icon(
+                                    Icons.Filled.FastForward,
+                                    contentDescription = stringResource(R.string.cd_seek_forward),
+                                    tint = Color.White
+                                )
+                            }
                         }
                         Column(
                             modifier = Modifier
@@ -2614,6 +2621,7 @@ private fun SkipSilencePlayerScreen(
                     SheetHeader(stringResource(R.string.ui_tools)) {
                         showToolsSheet = false
                     }
+                    if (compactLandscape) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -2637,6 +2645,32 @@ private fun SkipSilencePlayerScreen(
                             Text(stringResource(R.string.ui_subtitles))
                         }
                     }
+                    if (narrowLandscape) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    showToolsSheet = false
+                                    seekBy(-doubleTapSeconds * 1000L)
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("−$doubleTapSeconds s")
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    showToolsSheet = false
+                                    seekBy(doubleTapSeconds * 1000L)
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("+$doubleTapSeconds s")
+                            }
+                        }
+                    }
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -2649,17 +2683,6 @@ private fun SkipSilencePlayerScreen(
                             modifier = Modifier.weight(1f)
                         ) {
                             Text(stringResource(R.string.ui_audio))
-                        }
-                        if (player.mediaItemCount > 1) {
-                            OutlinedButton(
-                                onClick = {
-                                    showToolsSheet = false
-                                    showPlaylistSheet = true
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(stringResource(R.string.ui_up_next))
-                            }
                         }
                     }
 
