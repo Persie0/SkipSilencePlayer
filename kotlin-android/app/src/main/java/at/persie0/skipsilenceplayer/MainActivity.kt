@@ -64,6 +64,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -194,6 +195,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // The player always uses a dark canvas, regardless of the device theme.
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
         handleOpenIntent(intent)
 
         val sessionToken = SessionToken(
@@ -462,6 +468,7 @@ private fun SkipSilencePlayerScreen(
     var showPlaylistSheet by remember { mutableStateOf(false) }
     var showRecentSheet by remember { mutableStateOf(false) }
     var showPreferencesSheet by remember { mutableStateOf(false) }
+    var showHelpSheet by remember { mutableStateOf(false) }
     var showAdvancedSilence by remember { mutableStateOf(false) }
     var pendingDestructiveAction by remember { mutableStateOf<String?>(null) }
 
@@ -1355,7 +1362,7 @@ private fun SkipSilencePlayerScreen(
         enabled = player.mediaItemCount > 0 && !showLibrary &&
             !showSpeedSheet && !showSilenceSheet && !showSubtitleSheet &&
             !showAudioSheet && !showToolsSheet && !showPlaylistSheet &&
-            !showRecentSheet && !showPreferencesSheet &&
+            !showRecentSheet && !showPreferencesSheet && !showHelpSheet &&
             pendingResume == null && pendingDestructiveAction == null
     ) {
         if (gestureLocked) {
@@ -1389,6 +1396,7 @@ private fun SkipSilencePlayerScreen(
                         showPlaylistSheet ||
                         showRecentSheet ||
                         showPreferencesSheet ||
+                        showHelpSheet ||
                         playerError != null ||
                         libraryError != null ||
                         pendingResume != null ||
@@ -1493,7 +1501,8 @@ private fun SkipSilencePlayerScreen(
                         listOf(VideoEntry(Uri.parse(recent.uri), recent.name))
                     )
                 },
-                onSeeAllRecents = { showRecentSheet = true }
+                onSeeAllRecents = { showRecentSheet = true },
+                onHelp = { showHelpSheet = true }
             )
         }
 
@@ -1586,6 +1595,7 @@ private fun SkipSilencePlayerScreen(
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .statusBarsPadding()
                     .padding(top = 14.dp)
                     .background(
                         Color.Black.copy(alpha = 0.72f),
@@ -1809,6 +1819,13 @@ private fun SkipSilencePlayerScreen(
                                 onClick = {
                                     overflowOpen = false
                                     showPreferencesSheet = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.ui_player_guide)) },
+                                onClick = {
+                                    overflowOpen = false
+                                    showHelpSheet = true
                                 }
                             )
                             DropdownMenuItem(
@@ -2143,6 +2160,45 @@ private fun SkipSilencePlayerScreen(
             }
         }
 
+        if (showHelpSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showHelpSheet = false },
+                containerColor = PlayerSheetColor
+            ) {
+                Column(
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 22.dp)
+                        .padding(bottom = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    SheetHeader(stringResource(R.string.ui_player_guide)) {
+                        showHelpSheet = false
+                    }
+                    Text(
+                        stringResource(R.string.ui_guide_intro),
+                        color = Color.White.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    SectionLabel(stringResource(R.string.ui_guide_touch))
+                    Text(stringResource(R.string.ui_guide_seek),
+                        color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.ui_guide_swipe),
+                        color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.ui_guide_pinch_lock),
+                        color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                    SectionLabel(stringResource(R.string.ui_guide_silence_title))
+                    Text(stringResource(R.string.ui_guide_silence),
+                        color = Color.White.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.bodyMedium)
+                    SectionLabel(stringResource(R.string.ui_guide_more_title))
+                    Text(stringResource(R.string.ui_guide_more),
+                        color = Color.White.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+
         if (showPreferencesSheet) {
             ModalBottomSheet(
                 onDismissRequest = { showPreferencesSheet = false },
@@ -2266,6 +2322,7 @@ private fun SkipSilencePlayerScreen(
                     SheetSwitchRow(
                         label = stringResource(R.string.ui_adaptive_silence),
                         checked = adaptiveSilence,
+                        enabled = skipSilence,
                         onCheckedChange = {
                             adaptiveSilence = it
                             applySilenceSettings()
@@ -2626,15 +2683,16 @@ private fun SkipSilencePlayerScreen(
                                 maxLines = 1
                             )
                         }
-                        TextButton(
-                            onClick = {
-                                abStartMs = null
-                                abEndMs = null
-                            },
-                            enabled = abStartMs != null || abEndMs != null
-                        ) {
-                            Text(stringResource(R.string.ui_clear_a_b))
-                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            abStartMs = null
+                            abEndMs = null
+                        },
+                        enabled = abStartMs != null || abEndMs != null,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        Text(stringResource(R.string.ui_clear_a_b))
                     }
 
                     SectionLabel(stringResource(R.string.ui_bookmarks))
@@ -2722,6 +2780,7 @@ private fun SkipSilencePlayerScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { player.seekTo(chapter.startMs) }
+                                    .heightIn(min = 48.dp)
                                     .padding(vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -2734,8 +2793,8 @@ private fun SkipSilencePlayerScreen(
                                 Text(
                                     chapter.title,
                                     color = Color.White,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
+                                    fontSize = 14.sp,
+                                    maxLines = 2,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -2744,11 +2803,10 @@ private fun SkipSilencePlayerScreen(
 
                     SectionLabel(stringResource(R.string.ui_sleep_timer))
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         listOf(15L, 30L, 45L, 60L).forEach { minutes ->
                             PlayerChip(
@@ -2775,31 +2833,29 @@ private fun SkipSilencePlayerScreen(
                                 sleepAtEnd = true
                             }
                         )
-                        if (sleepDeadline != null || sleepAtEnd) {
-                            PlayerChip(
-                                text = stringResource(R.string.ui_cancel_timer),
-                                selected = false,
-                                onClick = {
-                                    sleepDeadline = null
-                                    selectedSleepMinutes = null
-                                    sleepAtEnd = false
-                                }
-                            )
+                    }
+                    if (sleepDeadline != null || sleepAtEnd) {
+                        TextButton(
+                            onClick = {
+                                sleepDeadline = null
+                                selectedSleepMinutes = null
+                                sleepAtEnd = false
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Text(stringResource(R.string.ui_cancel_timer))
                         }
                     }
 
                     SectionLabel(stringResource(R.string.ui_data))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
                             onClick = {
                                 showToolsSheet = false
                                 pendingDestructiveAction = "history"
                             },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.heightIn(min = 48.dp)
                         ) {
                             Text(stringResource(R.string.ui_clear_history))
                         }
@@ -2808,7 +2864,7 @@ private fun SkipSilencePlayerScreen(
                                 showToolsSheet = false
                                 pendingDestructiveAction = "settings"
                             },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.heightIn(min = 48.dp)
                         ) {
                             Text(stringResource(R.string.ui_reset_settings))
                         }
@@ -2873,21 +2929,31 @@ private fun SkipSilencePlayerScreen(
                         )
                     } else {
                         recentVideos.forEach { recent ->
-                            SelectRow(
-                                text = recent.name,
-                                selected = false,
-                                onClick = {
-                                    showRecentSheet = false
-                                    requestOpen(
-                                        listOf(
-                                            VideoEntry(
-                                                Uri.parse(recent.uri),
-                                                recent.name
-                                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .clickable {
+                                        showRecentSheet = false
+                                        requestOpen(
+                                            listOf(VideoEntry(Uri.parse(recent.uri), recent.name))
                                         )
-                                    )
-                                }
-                            )
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Outlined.History,
+                                    contentDescription = null,
+                                    tint = PlayerAccent
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    recent.name,
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 2
+                                )
+                            }
                         }
                         TextButton(onClick = {
                             showRecentSheet = false
@@ -2993,8 +3059,10 @@ private fun HomeScreen(
     onOpenVideo: () -> Unit,
     onOpenFolder: () -> Unit,
     onOpenRecent: (RecentVideo) -> Unit,
-    onSeeAllRecents: () -> Unit
+    onSeeAllRecents: () -> Unit,
+    onHelp: () -> Unit
 ) {
+    val centerIntro = currentVideoName == null && recentVideos.isEmpty()
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -3003,7 +3071,7 @@ private fun HomeScreen(
                     listOf(Color(0xFF101720), Color.Black)
                 )
             ),
-        contentAlignment = Alignment.TopCenter
+        contentAlignment = if (centerIntro) Alignment.Center else Alignment.TopCenter
     ) {
         Column(
             modifier = Modifier
@@ -3015,7 +3083,12 @@ private fun HomeScreen(
                 .padding(horizontal = 22.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.height(if (currentVideoName == null) 48.dp else 24.dp))
+            Spacer(
+                Modifier.height(
+                    if (centerIntro) 0.dp
+                    else if (currentVideoName == null) 48.dp else 24.dp
+                )
+            )
 
             if (currentVideoName == null) {
                 Box(
@@ -3158,15 +3231,14 @@ private fun HomeScreen(
                 }
             }
 
-            Text(
-                stringResource(R.string.ui_home_hint),
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
+            TextButton(
+                onClick = onHelp,
                 modifier = Modifier
-                    .padding(top = 26.dp, bottom = 40.dp)
-                    .fillMaxWidth()
-            )
+                    .padding(top = 18.dp, bottom = 32.dp)
+                    .heightIn(min = 48.dp)
+            ) {
+                Text(stringResource(R.string.ui_player_guide), color = PlayerAccent)
+            }
         }
     }
 }
@@ -3534,22 +3606,32 @@ private fun SheetSliderRow(
 private fun SheetSwitchRow(
     label: String,
     checked: Boolean,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange
+            )
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             label,
-            color = Color.White,
+            color = if (enabled) Color.White else Color.White.copy(alpha = 0.6f),
+            style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f)
         )
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange
+            enabled = enabled,
+            onCheckedChange = null
         )
     }
 }

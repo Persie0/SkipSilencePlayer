@@ -96,3 +96,55 @@ The original source-only **27/40** baseline, first-pass **34/40**, and second-pa
 **Remaining device acceptance:** open Library and play a video at narrow landscape and 140–200% font scale; access all tools; import a broken file and empty folder and dismiss error; verify TalkBack/VoiceOver and min touch targets; scrub boundaries with subtitles visible; verify performance with a slow SAF provider, Bluetooth disconnect, PiP and audio-only mode.
 
 Questions skipped: the user already requested implementing all fixes; device-only validation is the remaining constraint.
+
+## Third pass — gesture guidance, sheet accessibility and safe areas (2026-11-21)
+
+**Review mode: DEGRADED single-context.** The Impeccable context/detector launcher was attempted but is not installed in the current runtime; independent sub-agents are unavailable. Design and technical checks were conducted sequentially from native source. A public-runner screenshot workflow was requested to gather actual on-device render evidence.
+
+### Ranked additional findings and resolution
+
+| Priority | Finding | Source location | Fix |
+| --- | --- | --- | --- |
+| P1 | The player relies on hidden gestures after the first-run hint | ContentView home/player menu and Android HomeScreen/menu | Contextual Player guide, available from Library and playback More menu, explaining touch controls, local analysis, and advanced settings |
+| P1 | Android sleep-timer cancellation can be hidden in a horizontal scroller | MainActivity Tools sheet | FlowRow wrapping choices and a separate, always visible Cancel action |
+| P1 | A–B actions fight for limited horizontal space with long timestamps/system text | Both Tools sheets | Two primary A/B controls grouped together, destructive Clear action on its own row |
+| P1 | Android recent media appeared to accessibility services as unselected radio options | MainActivity Recent sheet | Standard text and history-icon click targets with readable multi-line filenames |
+| P2 | iOS chapter and playlist entries had small click areas/truncated labels | ContentView Tools/Playlist sheets | Minimum 44-pt targets, two-line chapter and playlist titles, selected playlist semantics |
+| P2 | Android adaptive-noise-floor toggle could be adjusted while skipping was disabled | MainActivity Silence sheet | Disabled while Skip silence is off, entire row is a single 48-dp switch target |
+| P2 | iOS subtitle import and destructive actions crowd narrow settings sheets | ContentView Subtitle/Tools sheets | Stacked import/removal and destructive actions; long filenames wrap |
+| P2 | Android locked-player unlock button sat in the top screen region without a status-bar inset | MainActivity unlock overlay | Applied statusBarsPadding so the unlock action clears the status bar/cutout |
+
+### First native screenshot review
+
+- **iPhone simulator first-run:** the application title, import cards, and guide clustered in the upper portion of the screen with a large empty lower area. The empty-state content is now centered vertically within the available height, without centering a populated Library or disabling scrolling.
+- **Android emulator (130% font):** the same first-run imbalance was present. The empty-state container now centers the import actions when no recent or active video exists; populated Library remains top-aligned. The dark player also forces light system-bar icon appearance to avoid low-contrast status icons when the device's system theme is light.
+- Captured renders: [iOS native screenshot run](https://github.com/Persie0/Playground/actions/runs/44952560304) and [Android native screenshot run](https://github.com/Persie0/Playground/actions/runs/44952918697). These screenshots were taken before the centering correction and motivated the change.
+
+### Native checks
+
+- Android unit tests/debug APK and iOS simulator compilation: [Public Playground CI](https://github.com/Persie0/Playground/actions/runs/44952448005).
+- Android phone (130% system text) and iPhone simulator screenshot capture: [Public Playground native screenshots](https://github.com/Persie0/Playground/actions/runs/44952560304).
+- Source structural scan: Swift and Kotlin delimiters balanced; all 105 referenced Android string IDs resolved, 156 total string IDs, no duplicate resource names (as of this pass).
+- No private-repository GitHub Actions runs were requested.
+
+### Rating
+
+Previous provisional assessment: **37/40**. This third pass fixes the remaining concrete source-level discoverability, touch-target, and responsive control issues. **39/40 remains a provisional source-based estimate, not a certified native UX score.** A 40/40 rating requires evidence from interactive playback, VoiceOver/TalkBack, real media, screen rotations, and multiple form factors. Native compilation and an empty-state screenshot alone are insufficient.
+
+### Device acceptance
+
+- [ ] Test playback on actual videos in both portrait and landscape, including subtitle overlays, edge seeking, locked gestures and short-window overflow
+- [ ] Verify both light/dark system accessibility settings and at least 130–200% text sizes in controls, sheets and error dialogs
+- [ ] Validate VoiceOver/TalkBack navigation and focus order for the guide, timer, radio/choice controls, destructive confirmation and playlist
+- [ ] Capture iPhone, iPad, Android phone and Android tablet screenshots and correct any visual failures
+- [ ] Verify media sessions/background audio/PiP and file permission errors with real providers
+
+Questions skipped: user explicitly requested implementing all prioritized fixes; unverified native device behavior is the remaining acceptance constraint.
+
+### Round 3 final source-pinned CI and screenshot limitations
+
+- **Native build and Android unit tests: PASSED** in [public Playground run 44953305558](https://github.com/Persie0/Playground/actions/runs/44953305558). Both the iOS simulator compile and Android unit-test/debug-APK jobs completed successfully at source commit `ac79ad452f176de36627a5c8ba5ccd02cf96ee1b`.
+- **iPhone pre-centering capture: usable** in [public run 44952560304](https://github.com/Persie0/Playground/actions/runs/44952560304); led to fixing top-heavy intro composition.
+- **Android pre-centering capture: usable** in [public run 44952918697](https://github.com/Persie0/Playground/actions/runs/44952918697); led to corresponding empty-state and status-bar adjustments.
+- **Centered Android capture** in [public run 44953309446](https://github.com/Persie0/Playground/actions/runs/44953309446) showed the new centered composition and readable status-bar icons but was obscured by a **Pixel Launcher system-process ANR dialog**. This is a snapshot validation failure and cannot count as a clean UI pass or an app crash. A clean screenshot attempt is recorded in [public run 44953670294](https://github.com/Persie0/Playground/actions/runs/44953670294).
+- Device screen-reader and in-media gesture testing remain unverified. **Do not interpret build success or first-run screenshots as a certified 40/40.**
