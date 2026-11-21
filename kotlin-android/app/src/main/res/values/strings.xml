@@ -155,4 +155,7 @@
   <string name="ui_silence_jump_explanation">Faster, more aggressive: seek over detected quiet sections. Video frames may visibly jump or buffer after a seek.</string>
   <string name="ui_silence_compact_saved">%1$s · saved %2$s</string>
   <string name="ui_silence_smooth_audio_hint">Smooth uses Media3 audio processing while the timeline remains seek-free. For the adaptive noise floor, choose Jump. Exact results depend on the audio track and device.</string>
+  <string name="ui_native_smooth_active">Smooth processing active · no timeline jumps</string>
+  <string name="ui_gestures">Playback gestures</string>
+  <string name="ui_player_gestures_help">Double-tap the left or right side to seek. Swipe vertically on the left for brightness, or on the right for volume. Swipe horizontally to scrub. Lock controls from More options.</string>
 </resources>
