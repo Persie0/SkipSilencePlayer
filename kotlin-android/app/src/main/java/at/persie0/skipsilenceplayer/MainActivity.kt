@@ -50,6 +50,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -109,6 +110,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
@@ -204,7 +206,6 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         )
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         handleOpenIntent(intent)
 
         val sessionToken = SessionToken(
@@ -1431,6 +1432,14 @@ private fun SkipSilencePlayerScreen(
         rootFocusRequester.requestFocus()
     }
 
+    LaunchedEffect(isPlaying, showLibrary, audioOnly, activity.pipMode) {
+        if (isPlaying && !showLibrary && !audioOnly && !activity.pipMode) {
+            activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     BackHandler(enabled = showPreferencesSheet) {
         showPreferencesSheet = false
     }
@@ -1619,7 +1628,7 @@ private fun SkipSilencePlayerScreen(
                 )
                 Text(
                     stringResource(R.string.ui_audio_only),
-                    color = Color.White.copy(alpha = 0.4f),
+                    color = Color.White.copy(alpha = 0.78f),
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -2256,6 +2265,12 @@ private fun SkipSilencePlayerScreen(
                     Switch(
                         checked = skipSilence,
                         onCheckedChange = { setSkipSilence(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = PlayerAccentDark,
+                            checkedTrackColor = PlayerAccent,
+                            uncheckedThumbColor = Color.White,
+                            uncheckedTrackColor = Color.White.copy(alpha = 0.22f)
+                        ),
                         modifier = Modifier.semantics {
                             contentDescription = "Skip silence"
                         }
@@ -3492,7 +3507,7 @@ private fun HomeScreen(
                 )
             ) {
                 Icon(
-                    Icons.Filled.FolderOpen,
+                    Icons.Filled.PlayArrow,
                     contentDescription = null,
                     modifier = Modifier.size(22.dp)
                 )
@@ -3738,6 +3753,7 @@ private fun PlayerChip(
                 tint = if (selected) PlayerAccent else Color.White,
                 modifier = Modifier.size(14.dp)
             )
+            Spacer(Modifier.width(6.dp))
         }
         Text(
             text,
@@ -3756,12 +3772,12 @@ private fun <T> ChoiceChips(
     label: @Composable (T) -> String,
     onSelect: (T) -> Unit
 ) {
-    Row(
+    FlowRow(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
             .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         options.forEach { option ->
             PlayerChip(
@@ -4022,7 +4038,13 @@ private fun SheetSwitchRow(
         )
         Switch(
             checked = checked,
-            onCheckedChange = null
+            onCheckedChange = null,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = PlayerAccentDark,
+                checkedTrackColor = PlayerAccent,
+                uncheckedThumbColor = Color.White,
+                uncheckedTrackColor = Color.White.copy(alpha = 0.22f)
+            )
         )
     }
 }
