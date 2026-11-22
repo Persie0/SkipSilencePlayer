@@ -69,7 +69,7 @@ struct ContentView: View {
             showingSubtitleImporter || showSpeedSheet || showSilenceSheet ||
             showSubtitleSheet || showAudioSheet || showToolsSheet ||
             showMarkersSheet || showSettingsPage || showPlaylistSheet ||
-            showRecentSheet || showingDestructiveConfirmation ||
+            showRecentSheet || showHelpSheet || showingDestructiveConfirmation ||
             model.resumePromptSeconds != nil
     }
 
@@ -994,8 +994,8 @@ struct ContentView: View {
             }
         }
         .padding(.horizontal, 18)
-        .padding(.top, compactControls ? 4 : 10)
-        .padding(.bottom, compactControls ? 8 : 30)
+        .padding(.top, compactLandscape ? 4 : 10)
+        .padding(.bottom, compactLandscape ? 8 : 30)
         .background(
             LinearGradient(
                 colors: [.black.opacity(0.82), .clear],
@@ -1009,7 +1009,7 @@ struct ContentView: View {
     // MARK: - Bottom cluster
 
     private var bottomCluster: some View {
-        VStack(spacing: compactControls ? 4 : 10) {
+        VStack(spacing: compactLandscape ? 4 : 10) {
             HStack(spacing: 8) {
                 Text(PlayerModel.format(seconds: model.currentTime))
                     .monospacedDigit()
@@ -2244,33 +2244,20 @@ private struct SeekBar: View {
                 )
 
                 if duration > 0 {
-                    // A long recording may have thousands of quiet sections.
-                    // Drawing them in one Canvas avoids creating thousands of
-                    // SwiftUI nodes on every playback-position update.
-                    Canvas { context, _ in
-                        var silencePath = Path()
-                        for range in silenceRanges {
-                            let start = min(max(range.start / duration, 0), 1)
-                            let end = min(max(range.end / duration, start), 1)
-                            guard end > start else { continue }
-                            silencePath.addRoundedRect(
-                                in: CGRect(
-                                    x: width * start,
-                                    y: 2,
-                                    width: max(width * (end - start), 1),
-                                    height: 8
-                                ),
-                                cornerSize: CGSize(width: 2, height: 2)
-                            )
-                        }
+                    for range in silenceRanges {
+                        let start = CGFloat(min(max(range.start / duration, 0), 1))
+                        let end = CGFloat(min(max(range.end / duration, Double(start)), 1))
+                        let mark = CGRect(
+                            x: width * start,
+                            y: centerY - trackHeight,
+                            width: max(width * (end - start), 1),
+                            height: trackHeight * 2
+                        )
                         context.fill(
-                            silencePath,
+                            Path(roundedRect: mark, cornerRadius: trackHeight),
                             with: .color(.white.opacity(0.42))
                         )
                     }
-                    .frame(height: 12)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
                 }
 
                 let progress = CGRect(
