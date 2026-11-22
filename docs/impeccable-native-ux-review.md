@@ -173,7 +173,7 @@ Questions skipped: user explicitly requested implementing all prioritized fixes;
 - [Initial public real-media run](https://github.com/Persie0/Playground/actions/runs/44973032343): generated MP4 opened; native unit tests and simulator compilation passed; initial player controls auto-hid during UI hierarchy inspection.
 - [Public screenshot finding](https://github.com/Persie0/Playground/actions/runs/44973422036): player loaded H.264/AAC; source-specific title, purple switch and menu behavior informed fixes.
 - [Public source-pinned run](https://github.com/Persie0/Playground/actions/runs/44974479590): **Android unit tests, debug APK, iOS simulator compile, and full Android generated-video interaction smoke PASSED**. Checked gesture guide, MP4 title, Settings, audio-only toggle and return to Library. Player screenshot exposed the next leading-navigation improvement.
-- [Final public verification run](https://github.com/Persie0/Playground/actions/runs/44974700000): placeholder; replace the exact link with a confirmed run before marking passed.
+- [Final public verification run](https://github.com/Persie0/Playground/actions/runs/44974923349): validates the screenshot-informed leading Back layout on both native build jobs and the Android real-media flow; outcome tracked by CI.
 
 No GitHub Actions were executed in SkipSilencePlayer itself. The workflow is located in public `Persie0/Playground` and uses the user-requested token preference.
 
