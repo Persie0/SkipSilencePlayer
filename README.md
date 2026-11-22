@@ -36,6 +36,15 @@ The app uses an `AVAudioSession` playback session, `MPNowPlayingInfoCenter`, and
 ## Silence skipping
 
 - Enable/disable silence skipping.
+- **Smooth (default):** accelerate the full audio/video playback timeline
+  together during analyzer-confirmed quiet intervals without decoder seeks.
+  Both platforms offer a separate 2×–8× quiet-section acceleration setting.
+  Android applies rate ramps through Media3/ExoPlayer; iOS uses AVPlayer,
+  restoring normal playback speed before speech resumes. On iOS, rates above
+  2× require AVPlayerItem.canPlayFastForward and may be choppy for some codecs;
+  unsupported files fall back to 2× while preserving the saved preference.
+- **Jump (optional):** seek across analyzed quiet intervals for more aggressive
+  time saving. Jump may visibly interrupt video frames/rebuffer.
 - Silence threshold from -60 dB to -20 dB.
 - Minimum silence duration from 0.2 s to 2.0 s.
 - Adjustable edge retention/padding.
@@ -53,9 +62,35 @@ Balanced defaults:
 | Playback speed | 1.0× |
 | Double-tap seek | 10 s |
 
-Android uses a configurable Media3 `SilenceSkippingAudioProcessor` during playback.
+Android Smooth uses the decoded RMS silence map to vary playback speed for
+audio and video together; unanalysed sections continue at the normal speed.
+Jump uses hard `seekTo()` only within verified quiet ranges, optionally
+falling back to Media3's native audio silence processor before the map is
+ready. The adaptive noise-floor classifier applies to both timeline modes.
 
-iOS analyzes decoded PCM locally with `AVAssetReader`, detects sustained low-RMS ranges, and seeks across those ranges during `AVPlayer` playback. The analysis stays on-device.
+iOS analyzes decoded PCM locally with `AVAssetReader`, detects sustained
+low-RMS ranges, and accelerates `AVPlayer` through those quiet ranges in
+Smooth mode. Jump mode retains confirmed timeline seeks. The analysis remains
+on-device and normal playback speed is restored on pause/seek/media changes.
+
+## Overlay rotation and high-speed playback (November 2026)
+
+- iOS Smooth quiet-part speed is independently configurable in **Silence
+  skipping → Smooth → Accelerate silence**, from 2× to 8× in half-step
+  increments. The preferred value is persisted and reset with other settings.
+  Playback at speeds over 2× is requested only when the current AVPlayerItem
+  reports high-speed support; video/audio fidelity can vary by codec/device.
+- Android displays video in a Media3 **TextureView** rather than a SurfaceView
+  to keep the output surface in the Compose hierarchy while a full-screen
+  Settings overlay is shown and the device rotates. This avoids the known
+  SurfaceView-plus-overlay recreation failure mode but may use more GPU/power.
+- iOS retains the same AVPlayerLayer/player binding across SwiftUI recomposition
+  when Settings is shown or the device rotates.
+- On-device regression cases: play a video, open Settings, rotate portrait ↔
+  landscape, dismiss Settings, confirm moving video frames *and* audio;
+  repeat with silence mode toggled and with Picture-in-Picture disabled.
+  Test iOS fast forward on items that support and do not support >2×, with
+  external subtitles and audio interruptions.
 
 ## Playback-state follow-up (November 2026)
 
@@ -87,8 +122,9 @@ real-world playback remain device-QA requirements.
   time. Failed, superseded, or manual seeks are not counted as automatic savings.
 - A pending automatic seek blocks duplicate seeks while Media3 processes it.
   Analyzed ranges are used only within their verified decoded coverage.
-- When playback runs beyond a progressive analysis map, Android temporarily
-  returns to native Media3 silence skipping until the analyzed range catches up.
+- Android Smooth accelerates decoded quiet ranges with speed ramps; Jump
+  uses the analyzed timeline where verified and falls back to native audio
+  processing where the progressive map has not yet reached.
 - The Android and iOS loudness calibration uses a bounded 0.1 dB histogram
   instead of sorting the entire recording at every progress update.
 - Audio analysis adapts its PCM window size for long recordings to constrain
@@ -112,16 +148,22 @@ silence. The default **Adaptive noise floor** setting calibrates a conservative
 threshold for each recording and protects quiet speech when the voice/noise
 distributions overlap. Switch Adaptive off to enforce the manual dB threshold.
 
-- The silent regions shown on the seek bar are the same ranges used for
-  timestamp-based skipping on Android and iOS.
+- The silent regions on the seek bar visualize locally decoded audio ranges.
+  They guide Jump and Smooth on both platforms; Smooth accelerates audio and
+  video together instead of independently shortening only the audio.
 - Both platforms publish provisional ranges after initial audio decoding and
   refine the map as analysis continues. The displayed watch-time estimate is
   provisional until analysis completes.
-- Android owns the analysis and seek loop in the media service, so background
-  playback does not depend on a Compose UI being mounted.
-- The native Media3 processor is only used as a fallback before a map becomes
-  available or when platform decoding fails. The two strategies are never
-  intentionally active at the same time.
+- Android owns the Smooth speed-control loop and optional Jump seek loop in
+  the media service, so background playback does not depend on a Compose UI.
+- Smooth mode never issues automatic timeline seeks. Only Jump mode may seek,
+  and never while native silence shortening is active for that portion of the
+  analyzed timeline. Switching modes does not recreate the player.
+- Long Android media decoding starts after the playback pipeline is ready,
+  scans only a bounded distance ahead of playback and publishes early previews.
+  On a runtime decoder failure, a one-time platform audio-sink recovery is
+  attempted without discarding the queue or user playback position. Analysis
+  is paused for the failed video but resumes on unaffected media.
 - Conservative minimum duration and edge padding are designed to avoid
   clipping speech. A noise floor that cannot be reliably distinguished from
   quiet dialogue is intentionally left unskipped.
@@ -163,6 +205,27 @@ false-positive skipping of quiet speech.
 vendor-specific hardware decoders, Android SAF providers, iOS external-file
 bookmarks, PiP, and real-world dialogue/background-music content cannot be
 fully validated by these CI builds alone.
+
+## Playback navigation and device-adaptive UI
+
+- **Library** combines Continue Watching, file and folder opening, recent-video
+  search, per-video resume timestamps, and recent-folder shortcuts. Folder
+  selections are remembered using platform-supported persistent document
+  permissions (Android) or bookmarks (iOS); inaccessible folders report errors.
+- **Up Next** lists the current playlist and lets the user jump between videos.
+- **Markers** holds A–B repeat, bookmarks and chapters. **Tools** holds
+  contextual playback controls and the sleep timer; **Settings** owns aspect
+  ratio, double-tap seeking, resume behavior, audio-only mode, and destructive
+  data actions.
+- Compact landscape phones show a reduced overlay with seek timeline, transport,
+  silence skipping, and tools; portrait retains the richer control layout.
+- Minimum touch targets have been improved for recently opened items, the iOS
+  chapter and bookmark controls, and the unlock affordance.
+- All these surfaces remain native Compose or SwiftUI.
+
+**Still required:** physical Android/iOS QA for rotated short screens,
+subtitle overlap, screen readers, large system fonts, security-scoped folders,
+and gesture conflicts; compilation alone does not validate their appearance.
 
 ## Playback interface
 

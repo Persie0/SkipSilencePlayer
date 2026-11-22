@@ -12,6 +12,12 @@ struct RecentVideo: Identifiable, Codable, Equatable {
     let bookmarkBase64: String
 }
 
+struct RecentFolder: Identifiable, Codable, Equatable {
+    let id: String
+    let name: String
+    let bookmarkBase64: String
+}
+
 struct SubtitleCue: Equatable, Sendable {
     let start: Double
     let end: Double
@@ -46,6 +52,19 @@ private struct PersistedPlaylistEntry: Codable {
 private struct PersistedPlaylistState: Codable {
     let entries: [PersistedPlaylistEntry]
     let selectedID: String?
+}
+
+enum SilencePlaybackMode: String, CaseIterable, Identifiable {
+    case smooth
+    case jump
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .smooth: return "Smooth"
+        case .jump: return "Jump"
+        }
+    }
 }
 
 enum ResumeMode: String, CaseIterable, Identifiable {
@@ -161,6 +180,8 @@ final class PlayerModel: NSObject, ObservableObject {
     @Published private(set) var estimatedWatchTime = 0.0
 
     @Published private(set) var silenceEnabled: Bool
+    @Published private(set) var silencePlaybackMode: SilencePlaybackMode
+    @Published private(set) var silenceAccelerationSpeed: Double
     @Published private(set) var adaptiveSilenceEnabled: Bool
     @Published private(set) var effectiveSilenceThresholdDB = -42.0
     @Published private(set) var silenceThresholdDB: Double
@@ -173,6 +194,7 @@ final class PlayerModel: NSObject, ObservableObject {
     @Published private(set) var volume = 1.0
 
     @Published private(set) var recentVideos: [RecentVideo]
+    @Published private(set) var recentFolders: [RecentFolder]
     @Published private(set) var playlist: [PlaylistEntry] = []
     @Published private(set) var playlistIndex = 0
 
@@ -219,6 +241,8 @@ final class PlayerModel: NSObject, ObservableObject {
 
     var hasLoadedMedia: Bool { selectedURL != nil }
     private var jumpingOverSilence = false
+    private var smoothSilenceActive = false
+    private var lastSmoothSampleUptime: TimeInterval?
     private var skipSeekGeneration = 0
     private var manualSeekPending = false
     private var manualSeekGeneration = 0
@@ -240,6 +264,15 @@ final class PlayerModel: NSObject, ObservableObject {
     override init() {
         silenceEnabled =
             (UserDefaults.standard.object(forKey: "silenceEnabled") as? Bool) ?? true
+        silencePlaybackMode = SilencePlaybackMode(
+            rawValue: UserDefaults.standard.string(forKey: "silencePlaybackMode") ?? ""
+        ) ?? .smooth
+        let savedAcceleration = Self.savedDouble(
+            "silenceAccelerationSpeed", fallback: 2.0
+        )
+        silenceAccelerationSpeed = savedAcceleration.isFinite
+            ? min(max(savedAcceleration, 2.0), 8.0)
+            : 2.0
         adaptiveSilenceEnabled =
             (UserDefaults.standard.object(forKey: "adaptiveSilenceEnabled") as? Bool)
                 ?? true
@@ -269,6 +302,12 @@ final class PlayerModel: NSObject, ObservableObject {
         ) ?? .ask
 
         recentVideos = Self.loadRecentVideos()
+        if let data = defaults.data(forKey: "recentFolders"),
+           let folders = try? JSONDecoder().decode([RecentFolder].self, from: data) {
+            recentFolders = folders
+        } else {
+            recentFolders = []
+        }
 
         super.init()
 
@@ -425,7 +464,8 @@ final class PlayerModel: NSObject, ObservableObject {
         )
     }
 
-    func requestFolder(url: URL) {
+    @discardableResult
+    func requestFolder(url: URL) -> Bool {
         releasePlaylistSecurityScope()
         playlistSecurityURL = url
         hasPlaylistSecurityScope = url.startAccessingSecurityScopedResource()
@@ -448,7 +488,7 @@ final class PlayerModel: NSObject, ObservableObject {
         ) else {
             playbackError = "Could not read the selected folder."
             releasePlaylistSecurityScope()
-            return
+            return false
         }
 
         var urls: [URL] = []
@@ -476,7 +516,9 @@ final class PlayerModel: NSObject, ObservableObject {
         if urls.isEmpty {
             playbackError = "No supported video files were found in that folder."
             releasePlaylistSecurityScope()
+            return false
         } else {
+            rememberRecentFolder(url)
             let entries = urls.map {
                 PlaylistEntry(
                     id: Self.stableID($0.absoluteString),
@@ -485,7 +527,36 @@ final class PlayerModel: NSObject, ObservableObject {
                 )
             }
             requestLoad(entries: entries)
+            return true
         }
+    }
+
+    private func rememberRecentFolder(_ url: URL) {
+        guard let bookmark = try? url.bookmarkData(
+            options: [],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        ) else { return }
+
+        let folder = RecentFolder(
+            id: Self.stableID(url.absoluteString),
+            name: url.lastPathComponent,
+            bookmarkBase64: bookmark.base64EncodedString()
+        )
+        recentFolders = ([folder] + recentFolders.filter { $0.id != folder.id })
+            .prefix(6).map { $0 }
+        if let data = try? JSONEncoder().encode(recentFolders) {
+            defaults.set(data, forKey: "recentFolders")
+        }
+    }
+
+    @discardableResult
+    func openRecentFolder(_ folder: RecentFolder) -> Bool {
+        guard let url = Self.resolveBookmark(folder.bookmarkBase64) else {
+            playbackError = "Could not reopen \(folder.name). Choose it again from Files."
+            return false
+        }
+        return requestFolder(url: url)
     }
 
     func dismissPlaybackError() {
@@ -493,12 +564,33 @@ final class PlayerModel: NSObject, ObservableObject {
         playbackError = nil
     }
 
-    func openRecent(_ recent: RecentVideo) {
+    func resumeTimeLabel(for recent: RecentVideo) -> String? {
+        let key = "video.\(recent.id).position"
+        guard defaults.object(forKey: key) != nil else { return nil }
+        let seconds = defaults.double(forKey: key)
+        guard seconds >= 5 else { return nil }
+        return "Resume at " + Self.format(seconds: seconds)
+    }
+
+    @discardableResult
+    func openRecent(_ recent: RecentVideo) -> Bool {
         guard let url = Self.resolveBookmark(recent.bookmarkBase64) else {
             playbackError = "Could not reopen \(recent.name). The file may have moved or access expired."
-            return
+            return false
         }
+
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer {
+            if scoped { url.stopAccessingSecurityScopedResource() }
+        }
+        guard (try? url.checkResourceIsReachable()) == true else {
+            playbackError = "Could not reopen \(recent.name). Choose the file again from Files."
+            return false
+        }
+
+        playbackError = nil
         requestLoad(urls: [url])
+        return true
     }
 
     func openExternalURL(_ url: URL) {
@@ -543,6 +635,7 @@ final class PlayerModel: NSObject, ObservableObject {
     }
 
     func pause() {
+        resetSmoothSilenceRate()
         player.pause()
         isPlaying = false
         saveCurrentVideoState()
@@ -563,6 +656,7 @@ final class PlayerModel: NSObject, ObservableObject {
     }
 
     func seek(to seconds: Double) {
+        resetSmoothSilenceRate()
         let upper = duration > 0 ? duration : max(currentTime, 0)
         let target = min(max(0, seconds), max(upper, 0))
         skipSeekGeneration += 1
@@ -592,11 +686,47 @@ final class PlayerModel: NSObject, ObservableObject {
         if !enabled {
             skipSeekGeneration += 1
             jumpingOverSilence = false
+            resetSmoothSilenceRate()
         }
         silenceEnabled = enabled
         defaults.set(enabled, forKey: "silenceEnabled")
         saveCurrentVideoState()
         recalculateEstimatedWatchTime()
+    }
+
+    func setSilencePlaybackMode(_ mode: SilencePlaybackMode) {
+        guard silencePlaybackMode != mode else { return }
+        skipSeekGeneration += 1
+        jumpingOverSilence = false
+        resetSmoothSilenceRate()
+        silencePlaybackMode = mode
+        defaults.set(mode.rawValue, forKey: "silencePlaybackMode")
+        recalculateEstimatedWatchTime()
+    }
+
+    func setSilenceAccelerationSpeed(_ speed: Double) {
+        guard speed.isFinite else { return }
+        let next = (speed * 2).rounded() / 2
+        silenceAccelerationSpeed = min(max(next, 2.0), 8.0)
+        defaults.set(silenceAccelerationSpeed, forKey: "silenceAccelerationSpeed")
+        recalculateEstimatedWatchTime()
+    }
+
+    /// Apple only guarantees 1–2× playback. Rates above 2× are allowed
+    /// when the loaded AVPlayerItem advertises canPlayFastForward.
+    var highSpeedSilenceAvailable: Bool {
+        player.currentItem?.status == .readyToPlay &&
+            player.currentItem?.canPlayFastForward == true
+    }
+
+    /// The highest quiet-section speed currently permitted by this media item.
+    /// The actual rate ramps below this limit near speech boundaries.
+    var availableSilenceAccelerationSpeed: Double {
+        highSpeedSilenceAvailable ? silenceAccelerationSpeed : 2.0
+    }
+
+    private var effectiveSilenceAccelerationSpeed: Double {
+        max(playbackSpeed, availableSilenceAccelerationSpeed)
     }
 
     func setAdaptiveSilenceEnabled(_ enabled: Bool) {
@@ -619,6 +749,7 @@ final class PlayerModel: NSObject, ObservableObject {
     func applySilenceSettings() {
         skipSeekGeneration += 1
         jumpingOverSilence = false
+        resetSmoothSilenceRate()
         silenceThresholdDB = silenceThresholdDB.rounded()
         minimumSilence = (minimumSilence * 20).rounded() / 20
         edgePadding = (edgePadding * 100).rounded() / 100
@@ -643,6 +774,9 @@ final class PlayerModel: NSObject, ObservableObject {
     func setPlaybackSpeed(_ value: Double) {
         playbackSpeed = min(max((value * 4).rounded() / 4, 0.5), 3)
         player.defaultRate = Float(playbackSpeed)
+        // The next observer tick will recompute the quiet-region acceleration
+        // using this new baseline. Avoid persisting the accelerated rate.
+        resetSmoothSilenceRate()
         if isPlaying {
             player.rate = Float(playbackSpeed)
         }
@@ -913,7 +1047,9 @@ final class PlayerModel: NSObject, ObservableObject {
 
     func clearHistory() {
         recentVideos = []
+        recentFolders = []
         defaults.removeObject(forKey: "recentVideos")
+        defaults.removeObject(forKey: "recentFolders")
         defaults.removeObject(forKey: "lastPlaylistState")
 
         for key in defaults.dictionaryRepresentation().keys
@@ -924,6 +1060,8 @@ final class PlayerModel: NSObject, ObservableObject {
 
     func resetSettings() {
         silenceEnabled = true
+        silencePlaybackMode = .smooth
+        silenceAccelerationSpeed = 2.0
         silenceThresholdDB = -42
         adaptiveSilenceEnabled = true
         minimumSilence = 0.45
@@ -942,6 +1080,8 @@ final class PlayerModel: NSObject, ObservableObject {
         resumeMode = .ask
 
         defaults.set(true, forKey: "silenceEnabled")
+        defaults.set(SilencePlaybackMode.smooth.rawValue, forKey: "silencePlaybackMode")
+        defaults.set(2.0, forKey: "silenceAccelerationSpeed")
         defaults.set(-42.0, forKey: "silenceThresholdDB")
         defaults.set(true, forKey: "adaptiveSilenceEnabled")
         defaults.set(0.45, forKey: "minimumSilence")
@@ -988,6 +1128,7 @@ final class PlayerModel: NSObject, ObservableObject {
         position: Double,
         autoPlay: Bool = true
     ) {
+        resetSmoothSilenceRate()
         guard playlist.indices.contains(playlistIndex) else { return }
 
         if hasSecurityScope {
@@ -1063,6 +1204,7 @@ final class PlayerModel: NSObject, ObservableObject {
         abEnd = nil
 
         let item = AVPlayerItem(url: url)
+        item.audioTimePitchAlgorithm = .spectral
         player.replaceCurrentItem(with: item)
         player.defaultRate = Float(playbackSpeed)
 
@@ -1414,9 +1556,19 @@ final class PlayerModel: NSObject, ObservableObject {
         updateNowPlaying()
     }
 
+    private func ifSmoothEstimatedSkip() -> Double {
+        guard silenceEnabled else { return 0 }
+        if silencePlaybackMode == .jump { return totalSkippableTime }
+        // Smooth mode accelerates rather than completely removing quiet media.
+        // The estimate respects the current media item's fast-forward support.
+        let fastRate = effectiveSilenceAccelerationSpeed
+        guard fastRate > playbackSpeed else { return 0 }
+        return totalSkippableTime * (1 - playbackSpeed / fastRate)
+    }
+
     private func recalculateEstimatedWatchTime() {
         let mediaSeconds = duration > 0 ? duration : 0
-        let skip = silenceEnabled ? totalSkippableTime : 0
+        let skip = ifSmoothEstimatedSkip()
         estimatedWatchTime =
             max(0, mediaSeconds - skip) / max(playbackSpeed, 0.5)
     }
@@ -1948,6 +2100,11 @@ final class PlayerModel: NSObject, ObservableObject {
             updateNowPlaying()
         }
 
+        if silencePlaybackMode == .smooth {
+            updateSmoothSilenceRate()
+            return
+        }
+
         guard
             silenceEnabled,
             isPlaying,
@@ -1988,6 +2145,82 @@ final class PlayerModel: NSObject, ObservableObject {
                 self.skippedTime += reached - beforeSeek
             }
         }
+    }
+
+    /// Keep the timeline continuous: gently increase the AVPlayer rate only
+    /// within known quiet samples, then restore the user's chosen speed before
+    /// speech resumes. No decoder seeks are issued in this mode.
+    private func updateSmoothSilenceRate() {
+        let now = ProcessInfo.processInfo.systemUptime
+        if let last = lastSmoothSampleUptime,
+           smoothSilenceActive,
+           player.rate > 0 {
+            let elapsed = min(0.25, max(0, now - last))
+            let extraMediaSeconds = max(0, Double(player.rate) - playbackSpeed)
+            skippedTime += elapsed * extraMediaSeconds
+        }
+        lastSmoothSampleUptime = now
+
+        guard silenceEnabled,
+              isPlaying,
+              player.rate > 0,
+              !manualSeekPending,
+              !jumpingOverSilence,
+              let range = SilenceAnalyzer.range(
+                containing: currentTime, in: silenceRanges
+              ) else {
+            resetSmoothSilenceRate()
+            return
+        }
+
+        let end = abEnd.map { min(range.end, $0) } ?? range.end
+        let remaining = end - currentTime
+        guard remaining > 0.06 else {
+            resetSmoothSilenceRate()
+            return
+        }
+
+        // AVFoundation only guarantees up to 2× for all ready items.
+        // Faster rates are attempted only when this item supports fast-forward.
+        let fastRate = effectiveSilenceAccelerationSpeed
+        guard fastRate > playbackSpeed + 0.05 else {
+            resetSmoothSilenceRate()
+            return
+        }
+        let edge = min(0.25, max(0.08, (end - range.start) / 3))
+        let progress = min(1, max(0, (currentTime - range.start) / edge))
+        let fadeOut = min(1, max(0, remaining / edge))
+        let blend = min(progress, fadeOut)
+        let desiredRate = playbackSpeed + (fastRate - playbackSpeed) * blend
+
+        // The player observer runs approximately every 80 ms, but its
+        // callbacks can be delayed by frame decoding and UI work. At 8× one
+        // tick can traverse over half a second of media. Slow down *before*
+        // reaching the end of the detected silence so the next observation
+        // does not land well inside the following speech.
+        //
+        // 160 ms of wall-clock lookahead plus 180 ms of media guard is a
+        // conservative safety margin, not a promise of sample-accurate edits.
+        let protectedTailSeconds = 0.18
+        let observationHorizonSeconds = 0.16
+        let boundarySafeRate = max(
+            playbackSpeed,
+            (remaining - protectedTailSeconds) / observationHorizonSeconds
+        )
+        let target = min(desiredRate, boundarySafeRate)
+
+        if abs(Double(player.rate) - target) >= 0.10 {
+            player.rate = Float(target)
+        }
+        smoothSilenceActive = target > playbackSpeed + 0.05
+    }
+
+    private func resetSmoothSilenceRate() {
+        if smoothSilenceActive && player.rate > 0 {
+            player.rate = Float(playbackSpeed)
+        }
+        smoothSilenceActive = false
+        lastSmoothSampleUptime = nil
     }
 
     private func updateExternalSubtitle(at time: Double) {
