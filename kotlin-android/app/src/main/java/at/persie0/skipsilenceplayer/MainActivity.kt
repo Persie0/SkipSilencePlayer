@@ -858,7 +858,8 @@ private fun SkipSilencePlayerScreen(
             if (
                 available.isNotEmpty() &&
                 player.mediaItemCount == 0 &&
-                activity.incomingUri == null
+                activity.incomingUri == null &&
+                pendingResume == null
             ) {
                 val restoredIndex = available.indexOfFirst {
                     it.uri.toString() == restored.currentUri
