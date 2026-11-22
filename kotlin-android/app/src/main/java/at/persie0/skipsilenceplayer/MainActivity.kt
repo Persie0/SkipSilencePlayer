@@ -153,6 +153,7 @@ import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -1855,7 +1856,8 @@ private fun SkipSilencePlayerScreen(
                             color = Color.White,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 14.sp,
-                            maxLines = if (compactLandscape) 1 else 2
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         if (fileInfo.isNotBlank()) {
                             Text(
