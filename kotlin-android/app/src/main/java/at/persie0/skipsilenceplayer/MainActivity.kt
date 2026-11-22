@@ -142,7 +142,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -151,7 +150,6 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -1464,6 +1462,7 @@ private fun SkipSilencePlayerScreen(
             !showSpeedSheet && !showSilenceSheet && !showSubtitleSheet &&
             !showAudioSheet && !showToolsSheet && !showPlaylistSheet &&
             !showRecentSheet && !showPreferencesSheet && !showMarkersSheet &&
+            !showHelpSheet &&
             pendingResume == null && pendingDestructiveAction == null
     ) {
         if (gestureLocked) {
@@ -1497,7 +1496,8 @@ private fun SkipSilencePlayerScreen(
                         showPlaylistSheet ||
                         showRecentSheet ||
                         showPreferencesSheet ||
-                        showMarkersSheet
+                        showMarkersSheet ||
+                        showHelpSheet
 
                 if (
                     anySheetOpen ||
