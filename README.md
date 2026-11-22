@@ -36,10 +36,11 @@ The app uses an `AVAudioSession` playback session, `MPNowPlayingInfoCenter`, and
 ## Silence skipping
 
 - Enable/disable silence skipping.
-- **Smooth (default):** avoid abrupt timeline seeks. Android uses Media3's
-  silence-shortening PCM processor with edge retention and its audio ramp;
-  iOS gradually accelerates video through analyzed quiet intervals (adjustable
-  2×–8×), restoring normal playback speed before speech resumes. Rates above
+- **Smooth (default):** accelerate the full audio/video playback timeline
+  together during analyzer-confirmed quiet intervals without decoder seeks.
+  Both platforms offer a separate 2×–8× quiet-section acceleration setting.
+  Android applies rate ramps through Media3/ExoPlayer; iOS uses AVPlayer,
+  restoring normal playback speed before speech resumes. On iOS, rates above
   2× require AVPlayerItem.canPlayFastForward and may be choppy for some codecs;
   unsupported files fall back to 2× while preserving the saved preference.
 - **Jump (optional):** seek across analyzed quiet intervals for more aggressive
@@ -61,12 +62,11 @@ Balanced defaults:
 | Playback speed | 1.0× |
 | Double-tap seek | 10 s |
 
-Android keeps a configurable Media3 `SilenceSkippingAudioProcessor` active in
-Smooth mode, even after background analysis completes. Only Jump mode uses
-hard `seekTo()` for analyzed quiet ranges; outside safe decoded coverage it
-falls back to the native processor. Adaptive noise-floor detection controls
-the Jump mode's timeline map; Smooth's audio processor uses the selected
-threshold/minimum/padding directly.
+Android Smooth uses the decoded RMS silence map to vary playback speed for
+audio and video together; unanalysed sections continue at the normal speed.
+Jump uses hard `seekTo()` only within verified quiet ranges, optionally
+falling back to Media3's native audio silence processor before the map is
+ready. The adaptive noise-floor classifier applies to both timeline modes.
 
 iOS analyzes decoded PCM locally with `AVAssetReader`, detects sustained
 low-RMS ranges, and accelerates `AVPlayer` through those quiet ranges in
@@ -122,9 +122,9 @@ real-world playback remain device-QA requirements.
   time. Failed, superseded, or manual seeks are not counted as automatic savings.
 - A pending automatic seek blocks duplicate seeks while Media3 processes it.
   Analyzed ranges are used only within their verified decoded coverage.
-- Android Smooth always uses native Media3 silence shortening. Jump uses the
-  analyzed timeline where verified and falls back to native processing where
-  the progressive analysis map has not yet reached.
+- Android Smooth accelerates decoded quiet ranges with speed ramps; Jump
+  uses the analyzed timeline where verified and falls back to native audio
+  processing where the progressive map has not yet reached.
 - The Android and iOS loudness calibration uses a bounded 0.1 dB histogram
   instead of sorting the entire recording at every progress update.
 - Audio analysis adapts its PCM window size for long recordings to constrain
@@ -149,16 +149,21 @@ threshold for each recording and protects quiet speech when the voice/noise
 distributions overlap. Switch Adaptive off to enforce the manual dB threshold.
 
 - The silent regions on the seek bar visualize locally decoded audio ranges.
-  They guide Jump mode on both platforms and smooth acceleration on iOS; on
-  Android Smooth uses its independent real-time PCM silence detector.
+  They guide Jump and Smooth on both platforms; Smooth accelerates audio and
+  video together instead of independently shortening only the audio.
 - Both platforms publish provisional ranges after initial audio decoding and
   refine the map as analysis continues. The displayed watch-time estimate is
   provisional until analysis completes.
-- Android owns silence processing and the optional Jump seek loop in the
-  media service, so background playback does not depend on a Compose UI.
+- Android owns the Smooth speed-control loop and optional Jump seek loop in
+  the media service, so background playback does not depend on a Compose UI.
 - Smooth mode never issues automatic timeline seeks. Only Jump mode may seek,
   and never while native silence shortening is active for that portion of the
-  analyzed timeline. Changing modes does not recreate the player.
+  analyzed timeline. Switching modes does not recreate the player.
+- Long Android media decoding starts after the playback pipeline is ready,
+  scans only a bounded distance ahead of playback and publishes early previews.
+  On a runtime decoder failure, a one-time platform audio-sink recovery is
+  attempted without discarding the queue or user playback position. Analysis
+  is paused for the failed video but resumes on unaffected media.
 - Conservative minimum duration and edge padding are designed to avoid
   clipping speech. A noise floor that cannot be reliably distinguished from
   quiet dialogue is intentionally left unskipped.
