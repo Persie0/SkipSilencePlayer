@@ -208,7 +208,9 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         )
-        handleOpenIntent(intent)
+        // A configuration change (including system font scaling) must not
+        // replay the original shared-video ACTION_VIEW intent.
+        if (savedInstanceState == null) handleOpenIntent(intent)
 
         val sessionToken = SessionToken(
             this,
@@ -257,6 +259,16 @@ class MainActivity : ComponentActivity() {
 
     fun consumeIncomingUri() {
         incomingUri = null
+        // An external video is a one-shot command. Once it has been consumed,
+        // clear ACTION_VIEW so an activity/process recreation does not reopen
+        // the same video and unexpectedly navigate away from the Library.
+        val currentIntent = intent
+        if (currentIntent?.action == Intent.ACTION_VIEW) {
+            setIntent(Intent(currentIntent).apply {
+                action = Intent.ACTION_MAIN
+                data = null
+            })
+        }
     }
 
     override fun onDestroy() {
