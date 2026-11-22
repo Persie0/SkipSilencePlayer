@@ -158,7 +158,9 @@ class PlaybackService : MediaSessionService() {
     private var lastSpeedPositionMs = -1L
     private var lastSpeedValue = 1f
     private var fallbackAudioSink = false
+    private var analysisSuppressedUri: Uri? = null
     private var recoveredMediaId: String? = null
+    private var lastPlaybackSpeedUpdateMs = 0L
     private var timelineSkipSeconds = 0f
     private var repeatEndMs: Long? = null
     private var currentConfig = SilenceConfig(-42f, 0.45f, 0.08f)
@@ -353,8 +355,16 @@ class PlaybackService : MediaSessionService() {
             silentRanges = PlaybackRuntime.silenceRanges,
             active = canAccelerate
         )
-        if (abs(oldSpeed - target) >= 0.08f) {
+        val restoreSpeech = target <= basePlaybackSpeed + 0.02f &&
+            oldSpeed > basePlaybackSpeed + 0.1f
+        // Avoid reconfiguring the codec/audio time-stretch chain on every
+        // 35 ms polling tick. Speech restoration must remain immediate.
+        if (
+            abs(oldSpeed - target) >= 0.12f &&
+            (restoreSpeech || now - lastPlaybackSpeedUpdateMs >= 100L)
+        ) {
             player.setPlaybackSpeed(target)
+            lastPlaybackSpeedUpdateMs = now
         }
     }
 
@@ -465,6 +475,7 @@ class PlaybackService : MediaSessionService() {
             smoothSavedSeconds = 0f
             lastSpeedSampleMs = 0L
             lastSpeedPositionMs = -1L
+            lastPlaybackSpeedUpdateMs = 0L
         }
 
         analyzedUri = uri
@@ -479,10 +490,10 @@ class PlaybackService : MediaSessionService() {
             uri != null
         )
         if (uri == null) return
-        if (fallbackAudioSink) {
+        if (fallbackAudioSink && uri == analysisSuppressedUri) {
             PlaybackRuntime.publishAnalysis(
                 emptyList(),
-                "Analysis disabled after decoder recovery to protect playback",
+                "Analysis paused for this video after decoder recovery",
                 currentConfig.thresholdDb,
                 false
             )
@@ -721,6 +732,7 @@ class PlaybackService : MediaSessionService() {
             false
         )
         fallbackAudioSink = true
+        analysisSuppressedUri = failed.currentMediaItem?.localConfiguration?.uri
         observedNativeSavedSeconds = 0f
         smoothSavedSeconds = 0f
         timelineSkipSeconds = previousSaved
@@ -808,6 +820,9 @@ class PlaybackService : MediaSessionService() {
                     mediaItem: MediaItem?,
                     reason: Int
                 ) {
+                    if (mediaItem?.mediaId != recoveredMediaId) {
+                        recoveredMediaId = null
+                    }
                     chapterMap.clear()
                     selectedAudioSignature = ""
                     PlaybackRuntime.updateChapters(emptyList())
