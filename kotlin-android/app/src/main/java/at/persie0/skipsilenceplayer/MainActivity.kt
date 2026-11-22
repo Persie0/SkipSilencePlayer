@@ -489,7 +489,15 @@ private fun SkipSilencePlayerScreen(
     val latestAnalyzedQuietSeconds by rememberUpdatedState(analyzedQuietSeconds)
 
     var controlsVisible by remember { mutableStateOf(true) }
-    var showLibrary by rememberSaveable { mutableStateOf(false) }
+    // Preserve the user's current route across Android configuration/process
+    // restarts (for example, changing accessibility font scale in Settings).
+    // rememberSaveable alone does not cover every external system restart.
+    var showLibrary by rememberSaveable {
+        mutableStateOf(preferences.getBoolean("library_visible", false))
+    }
+    LaunchedEffect(showLibrary) {
+        preferences.edit().putBoolean("library_visible", showLibrary).apply()
+    }
     var libraryError by remember { mutableStateOf<String?>(null) }
     var rootHeightPx by remember { mutableIntStateOf(0) }
     var bottomControlsHeightPx by remember { mutableIntStateOf(0) }
