@@ -223,12 +223,15 @@ Strengths: (1) high-priority video and transport actions remain visible, (2) spe
 | P2 | iOS subtitle import/remove, chapters, playlist and recent filenames clipped or were crowded | Separate actions, two-line labels, 44-pt row targets |
 | P2 | iOS sheet selection states were not announced reliably | Selected accessibility traits on real chip/list choices |
 | P2 | Android compact-landscape silence switch inherited a purple thumb | Teal track and deep-teal thumb consistent with portrait |
+| P1 | First-run iPhone/iPad Library was top-heavy and stretched on tablet | Vertically center the truly empty state and constrain content to 700 pt on iPad |
 
 ### Assessment B: native code and screenshot audit
 
 - Static scan of current PR: four iOS responsive grids, explicit Done/Cancel, Android modal playback error and Back unlock all present.
 - Android resources: **120 source-referenced string IDs**, no missing IDs or duplicate string names.
-- [Public Playground native validation and screenshots](https://github.com/Persie0/Playground/actions/runs/44977446103): Android unit tests/APK/generated-video UI plus iPhone and iPad simulator builds/screenshots. Do **not** infer a pass before jobs complete.
+- [Public Playground run 44977446103](https://github.com/Persie0/Playground/actions/runs/44977446103): **PASSED** Android unit tests/APK, generated-video playback, gesture-lock → system Back unlock, Settings and Library navigation; iOS simulator build, iPhone and iPad launches and native PNG screenshot captures also passed.
+- The first iPhone/iPad screenshots showed a top-heavy empty Library and nearly edge-to-edge action bars on iPad. The revised view centers only the truly empty state and caps content width at 700 pt.
+- [iOS layout confirmation run 44977905944](https://github.com/Persie0/Playground/actions/runs/44977905944) tests the responsive correction with iPhone and iPad native screenshots. The outcome must be checked before claiming success.
 - No private-repository GitHub Actions. All runner jobs and artifacts remain in public `Persie0/Playground`.
 
 ### Non-certified acceptance conditions
