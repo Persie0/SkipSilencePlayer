@@ -1896,7 +1896,10 @@ private fun SkipSilencePlayerScreen(
                                         )
                                     }
                                 },
-                                onClick = { audioOnly = !audioOnly }
+                                onClick = {
+                                    overflowOpen = false
+                                    audioOnly = !audioOnly
+                                }
                             )
                             HorizontalDivider()
                             DropdownMenuItem(
