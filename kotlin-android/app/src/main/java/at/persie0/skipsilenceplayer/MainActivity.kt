@@ -2815,6 +2815,7 @@ private fun SkipSilencePlayerScreen(
                                     minutes.toInt()
                                 ),
                                 selected = selectedSleepMinutes == minutes,
+                                selectableChoice = true,
                                 onClick = {
                                     sleepAtEnd = false
                                     selectedSleepMinutes = minutes
@@ -2827,6 +2828,7 @@ private fun SkipSilencePlayerScreen(
                         PlayerChip(
                             text = stringResource(R.string.ui_at_end_of_video),
                             selected = sleepAtEnd,
+                            selectableChoice = true,
                             onClick = {
                                 sleepDeadline = null
                                 selectedSleepMinutes = null
@@ -3305,13 +3307,14 @@ private fun PlayerChip(
     onClick: () -> Unit,
     icon: ImageVector? = null,
     accessibilityLabel: String? = null,
+    selectableChoice: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val chipSelected = selected
     Row(
         modifier = modifier
             .semantics {
-                this.selected = chipSelected
+                if (selectableChoice) this.selected = chipSelected
                 if (accessibilityLabel != null) contentDescription = accessibilityLabel
             }
             .heightIn(min = 48.dp)
@@ -3373,6 +3376,7 @@ private fun <T> ChoiceChips(
             PlayerChip(
                 text = label(option),
                 selected = selected(option),
+                selectableChoice = true,
                 onClick = { onSelect(option) }
             )
         }
