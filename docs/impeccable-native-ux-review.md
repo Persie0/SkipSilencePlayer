@@ -148,3 +148,37 @@ Questions skipped: user explicitly requested implementing all prioritized fixes;
 - **Android pre-centering capture: usable** in [public run 44952918697](https://github.com/Persie0/Playground/actions/runs/44952918697); led to corresponding empty-state and status-bar adjustments.
 - **Centered Android capture** in [public run 44953309446](https://github.com/Persie0/Playground/actions/runs/44953309446) showed the new centered composition and readable status-bar icons but was obscured by a **Pixel Launcher system-process ANR dialog**. This is a snapshot validation failure and cannot count as a clean UI pass or an app crash. A clean screenshot attempt is recorded in [public run 44953670294](https://github.com/Persie0/Playground/actions/runs/44953670294).
 - Device screen-reader and in-media gesture testing remain unverified. **Do not interpret build success or first-run screenshots as a certified 40/40.**
+
+## Fifth pass — reconciled real-media native UX (2026-11-22)
+
+**Review provenance:** ⚠️ DEGRADED: single-context. The Impeccable detector/launcher and independent sub-agents were unavailable; native source review, public Android 35 Pixel emulator runs, and public macOS simulator builds were used. Product visuals retain the established dark player with teal interactive accents.
+
+### Prioritized regressions corrected on latest `main`
+
+| Priority | Native finding | Correction |
+| --- | --- | --- |
+| P1 | Android screen remained permanently awake, including while navigating the Library | Manage `FLAG_KEEP_SCREEN_ON` only during foreground non-audio-only video playback |
+| P1 | Android selectable presets and timer chips hid their later options and Cancel action in horizontal scrolling lanes | Use wrapping options; a separate, visible Cancel timer action |
+| P1 | Android A–B start/end values and Clear competed for a single short row | Move Clear A–B onto its own 48 dp action row |
+| P1 | A real-media emulator capture showed Library Back to the right of the filename | Restore leading-edge Back action and allow two filename lines in portrait |
+| P2 | Default checked Android switches used a purple thumb in a teal player | Explicit teal/deep-teal checked colors on player and settings controls |
+| P2 | Open video and Open folder shared folder icons | Play arrow for Open video; folder for Open folder |
+| P2 | Audio-only label was faint against the dark canvas | Increase foreground contrast |
+| P2 | Chip icons touched their captions | Add an explicit icon–label gap |
+| P2 | Android recent file titles truncated in a single short line | Allow two lines and improve text size |
+| P2 | iOS bookmark and progress thumb markers clipped at timeline endpoints | Clamp marker offsets inside the actual timeline width |
+
+### Public CI and native interaction evidence
+
+- [Initial public real-media run](https://github.com/Persie0/Playground/actions/runs/44973032343): generated MP4 opened; native unit tests and simulator compilation passed; initial player controls auto-hid during UI hierarchy inspection.
+- [Public screenshot finding](https://github.com/Persie0/Playground/actions/runs/44973422036): player loaded H.264/AAC; source-specific title, purple switch and menu behavior informed fixes.
+- [Public source-pinned run](https://github.com/Persie0/Playground/actions/runs/44974479590): **Android unit tests, debug APK, iOS simulator compile, and full Android generated-video interaction smoke PASSED**. Checked gesture guide, MP4 title, Settings, audio-only toggle and return to Library. Player screenshot exposed the next leading-navigation improvement.
+- [Final public verification run](https://github.com/Persie0/Playground/actions/runs/44974700000): placeholder; replace the exact link with a confirmed run before marking passed.
+
+No GitHub Actions were executed in SkipSilencePlayer itself. The workflow is located in public `Persie0/Playground` and uses the user-requested token preference.
+
+### Remaining 40/40 acceptance gate
+
+The real-media Android emulator flow meaningfully extends verification beyond compilation. It still **does not** certify 40/40: actual iPhone/iPad and Android tablet media views, VoiceOver/TalkBack reading order with real audio, landscape gestures, hardware PiP and high text scaling need hands-on or dedicated simulator screenshot evidence. No score of 40/40 should be claimed without those checks.
+
+Questions skipped: the user requested full implementation; no additional preference is necessary for this pass.
