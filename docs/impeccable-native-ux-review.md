@@ -239,3 +239,31 @@ Strengths: (1) high-priority video and transport actions remain visible, (2) spe
 A 40/40 certification would require a broad device matrix: interactive video playback on iPhone/iPad and Android phone/tablet (portrait, landscape, 130–200% text), VoiceOver and TalkBack focus/announcements, all modal failure pathways, subtitle file-provider errors, background audio, PiP and physical-device gesture hardware checks. Simulator compilation and empty-state screenshots cannot establish these alone.
 
 Questions skipped: the user asked for full implementation; no missing preference blocks this review. The remaining uncertainty requires device evidence, not a clarification.
+
+## Round 7 — screen-reader playback controls and timeline endpoints (2026-11-22)
+
+⚠️ DEGRADED: single-context (independent design-review agents unavailable; Impeccable launcher is absent from this working container). Assessed native SwiftUI and Compose code as two sequential reviews (A: usability heuristics; B: accessibility/technical code audit), then checked native screenshot evidence from the prior public Playground run.
+
+### Baseline visual evidence
+
+The delayed [iPhone/iPad confirmation run 44977905944](https://github.com/Persie0/Playground/actions/runs/44977905944) passed. Its actual device screenshots show the iPhone first-run content vertically centered and the iPad import actions limited to the intended readable content width. These previously unresolved Round 6 layout fixes are therefore confirmed in a native simulator, not just by compilation.
+
+### Ranked findings and changes
+
+| Priority | Native finding | Fix |
+| --- | --- | --- |
+| P1 | Player controls automatically hide after 2.5–4 seconds even when a VoiceOver or TalkBack user is working through transport actions | SwiftUI checks the VoiceOver environment, cancels pending hide work and leaves the controls visible; Android observes touch-exploration state changes, resumes visible transport and disables timed auto-hide while exploration is enabled |
+| P1 | Android play/pause used the same "Play pause" accessibility label for both states | Announce **Play video** or **Pause video** based on current playback state, in portrait and compact landscape |
+| P2 | Android back/forward controls announced a generic "Seek back/forward" without specifying the configured increment | Announce the actual `doubleTapSeconds` in both layouts |
+| P2 | Android bookmark and scrub thumb circles were centered directly on the first/last pixel of the track, clipping the visible markers at 0% and 100% | Clamp both circle centers within their radius from track edges |
+| P2 | Both native timeline controls drew a short teal progress segment at position zero, implying playback had advanced | Draw a progress segment only when playback fraction is greater than zero |
+| P2 | Android preset chips announced "button" instead of a single-choice radio role | Use `Role.RadioButton` for actual selectable preset chips, leaving ordinary action chips as buttons |
+| P2 | The iOS player speed shortcut announced "Playback speed" but not its current value | Add a VoiceOver value describing the active multiplier |
+
+### Validation and score limits
+
+- The prior PR12 screenshots establish native iPhone/iPad empty-state layout quality; they cannot prove on-video VoiceOver behavior.
+- [Public Playground round 7 native build and generated-video UI](https://github.com/Persie0/Playground/actions): Android unit tests/debug APK/emulator semantics, iOS simulator compilation; the precise run URL and result must be entered after the workflow completes.
+- Screen-reader logic is implemented using OS accessibility APIs, but actual VoiceOver/TalkBack navigation with an enabled service remains a **separate unverified acceptance gate**. Do not substitute successful compilation or ordinary UIAutomator accessibility hierarchy inspection.
+- No GitHub Actions on the application repository. Validation uses the public Playground and the specified token preference.
+- No certified **40/40**. The earlier source-level Nielsen score **33/40** remains a conservative baseline. This pass primarily resolves accessibility defects; an updated score would need full platform checks rather than inventing evidence. Questions skipped: user explicitly requested implementing the concrete fixes.
