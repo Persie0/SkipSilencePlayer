@@ -108,6 +108,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
@@ -694,6 +695,10 @@ private fun SkipSilencePlayerScreen(
 
         val index = startIndex.coerceIn(0, entries.lastIndex)
         val selected = entries[index]
+        // The media ID is set below, so the polling listener will not re-enter
+        // its media-transition branch for this initial item.
+        fileName = selected.name
+        fileInfo = ""
         currentQueueEntries = entries
         abStartMs = null
         abEndMs = null
@@ -2043,6 +2048,12 @@ private fun SkipSilencePlayerScreen(
                     Switch(
                         checked = skipSilence,
                         onCheckedChange = { setSkipSilence(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = PlayerAccentDark,
+                            checkedTrackColor = PlayerAccent,
+                            uncheckedThumbColor = Color.White,
+                            uncheckedTrackColor = Color.White.copy(alpha = 0.22f)
+                        ),
                         modifier = Modifier.semantics {
                             contentDescription = skipSilenceContentDescription
                         }
@@ -3351,6 +3362,7 @@ private fun PlayerChip(
                 tint = if (selected) PlayerAccent else Color.White,
                 modifier = Modifier.size(14.dp)
             )
+            Spacer(Modifier.width(6.dp))
         }
         Text(
             text,
@@ -3640,7 +3652,13 @@ private fun SheetSwitchRow(
         Switch(
             checked = checked,
             enabled = enabled,
-            onCheckedChange = null
+            onCheckedChange = null,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = PlayerAccentDark,
+                checkedTrackColor = PlayerAccent,
+                uncheckedThumbColor = Color.White,
+                uncheckedTrackColor = Color.White.copy(alpha = 0.22f)
+            )
         )
     }
 }
