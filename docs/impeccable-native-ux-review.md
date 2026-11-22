@@ -185,3 +185,57 @@ No GitHub Actions were executed in SkipSilencePlayer itself. The workflow is loc
 The real-media Android emulator flow meaningfully extends verification beyond compilation. It still **does not** certify 40/40: actual iPhone/iPad and Android tablet media views, VoiceOver/TalkBack reading order with real audio, landscape gestures, hardware PiP and high text scaling need hands-on or dedicated simulator screenshot evidence. No score of 40/40 should be claimed without those checks.
 
 Questions skipped: the user requested full implementation; no additional preference is necessary for this pass.
+
+## Round 6 — accessible controls and native error recovery (2026-11-22)
+
+⚠️ DEGRADED: single-context (no sub-agent tool available, Impeccable native CLI launcher unavailable). The native source and prior simulator screenshots are the design evidence. A native code/a11y audit is the deterministic assessment; the web-only overlay detector does not apply to SwiftUI / Jetpack Compose targets. Checks were conducted sequentially, not by independent agents.
+
+### Assessment A: design critique
+
+**Design direction:** retain the immersive black player, restrained teal controls, familiar native dialogs, and clear entry points for local video, subtitle adjustment and silence skipping. The prior subjective 39/40 estimate was **not** device-verified; treat this as a new source-level review, not as a 39-to-40 score progression.
+
+Strengths: (1) high-priority video and transport actions remain visible, (2) speed/silence/gesture options serve power users without dominating playback, and (3) local-file/import cues are clear. Main weaknesses: iOS sheet exit and invisible choices, Android lock exit, nonmodal failure recovery, scaling of crowded controls, and stale selection semantics.
+
+| Nielsen heuristic | Source-level score (0–4) | Why not 4 everywhere |
+| --- | ---: | --- |
+| Visibility of system status | 3 | Playback/analysis status exists; not all operations are device-tested |
+| Match to user language | 3 | Technical audio settings still require explanations |
+| User control and freedom | 4 | Visible Done, Cancel, Back unlock, safe exit paths |
+| Consistency and platform conventions | 3 | Player-specific controls are intentional, but need full OS acceptance |
+| Error prevention | 3 | Confirmations and state constraints exist; all file-provider paths untested |
+| Recognition over recall | 4 | Responsive preset grids and in-player guide expose choices |
+| Flexibility and efficiency | 4 | Gestures, playback rates, bookmarks, subtitles and queues |
+| Aesthetic and minimalist design | 3 | Dark/teal hierarchy strong; small-device layout needs screenshot checks |
+| Error diagnosis and recovery | 3 | Native modal recovery implemented, but error permutations untested |
+| Help and documentation | 3 | In-app gesture guide exists, but no contextual feature walkthroughs |
+| **Provisional total** | **33/40** | **Subjective source assessment, not certified UX performance** |
+
+### Priority fixes applied
+
+| Priority | Issue | Native code resolution |
+| --- | --- | --- |
+| P1 | iOS speed, silence, subtitle-position and timer choices hidden in unmarked horizontal scroll regions | `LazyVGrid` with adaptive item widths, 44-pt targets and wrapped labels |
+| P1 | Active sleep timer cancellation was an ambiguous chip displaying the timer state | Active status shown separately; clearly named **Cancel sleep timer** button |
+| P1 | iOS Playback tools, Audio and other sheets lacked a visible exit | Reusable `SheetCard` now has a Done action using the system dismiss environment |
+| P1 | iOS A–B repeat packed timestamps and destructive Clear into one row | Equal primary A/B targets plus separate destructive Clear action |
+| P1 | Android playback errors were nonmodal overlays over live player controls | Native Material `AlertDialog` with Dismiss, Retry and Open another video |
+| P1 | Locked Android controls had no system Back path, appeared near the status bar, and offered a small unlock target | BackHandler unlock, status-bar inset and at least 48 dp accessible target |
+| P2 | iOS subtitle import/remove, chapters, playlist and recent filenames clipped or were crowded | Separate actions, two-line labels, 44-pt row targets |
+| P2 | iOS sheet selection states were not announced reliably | Selected accessibility traits on real chip/list choices |
+| P2 | Android compact-landscape silence switch inherited a purple thumb | Teal track and deep-teal thumb consistent with portrait |
+| P1 | First-run iPhone/iPad Library was top-heavy and stretched on tablet | Vertically center the truly empty state and constrain content to 700 pt on iPad |
+
+### Assessment B: native code and screenshot audit
+
+- Static scan of current PR: four iOS responsive grids, explicit Done/Cancel, Android modal playback error and Back unlock all present.
+- Android resources: **120 source-referenced string IDs**, no missing IDs or duplicate string names.
+- [Public Playground run 44977446103](https://github.com/Persie0/Playground/actions/runs/44977446103): **PASSED** Android unit tests/APK, generated-video playback, gesture-lock → system Back unlock, Settings and Library navigation; iOS simulator build, iPhone and iPad launches and native PNG screenshot captures also passed.
+- The first iPhone/iPad screenshots showed a top-heavy empty Library and nearly edge-to-edge action bars on iPad. The revised view centers only the truly empty state and caps content width at 700 pt.
+- [iOS layout confirmation run 44977905944](https://github.com/Persie0/Playground/actions/runs/44977905944) tests the responsive correction with iPhone and iPad native screenshots. The outcome must be checked before claiming success.
+- No private-repository GitHub Actions. All runner jobs and artifacts remain in public `Persie0/Playground`.
+
+### Non-certified acceptance conditions
+
+A 40/40 certification would require a broad device matrix: interactive video playback on iPhone/iPad and Android phone/tablet (portrait, landscape, 130–200% text), VoiceOver and TalkBack focus/announcements, all modal failure pathways, subtitle file-provider errors, background audio, PiP and physical-device gesture hardware checks. Simulator compilation and empty-state screenshots cannot establish these alone.
+
+Questions skipped: the user asked for full implementation; no missing preference blocks this review. The remaining uncertainty requires device evidence, not a clarification.

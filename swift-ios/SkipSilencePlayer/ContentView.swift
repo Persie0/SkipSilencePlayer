@@ -619,9 +619,10 @@ struct ContentView: View {
     // MARK: - Home screen
 
     private var homeScreen: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                Spacer(minLength: 24)
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 24)
 
             if hasVideo {
                 HStack {
@@ -871,10 +872,16 @@ struct ContentView: View {
             .padding(.top, 18)
 
                 Spacer(minLength: 24)
+                }
+                .frame(maxWidth: 700)
+                .frame(maxWidth: .infinity)
+                .frame(
+                    minHeight: (!hasVideo && model.recentVideos.isEmpty &&
+                        model.recentFolders.isEmpty) ? geometry.size.height : 0
+                )
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(
                 colors: [Color(red: 16 / 255, green: 23 / 255, blue: 32 / 255), .black],
@@ -1269,19 +1276,21 @@ struct ContentView: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(
-                        [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0],
-                        id: \.self
-                    ) { speed in
-                        PlayerChip(
-                            label: String(format: "%g×", speed),
-                            selected: abs(model.playbackSpeed - speed) < 0.01
-                        ) {
-                            model.setPlaybackSpeed(speed)
-                            model.commitPlaybackSpeed()
-                        }
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 68), spacing: 8)],
+                spacing: 8
+            ) {
+                ForEach(
+                    [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0],
+                    id: \.self
+                ) { speed in
+                    PlayerChip(
+                        label: String(format: "%g×", speed),
+                        selected: abs(model.playbackSpeed - speed) < 0.01,
+                        stretch: true
+                    ) {
+                        model.setPlaybackSpeed(speed)
+                        model.commitPlaybackSpeed()
                     }
                 }
             }
@@ -1395,24 +1404,25 @@ struct ContentView: View {
 
             SectionLabel(text: "Preset")
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(SilencePreset.allCases) { preset in
-                        PlayerChip(
-                            label: preset.label,
-                            selected: model.currentPreset == preset
-                        ) {
-                            model.applyPreset(preset)
-                            showHUD(preset.label)
-                        }
-                    }
-                    if model.currentPreset == nil {
-                        Text("Custom")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 12)
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 112), spacing: 8)],
+                spacing: 8
+            ) {
+                ForEach(SilencePreset.allCases) { preset in
+                    PlayerChip(
+                        label: preset.label,
+                        selected: model.currentPreset == preset,
+                        stretch: true
+                    ) {
+                        model.applyPreset(preset)
+                        showHUD(preset.label)
                     }
                 }
+            }
+            if model.currentPreset == nil {
+                Text("Custom silence settings")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             DisclosureGroup(isExpanded: $showAdvancedSilenceSettings) {
@@ -1470,7 +1480,7 @@ struct ContentView: View {
 
     private var subtitleSheet: some View {
         SheetCard(title: "Subtitles") {
-            HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 Button {
                     showingSubtitleImporter = true
                 } label: {
@@ -1478,15 +1488,17 @@ struct ContentView: View {
                         model.externalSubtitleName ?? "Import subtitle",
                         systemImage: "captions.bubble"
                     )
-                    .lineLimit(1)
+                    .lineLimit(2)
                 }
+                .frame(minHeight: 44)
                 .buttonStyle(.bordered)
                 .tint(PlayerColors.accent)
 
                 if model.externalSubtitleName != nil {
-                    Button("Remove", role: .destructive) {
+                    Button("Remove subtitle", role: .destructive) {
                         model.clearExternalSubtitle()
                     }
+                    .frame(minHeight: 44)
                     .buttonStyle(.bordered)
                 }
             }
@@ -1554,15 +1566,17 @@ struct ContentView: View {
     
                 SectionLabel(text: "Position")
     
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(SubtitlePosition.allCases) { position in
-                            PlayerChip(
-                                label: position.label,
-                                selected: model.subtitlePosition == position
-                            ) {
-                                model.setSubtitlePosition(position)
-                            }
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 96), spacing: 8)],
+                    spacing: 8
+                ) {
+                    ForEach(SubtitlePosition.allCases) { position in
+                        PlayerChip(
+                            label: position.label,
+                            selected: model.subtitlePosition == position,
+                            stretch: true
+                        ) {
+                            model.setSubtitlePosition(position)
                         }
                     }
                 }
@@ -1678,28 +1692,36 @@ struct ContentView: View {
 
             SectionLabel(text: "Sleep timer")
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach([15, 30, 45, 60], id: \.self) { minutes in
-                        PlayerChip(
-                            label: "\(minutes) min",
-                            selected: model.sleepTimerMinutes == minutes
-                        ) {
-                            model.setSleepTimer(minutes: Double(minutes))
-                        }
-                    }
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 100), spacing: 8)],
+                spacing: 8
+            ) {
+                ForEach([15, 30, 45, 60], id: \.self) { minutes in
                     PlayerChip(
-                        label: "At end of video",
-                        selected: model.sleepAtEnd
+                        label: "\(minutes) min",
+                        selected: model.sleepTimerMinutes == minutes,
+                        stretch: true
                     ) {
-                        model.setSleepAtEnd()
-                    }
-                    if model.sleepDeadline != nil || model.sleepAtEnd {
-                        PlayerChip(label: model.sleepTimerLabel) {
-                            model.cancelSleepTimer()
-                        }
+                        model.setSleepTimer(minutes: Double(minutes))
                     }
                 }
+                PlayerChip(
+                    label: "At end of video",
+                    selected: model.sleepAtEnd,
+                    stretch: true
+                ) {
+                    model.setSleepAtEnd()
+                }
+            }
+            if model.sleepDeadline != nil || model.sleepAtEnd {
+                Text(model.sleepTimerLabel)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Button("Cancel sleep timer", role: .destructive) {
+                    model.cancelSleepTimer()
+                }
+                .frame(minHeight: 44)
+                .buttonStyle(.bordered)
             }
 
             SectionLabel(text: "Playback gestures")
@@ -1724,6 +1746,7 @@ struct ContentView: View {
                 ) {
                     model.setA()
                 }
+                .frame(maxWidth: .infinity, minHeight: 44)
                 .buttonStyle(.bordered)
 
                 Button(
@@ -1731,15 +1754,16 @@ struct ContentView: View {
                 ) {
                     model.setB()
                 }
+                .frame(maxWidth: .infinity, minHeight: 44)
                 .buttonStyle(.bordered)
                 .disabled(model.abStart == nil)
-
-                Button("Clear A–B", role: .destructive) {
-                    model.clearAB()
-                }
-                .buttonStyle(.bordered)
-                .disabled(model.abStart == nil && model.abEnd == nil)
             }
+            Button("Clear A–B", role: .destructive) {
+                model.clearAB()
+            }
+            .frame(minHeight: 44)
+            .buttonStyle(.bordered)
+            .disabled(model.abStart == nil && model.abEnd == nil)
 
             SectionLabel(text: "Bookmarks")
 
@@ -1813,7 +1837,7 @@ struct ContentView: View {
                                 .foregroundStyle(PlayerColors.accent)
                             Text(chapter.title)
                                 .foregroundStyle(.white)
-                                .lineLimit(1)
+                                .lineLimit(2)
                             Spacer()
                         }
                         .frame(minHeight: 44)
@@ -1914,7 +1938,7 @@ struct ContentView: View {
                                         ? PlayerColors.accent
                                         : .white
                                 )
-                                .lineLimit(1)
+                                .lineLimit(2)
                             Spacer()
                             if index == model.playlistIndex {
                                 Text("Now playing")
@@ -1922,10 +1946,13 @@ struct ContentView: View {
                                     .foregroundStyle(PlayerColors.accent)
                             }
                         }
-                        .padding(.vertical, 8)
+                        .frame(minHeight: 44)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityAddTraits(
+                        index == model.playlistIndex ? .isSelected : []
+                    )
                 }
             }
         }
@@ -1986,10 +2013,10 @@ struct ContentView: View {
                                 .foregroundStyle(.tertiary)
                             Text(recent.name)
                                 .foregroundStyle(.white)
-                                .lineLimit(1)
+                                .lineLimit(2)
                             Spacer()
                         }
-                        .padding(.vertical, 9)
+                        .frame(minHeight: 44)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -2155,7 +2182,8 @@ private struct PlayerChip: View {
                 }
                 Text(label)
                     .font(.caption)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
             }
             .frame(maxWidth: stretch ? .infinity : nil, minHeight: 44)
             .padding(.horizontal, 8)
@@ -2172,6 +2200,7 @@ private struct PlayerChip: View {
             .foregroundStyle(selected ? PlayerColors.accent : .white)
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -2289,6 +2318,7 @@ private struct SeekBar: View {
 }
 
 private struct SheetCard<Content: View>: View {
+    @Environment(\.dismiss) private var dismiss
     let title: String
     @ViewBuilder let content: () -> Content
 
@@ -2303,10 +2333,19 @@ private struct SheetCard<Content: View>: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                Text(title)
-                    .font(.headline)
-                    .padding(.top, 6)
-                    .padding(.bottom, 2)
+                HStack(spacing: 12) {
+                    Text(title)
+                        .font(.headline)
+                    Spacer()
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .frame(minHeight: 44)
+                    .buttonStyle(.bordered)
+                    .tint(PlayerColors.accent)
+                }
+                .padding(.top, 6)
+                .padding(.bottom, 2)
                 content()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2346,13 +2385,14 @@ private struct SelectRow: View {
                     )
                 Text(label)
                     .foregroundStyle(selected ? PlayerColors.accent : .white)
-                    .lineLimit(1)
+                    .lineLimit(2)
                 Spacer()
             }
-            .padding(.vertical, 9)
+            .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
