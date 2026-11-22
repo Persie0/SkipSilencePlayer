@@ -1773,49 +1773,78 @@ private struct SeekBar: View {
     var body: some View {
         GeometryReader { geo in
             let width = max(geo.size.width, 1)
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(Color.white.opacity(0.28))
-                    .frame(height: 4)
+            Canvas { context, size in
+                // One drawing node instead of a SwiftUI view per silence range or bookmark.
+                // Long recordings can contain thousands of detected intervals.
+                let width = max(size.width, 1)
+                let centerY = size.height / 2
+                let trackHeight: CGFloat = 4
+
+                let base = CGRect(
+                    x: 0, y: centerY - trackHeight / 2,
+                    width: width, height: trackHeight
+                )
+                context.fill(
+                    Path(roundedRect: base, cornerRadius: trackHeight / 2),
+                    with: .color(.white.opacity(0.28))
+                )
 
                 if duration > 0 {
-                    ForEach(silenceRanges.indices, id: \.self) { index in
-                        let range = silenceRanges[index]
-                        let start = min(max(range.start / duration, 0), 1)
-                        let end = min(max(range.end / duration, start), 1)
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.white.opacity(0.42))
-                            .frame(
-                                width: max(width * (end - start), 1),
-                                height: 8
-                            )
-                            .offset(x: width * start)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    for range in silenceRanges {
+                        let start = CGFloat(min(max(range.start / duration, 0), 1))
+                        let end = CGFloat(min(max(range.end / duration, Double(start)), 1))
+                        let mark = CGRect(
+                            x: width * start,
+                            y: centerY - trackHeight,
+                            width: max(width * (end - start), 1),
+                            height: trackHeight * 2
+                        )
+                        context.fill(
+                            Path(roundedRect: mark, cornerRadius: trackHeight),
+                            with: .color(.white.opacity(0.42))
+                        )
                     }
                 }
 
-                Capsule()
-                    .fill(PlayerColors.accent)
-                    .frame(width: max(width * fraction, 4), height: 4)
+                let progress = CGRect(
+                    x: 0, y: centerY - trackHeight / 2,
+                    width: max(width * CGFloat(fraction), trackHeight),
+                    height: trackHeight
+                )
+                context.fill(
+                    Path(roundedRect: progress, cornerRadius: trackHeight / 2),
+                    with: .color(PlayerColors.accent)
+                )
 
-                ForEach(bookmarkSeconds.indices, id: \.self) { index in
-                    let marker = min(max(bookmarkSeconds[index] / max(duration, 1), 0), 1)
-                    Circle()
-                        .fill(Color.white.opacity(0.9))
-                        .frame(width: 5, height: 5)
-                        .offset(x: width * marker - 2.5)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                if duration > 0 {
+                    for seconds in bookmarkSeconds {
+                        let position = CGFloat(min(max(seconds / duration, 0), 1))
+                        let markerX = min(max(width * position, 2.5), max(width - 2.5, 2.5))
+                        context.fill(
+                            Path(ellipseIn: CGRect(
+                                x: markerX - 2.5, y: centerY - 2.5,
+                                width: 5, height: 5
+                            )),
+                            with: .color(.white.opacity(0.9))
+                        )
+                    }
                 }
 
-                Circle()
-                    .fill(PlayerColors.accent)
-                    .frame(width: 12, height: 12)
-                    .overlay(
-                        Circle().fill(Color.white)
-                            .frame(width: 4, height: 4)
-                    )
-                    .offset(x: min(max(width * fraction - 6, 0), max(width - 12, 0)))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                let thumbX = min(max(width * CGFloat(fraction), 6), max(width - 6, 6))
+                context.fill(
+                    Path(ellipseIn: CGRect(
+                        x: thumbX - 6, y: centerY - 6,
+                        width: 12, height: 12
+                    )),
+                    with: .color(PlayerColors.accent)
+                )
+                context.fill(
+                    Path(ellipseIn: CGRect(
+                        x: thumbX - 2, y: centerY - 2,
+                        width: 4, height: 4
+                    )),
+                    with: .color(.white)
+                )
             }
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())

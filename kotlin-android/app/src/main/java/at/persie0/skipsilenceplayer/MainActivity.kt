@@ -858,7 +858,8 @@ private fun SkipSilencePlayerScreen(
             if (
                 available.isNotEmpty() &&
                 player.mediaItemCount == 0 &&
-                activity.incomingUri == null
+                activity.incomingUri == null &&
+                pendingResume == null
             ) {
                 val restoredIndex = available.indexOfFirst {
                     it.uri.toString() == restored.currentUri
@@ -1506,7 +1507,7 @@ private fun SkipSilencePlayerScreen(
             )
         }
 
-        if (audioOnly && player.mediaItemCount > 0 && !activity.pipMode) {
+        if (audioOnly && player.mediaItemCount > 0 && !activity.pipMode && !showLibrary) {
             Column(
                 modifier = Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -1895,7 +1896,10 @@ private fun SkipSilencePlayerScreen(
                                         )
                                     }
                                 },
-                                onClick = { audioOnly = !audioOnly }
+                                onClick = {
+                                    overflowOpen = false
+                                    audioOnly = !audioOnly
+                                }
                             )
                             HorizontalDivider()
                             DropdownMenuItem(
@@ -2815,6 +2819,7 @@ private fun SkipSilencePlayerScreen(
                                     minutes.toInt()
                                 ),
                                 selected = selectedSleepMinutes == minutes,
+                                selectableChoice = true,
                                 onClick = {
                                     sleepAtEnd = false
                                     selectedSleepMinutes = minutes
@@ -2827,6 +2832,7 @@ private fun SkipSilencePlayerScreen(
                         PlayerChip(
                             text = stringResource(R.string.ui_at_end_of_video),
                             selected = sleepAtEnd,
+                            selectableChoice = true,
                             onClick = {
                                 sleepDeadline = null
                                 selectedSleepMinutes = null
@@ -3171,7 +3177,7 @@ private fun HomeScreen(
             ) {
                 HomeCard(
                     label = stringResource(R.string.ui_open_video),
-                    icon = Icons.Filled.FolderOpen,
+                    icon = Icons.Filled.PlayArrow,
                     modifier = Modifier.weight(1f),
                     onClick = onOpenVideo
                 )
@@ -3305,13 +3311,14 @@ private fun PlayerChip(
     onClick: () -> Unit,
     icon: ImageVector? = null,
     accessibilityLabel: String? = null,
+    selectableChoice: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val chipSelected = selected
     Row(
         modifier = modifier
             .semantics {
-                this.selected = chipSelected
+                if (selectableChoice) this.selected = chipSelected
                 if (accessibilityLabel != null) contentDescription = accessibilityLabel
             }
             .heightIn(min = 48.dp)
@@ -3333,7 +3340,7 @@ private fun PlayerChip(
                 RoundedCornerShape(50)
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 7.dp),
+            .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
@@ -3348,8 +3355,9 @@ private fun PlayerChip(
         Text(
             text,
             color = if (selected) PlayerAccent else Color.White,
-            fontSize = 12.sp,
-            maxLines = 1
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 2,
+            textAlign = TextAlign.Center
         )
     }
 }
@@ -3372,6 +3380,7 @@ private fun <T> ChoiceChips(
             PlayerChip(
                 text = label(option),
                 selected = selected(option),
+                selectableChoice = true,
                 onClick = { onSelect(option) }
             )
         }
