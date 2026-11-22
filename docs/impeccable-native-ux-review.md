@@ -148,3 +148,34 @@ Questions skipped: user explicitly requested implementing all prioritized fixes;
 - **Android pre-centering capture: usable** in [public run 44952918697](https://github.com/Persie0/Playground/actions/runs/44952918697); led to corresponding empty-state and status-bar adjustments.
 - **Centered Android capture** in [public run 44953309446](https://github.com/Persie0/Playground/actions/runs/44953309446) showed the new centered composition and readable status-bar icons but was obscured by a **Pixel Launcher system-process ANR dialog**. This is a snapshot validation failure and cannot count as a clean UI pass or an app crash. A clean screenshot attempt is recorded in [public run 44953670294](https://github.com/Persie0/Playground/actions/runs/44953670294).
 - Device screen-reader and in-media gesture testing remain unverified. **Do not interpret build success or first-run screenshots as a certified 40/40.**
+
+## Fourth pass — real-media player review (2026-11-22)
+
+**Provenance:** ⚠️ DEGRADED: single-context (no subagent available; Impeccable native CLI launcher unavailable). Assessment A used manual design/heuristic source and prior screenshot inspection. Assessment B used an Android 35 Pixel emulator with 130% font scale and a generated 120-second H.264/AAC video, and iOS simulator compilation. No Web detector was substituted for the native UI audit.
+
+### Priority findings and implemented fixes
+
+| Severity | Verified defect | Change |
+| --- | --- | --- |
+| P1 | **Actual Android media title still read “No video selected”** in emulator despite the duration, H.264 and resolution being displayed. `commitOpen` assigned the media ID before the polling listener could update the title | Assign the selected filename immediately in `commitOpen`; reset old media metadata |
+| P1 | iOS timeline created one SwiftUI view per analyzed silence interval and bookmark, potentially thousands of subviews for long recordings | Draw time bar, silence intervals, progress, bookmarks and thumb with a single SwiftUI `Canvas`; preserve seeking and adjustable VoiceOver semantics |
+| P1 | Android audio-only center illustration could draw above the Library while an audio-only item remained loaded | Gate audio-only illustration on `!showLibrary` |
+| P1 | Incoming external media with an Ask-to-resume prompt could be replaced by a stale restored playlist | Suppress queue restoration until the incoming resume prompt has been resolved |
+| P2 | Android overflow menu remained visible after selecting Audio only, trapping the next tap in the menu | Dismiss `overflowOpen` before updating audio-only mode |
+| P2 | TalkBack marked ordinary navigation chips, including Tools, as “not selected” | Announce selection state only for selectable preset and timer chips |
+| P2 | Android playback chips truncated long titles at enlarged text sizes and cramped icons and labels | Use Material label typography, permit two lines and add an explicit icon/text gap |
+| P2 | Both first-run Android import cards used folder icons | Use the Play icon for Open video, Folder icon for Open folder |
+| P2 | Native playback screenshot revealed the enabled silence switch had a purple thumb incongruent with teal player controls | Explicit teal track / deep-teal thumb switch colors throughout player/settings |
+
+### Evidence and validation
+
+- [Public Playground run 44973032343](https://github.com/Persie0/Playground/actions/runs/44973032343): iOS simulator build and Android JUnit/debug build passed. Emulator loaded the real H.264/AAC media and captured the player, then the first UI-hierarchy assertion was interrupted by auto-hide before the test could find More options.
+- [Public Playground run 44973422036](https://github.com/Persie0/Playground/actions/runs/44973422036): iOS simulator build, Android JUnit/debug build and real-media loading passed. Emulator screenshot captured **No video selected** on a loaded video and a purple checked-switch thumb. The current source fixes both. The recorded UI labels confirmed that Audio only left the overflow menu open in the pre-fix snapshot.
+- [Final source-pinned Playground run 44973874338](https://github.com/Persie0/Playground/actions/runs/44973874338): validates source commit `290d358e1fe57391d906d842909d7886d45e65e8` including all source changes, with a generated video and a script that checks title, guide, audio-only toggle and Library return.
+- All jobs are in **public Persie0/Playground**, never the application repository. No private-repository Actions usage.
+
+### Score and release gate
+
+The prior **39/40** was already a provisional, subjective source-review estimate. A real-media screenshot exposed additional defects, so no unsupported upgrade to a certified **40/40** is made. The issues above are resolved in code, with native build and emulator checks attached. A complete rating still needs iPhone/iPad and tablet playback screenshots, VoiceOver/TalkBack hands-on tests, non-emulator audio routes, PiP, rotation and long-duration media playback. Native source performance improvements do not prove actual-frame smoothness.
+
+Questions skipped: implementation is explicitly requested; no remaining user-supplied detail is required for this pass.
