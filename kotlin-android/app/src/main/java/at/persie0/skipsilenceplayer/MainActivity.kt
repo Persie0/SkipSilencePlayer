@@ -2940,11 +2940,10 @@ private fun SkipSilencePlayerScreen(
 
                     SectionLabel(stringResource(R.string.ui_sleep_timer))
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         listOf(15L, 30L, 45L, 60L).forEach { minutes ->
                             PlayerChip(
@@ -2971,16 +2970,17 @@ private fun SkipSilencePlayerScreen(
                                 sleepAtEnd = true
                             }
                         )
-                        if (sleepDeadline != null || sleepAtEnd) {
-                            PlayerChip(
-                                text = stringResource(R.string.ui_cancel_timer),
-                                selected = false,
-                                onClick = {
-                                    sleepDeadline = null
-                                    selectedSleepMinutes = null
-                                    sleepAtEnd = false
-                                }
-                            )
+                    }
+                    if (sleepDeadline != null || sleepAtEnd) {
+                        TextButton(
+                            onClick = {
+                                sleepDeadline = null
+                                selectedSleepMinutes = null
+                                sleepAtEnd = false
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Text(stringResource(R.string.ui_cancel_timer))
                         }
                     }
 
@@ -3046,15 +3046,16 @@ private fun SkipSilencePlayerScreen(
                                 maxLines = 1
                             )
                         }
-                        TextButton(
-                            onClick = {
-                                abStartMs = null
-                                abEndMs = null
-                            },
-                            enabled = abStartMs != null || abEndMs != null
-                        ) {
-                            Text(stringResource(R.string.ui_clear_a_b))
-                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            abStartMs = null
+                            abEndMs = null
+                        },
+                        enabled = abStartMs != null || abEndMs != null,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        Text(stringResource(R.string.ui_clear_a_b))
                     }
 
                     SectionLabel(stringResource(R.string.ui_bookmarks))
@@ -3652,8 +3653,8 @@ private fun HomeScreen(
                         Text(
                             recent.name,
                             color = Color.White,
-                            fontSize = 13.sp,
-                            maxLines = 1
+                            fontSize = 14.sp,
+                            maxLines = 2
                         )
                         val resumeMs = recentResumePositionMs(recent)
                         if (resumeMs >= 5_000L) {
