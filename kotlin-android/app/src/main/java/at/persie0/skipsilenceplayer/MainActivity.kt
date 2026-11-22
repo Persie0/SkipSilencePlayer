@@ -3177,7 +3177,7 @@ private fun HomeScreen(
             ) {
                 HomeCard(
                     label = stringResource(R.string.ui_open_video),
-                    icon = Icons.Filled.FolderOpen,
+                    icon = Icons.Filled.PlayArrow,
                     modifier = Modifier.weight(1f),
                     onClick = onOpenVideo
                 )
