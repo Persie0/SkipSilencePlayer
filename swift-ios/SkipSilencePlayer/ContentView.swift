@@ -17,6 +17,7 @@ private enum PlayerColors {
 struct ContentView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @ScaledMetric(relativeTo: .body) private var subtitleBaseFontSize: CGFloat = 18
     @StateObject private var model = PlayerModel()
     @StateObject private var pipManager = PictureInPictureManager()
@@ -400,6 +401,14 @@ struct ContentView: View {
             }
         } message: {
             Text("This action cannot be undone.")
+        }
+        .onChange(of: voiceOverEnabled) { _, enabled in
+            if enabled {
+                controlsVisible = true
+                hideGeneration += 1
+            } else if hasVideo {
+                scheduleControlsHide()
+            }
         }
         .onChange(of: model.isPlaying) { _, playing in
             if playing {
@@ -1155,6 +1164,9 @@ struct ContentView: View {
                             .frame(minWidth: 44, minHeight: 44)
                     }
                     .accessibilityLabel("Playback speed")
+                    .accessibilityValue(
+                        String(format: "%g times", model.playbackSpeed)
+                    )
 
                     Button {
                         showSubtitleSheet = true
@@ -2120,14 +2132,15 @@ struct ContentView: View {
         hideGeneration += 1
         let generation = hideGeneration
 
-        guard model.isPlaying, !gesturesLocked, !playbackOverlayOpen else {
+        guard model.isPlaying, !gesturesLocked, !playbackOverlayOpen,
+            !voiceOverEnabled else {
             return
         }
 
         let delay = isFullscreen ? 2.5 : 4.0
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             if generation == hideGeneration && model.isPlaying &&
-                !playbackOverlayOpen && !gesturesLocked {
+                !playbackOverlayOpen && !gesturesLocked && !voiceOverEnabled {
                 controlsVisible = false
             }
         }
@@ -2259,9 +2272,11 @@ private struct SeekBar: View {
                     .accessibilityHidden(true)
                 }
 
-                Capsule()
-                    .fill(PlayerColors.accent)
-                    .frame(width: max(width * fraction, 4), height: 4)
+                if fraction > 0 {
+                    Capsule()
+                        .fill(PlayerColors.accent)
+                        .frame(width: width * fraction, height: 4)
+                }
 
                 ForEach(bookmarkSeconds.indices, id: \.self) { index in
                     let marker = min(max(bookmarkSeconds[index] / max(duration, 1), 0), 1)
