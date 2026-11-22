@@ -259,11 +259,14 @@ The delayed [iPhone/iPad confirmation run 44977905944](https://github.com/Persie
 | P2 | Both native timeline controls drew a short teal progress segment at position zero, implying playback had advanced | Draw a progress segment only when playback fraction is greater than zero |
 | P2 | Android preset chips announced "button" instead of a single-choice radio role | Use `Role.RadioButton` for actual selectable preset chips, leaving ordinary action chips as buttons |
 | P2 | The iOS player speed shortcut announced "Playback speed" but not its current value | Add a VoiceOver value describing the active multiplier |
+| P1 | Android changing font scale reopened audio-only playback instead of preserving Library | Background queue restoration now leaves the saved Library route intact |
 
 ### Validation and score limits
 
 - The prior PR12 screenshots establish native iPhone/iPad empty-state layout quality; they cannot prove on-video VoiceOver behavior.
-- [Public Playground round 7 native build and generated-video UI](https://github.com/Persie0/Playground/actions): Android unit tests/debug APK/emulator semantics, iOS simulator compilation; the precise run URL and result must be entered after the workflow completes.
+- [Public Playground run 45021704519](https://github.com/Persie0/Playground/actions/runs/45021704519): iOS simulator build and Android JUnit/debug APK **passed**. The generated-media UI confirmed state-aware Play and 10-second seek accessibility labels. The final 180% font-scale check **failed**: the user was returned from Library to the audio-only player after an activity reconfiguration.
+- **Additional P1 fix from the native test:** `commitOpen(..., autoPlay = false)` was used for background queue restoration but unconditionally set `showLibrary = false`, overriding the Library's saved navigation state. Preserve the visible Library when restoring a paused queue; user-initiated opens with `autoPlay = true` still enter playback.
+- The final source-pinned public Playground confirmation run must pass the same 180% font-scale navigation test before this branch is merged.
 - Screen-reader logic is implemented using OS accessibility APIs, but actual VoiceOver/TalkBack navigation with an enabled service remains a **separate unverified acceptance gate**. Do not substitute successful compilation or ordinary UIAutomator accessibility hierarchy inspection.
 - No GitHub Actions on the application repository. Validation uses the public Playground and the specified token preference.
 - No certified **40/40**. The earlier source-level Nielsen score **33/40** remains a conservative baseline. This pass primarily resolves accessibility defects; an updated score would need full platform checks rather than inventing evidence. Questions skipped: user explicitly requested implementing the concrete fixes.
