@@ -2239,7 +2239,7 @@ private struct SeekBar: View {
                     Circle()
                         .fill(Color.white.opacity(0.9))
                         .frame(width: 5, height: 5)
-                        .offset(x: width * marker - 2.5)
+                        .offset(x: min(max(width * marker - 2.5, 0), max(width - 5, 0)))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
@@ -2250,7 +2250,7 @@ private struct SeekBar: View {
                         Circle().fill(Color.white)
                             .frame(width: 4, height: 4)
                     )
-                    .offset(x: width * fraction - 6)
+                    .offset(x: min(max(width * fraction - 6, 0), max(width - 12, 0)))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: .infinity)

@@ -50,6 +50,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -109,6 +110,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
@@ -151,6 +153,7 @@ import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -204,7 +207,6 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         )
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         handleOpenIntent(intent)
 
         val sessionToken = SessionToken(
@@ -1431,6 +1433,14 @@ private fun SkipSilencePlayerScreen(
         rootFocusRequester.requestFocus()
     }
 
+    LaunchedEffect(isPlaying, showLibrary, audioOnly, activity.pipMode) {
+        if (isPlaying && !showLibrary && !audioOnly && !activity.pipMode) {
+            activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     BackHandler(enabled = showPreferencesSheet) {
         showPreferencesSheet = false
     }
@@ -1619,7 +1629,7 @@ private fun SkipSilencePlayerScreen(
                 )
                 Text(
                     stringResource(R.string.ui_audio_only),
-                    color = Color.White.copy(alpha = 0.4f),
+                    color = Color.White.copy(alpha = 0.78f),
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -1824,26 +1834,6 @@ private fun SkipSilencePlayerScreen(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            fileName,
-                            color = Color.White,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            maxLines = 1
-                        )
-                        if (fileInfo.isNotBlank()) {
-                            Text(
-                                fileInfo,
-                                color = Color.White.copy(alpha = 0.55f),
-                                fontSize = 12.sp,
-                                maxLines = 1
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.width(4.dp))
-
                     playerIconButton(
                         icon = Icons.Filled.ArrowBack,
                         contentDescription = stringResource(R.string.ui_library)
@@ -1856,6 +1846,27 @@ private fun SkipSilencePlayerScreen(
                         }
                         showLibrary = true
                         controlsVisible = false
+                    }
+
+                    Spacer(Modifier.width(8.dp))
+
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            fileName,
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (fileInfo.isNotBlank()) {
+                            Text(
+                                fileInfo,
+                                color = Color.White.copy(alpha = 0.72f),
+                                fontSize = 12.sp,
+                                maxLines = 1
+                            )
+                        }
                     }
 
                     Spacer(Modifier.width(4.dp))
@@ -2256,6 +2267,12 @@ private fun SkipSilencePlayerScreen(
                     Switch(
                         checked = skipSilence,
                         onCheckedChange = { setSkipSilence(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = PlayerAccentDark,
+                            checkedTrackColor = PlayerAccent,
+                            uncheckedThumbColor = Color.White,
+                            uncheckedTrackColor = Color.White.copy(alpha = 0.22f)
+                        ),
                         modifier = Modifier.semantics {
                             contentDescription = "Skip silence"
                         }
@@ -2925,11 +2942,10 @@ private fun SkipSilencePlayerScreen(
 
                     SectionLabel(stringResource(R.string.ui_sleep_timer))
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         listOf(15L, 30L, 45L, 60L).forEach { minutes ->
                             PlayerChip(
@@ -2956,16 +2972,17 @@ private fun SkipSilencePlayerScreen(
                                 sleepAtEnd = true
                             }
                         )
-                        if (sleepDeadline != null || sleepAtEnd) {
-                            PlayerChip(
-                                text = stringResource(R.string.ui_cancel_timer),
-                                selected = false,
-                                onClick = {
-                                    sleepDeadline = null
-                                    selectedSleepMinutes = null
-                                    sleepAtEnd = false
-                                }
-                            )
+                    }
+                    if (sleepDeadline != null || sleepAtEnd) {
+                        TextButton(
+                            onClick = {
+                                sleepDeadline = null
+                                selectedSleepMinutes = null
+                                sleepAtEnd = false
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Text(stringResource(R.string.ui_cancel_timer))
                         }
                     }
 
@@ -3031,15 +3048,16 @@ private fun SkipSilencePlayerScreen(
                                 maxLines = 1
                             )
                         }
-                        TextButton(
-                            onClick = {
-                                abStartMs = null
-                                abEndMs = null
-                            },
-                            enabled = abStartMs != null || abEndMs != null
-                        ) {
-                            Text(stringResource(R.string.ui_clear_a_b))
-                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            abStartMs = null
+                            abEndMs = null
+                        },
+                        enabled = abStartMs != null || abEndMs != null,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        Text(stringResource(R.string.ui_clear_a_b))
                     }
 
                     SectionLabel(stringResource(R.string.ui_bookmarks))
@@ -3492,7 +3510,7 @@ private fun HomeScreen(
                 )
             ) {
                 Icon(
-                    Icons.Filled.FolderOpen,
+                    Icons.Filled.PlayArrow,
                     contentDescription = null,
                     modifier = Modifier.size(22.dp)
                 )
@@ -3637,8 +3655,8 @@ private fun HomeScreen(
                         Text(
                             recent.name,
                             color = Color.White,
-                            fontSize = 13.sp,
-                            maxLines = 1
+                            fontSize = 14.sp,
+                            maxLines = 2
                         )
                         val resumeMs = recentResumePositionMs(recent)
                         if (resumeMs >= 5_000L) {
@@ -3738,6 +3756,7 @@ private fun PlayerChip(
                 tint = if (selected) PlayerAccent else Color.White,
                 modifier = Modifier.size(14.dp)
             )
+            Spacer(Modifier.width(6.dp))
         }
         Text(
             text,
@@ -3756,12 +3775,12 @@ private fun <T> ChoiceChips(
     label: @Composable (T) -> String,
     onSelect: (T) -> Unit
 ) {
-    Row(
+    FlowRow(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
             .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         options.forEach { option ->
             PlayerChip(
@@ -4022,7 +4041,13 @@ private fun SheetSwitchRow(
         )
         Switch(
             checked = checked,
-            onCheckedChange = null
+            onCheckedChange = null,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = PlayerAccentDark,
+                checkedTrackColor = PlayerAccent,
+                uncheckedThumbColor = Color.White,
+                uncheckedTrackColor = Color.White.copy(alpha = 0.22f)
+            )
         )
     }
 }
