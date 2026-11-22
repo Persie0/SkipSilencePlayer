@@ -24,6 +24,7 @@ import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Rational
 import android.view.WindowManager
+import android.view.accessibility.AccessibilityManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
@@ -207,7 +208,9 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         )
-        handleOpenIntent(intent)
+        // A configuration change (including system font scaling) must not
+        // replay the original shared-video ACTION_VIEW intent.
+        if (savedInstanceState == null) handleOpenIntent(intent)
 
         val sessionToken = SessionToken(
             this,
@@ -256,6 +259,16 @@ class MainActivity : ComponentActivity() {
 
     fun consumeIncomingUri() {
         incomingUri = null
+        // An external video is a one-shot command. Once it has been consumed,
+        // clear ACTION_VIEW so an activity/process recreation does not reopen
+        // the same video and unexpectedly navigate away from the Library.
+        val currentIntent = intent
+        if (currentIntent?.action == Intent.ACTION_VIEW) {
+            setIntent(Intent(currentIntent).apply {
+                action = Intent.ACTION_MAIN
+                data = null
+            })
+        }
     }
 
     override fun onDestroy() {
@@ -372,6 +385,21 @@ private fun SkipSilencePlayerScreen(
     val audioManager = remember {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
+    val accessibilityManager = remember {
+        context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+    }
+    var touchExplorationEnabled by remember {
+        mutableStateOf(accessibilityManager.isTouchExplorationEnabled)
+    }
+    DisposableEffect(accessibilityManager) {
+        val listener = AccessibilityManager.TouchExplorationStateChangeListener { enabled ->
+            touchExplorationEnabled = enabled
+        }
+        accessibilityManager.addTouchExplorationStateChangeListener(listener)
+        onDispose {
+            accessibilityManager.removeTouchExplorationStateChangeListener(listener)
+        }
+    }
     val maxVolume = remember {
         audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
     }
@@ -473,7 +501,15 @@ private fun SkipSilencePlayerScreen(
     val latestAnalyzedQuietSeconds by rememberUpdatedState(analyzedQuietSeconds)
 
     var controlsVisible by remember { mutableStateOf(true) }
-    var showLibrary by rememberSaveable { mutableStateOf(false) }
+    // Preserve the user's current route across Android configuration/process
+    // restarts (for example, changing accessibility font scale in Settings).
+    // rememberSaveable alone does not cover every external system restart.
+    var showLibrary by rememberSaveable {
+        mutableStateOf(preferences.getBoolean("library_visible", false))
+    }
+    LaunchedEffect(showLibrary) {
+        preferences.edit().putBoolean("library_visible", showLibrary).apply()
+    }
     var libraryError by remember { mutableStateOf<String?>(null) }
     var rootHeightPx by remember { mutableIntStateOf(0) }
     var bottomControlsHeightPx by remember { mutableIntStateOf(0) }
@@ -733,7 +769,9 @@ private fun SkipSilencePlayerScreen(
     ) {
         if (entries.isEmpty()) return
         saveCurrentState()
-        showLibrary = false
+        // Background queue restoration must not pull the user out of Library.
+        // A font-scale/activity recreation can occur while the Library is open.
+        if (autoPlay) showLibrary = false
         libraryError = null
 
         val index = startIndex.coerceIn(0, entries.lastIndex)
@@ -1095,12 +1133,19 @@ private fun SkipSilencePlayerScreen(
         }
     }
 
+    // TalkBack users need time to navigate and activate transport controls.
+    // Preserve the touch-to-toggle behavior, but do not auto-hide focused controls.
+    LaunchedEffect(touchExplorationEnabled) {
+        if (touchExplorationEnabled && player.mediaItemCount > 0 && !gestureLocked) {
+            controlsVisible = true
+        }
+    }
     LaunchedEffect(
         isPlaying, controlsVisible, isFullscreen, activity.pipMode,
-        gestureLocked, playbackOverlayOpen
+        gestureLocked, playbackOverlayOpen, touchExplorationEnabled
     ) {
         if (isPlaying && controlsVisible && !activity.pipMode &&
-            !gestureLocked && !playbackOverlayOpen
+            !gestureLocked && !playbackOverlayOpen && !touchExplorationEnabled
         ) {
             delay(if (isFullscreen) 2_500L else 4_000L)
             controlsVisible = false
@@ -2061,7 +2106,10 @@ private fun SkipSilencePlayerScreen(
                             ) {
                                 Icon(
                                     Icons.Filled.FastRewind,
-                                    contentDescription = stringResource(R.string.cd_seek_back),
+                                    contentDescription = stringResource(
+                                        R.string.cd_seek_back_seconds,
+                                        doubleTapSeconds
+                                    ),
                                     tint = Color.White
                                 )
                             }
@@ -2073,7 +2121,9 @@ private fun SkipSilencePlayerScreen(
                         ) {
                             Icon(
                                 if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = stringResource(R.string.cd_play_pause),
+                                contentDescription = stringResource(
+                                    if (isPlaying) R.string.cd_pause else R.string.cd_play
+                                ),
                                 tint = PlayerAccent
                             )
                         }
@@ -2083,7 +2133,10 @@ private fun SkipSilencePlayerScreen(
                             ) {
                                 Icon(
                                     Icons.Filled.FastForward,
-                                    contentDescription = stringResource(R.string.cd_seek_forward),
+                                    contentDescription = stringResource(
+                                        R.string.cd_seek_forward_seconds,
+                                        doubleTapSeconds
+                                    ),
                                     tint = Color.White
                                 )
                             }
@@ -2170,7 +2223,10 @@ private fun SkipSilencePlayerScreen(
                     ) {
                         Icon(
                             Icons.Filled.FastRewind,
-                            contentDescription = stringResource(R.string.cd_seek_back),
+                            contentDescription = stringResource(
+                                        R.string.cd_seek_back_seconds,
+                                        doubleTapSeconds
+                                    ),
                             tint = Color.White
                         )
                     }
@@ -2188,7 +2244,9 @@ private fun SkipSilencePlayerScreen(
                     ) {
                         Icon(
                             if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = stringResource(R.string.cd_play_pause),
+                            contentDescription = stringResource(
+                                    if (isPlaying) R.string.cd_pause else R.string.cd_play
+                                ),
                             tint = PlayerAccentDark,
                             modifier = Modifier.size(30.dp)
                         )
@@ -2202,7 +2260,10 @@ private fun SkipSilencePlayerScreen(
                     ) {
                         Icon(
                             Icons.Filled.FastForward,
-                            contentDescription = stringResource(R.string.cd_seek_forward),
+                            contentDescription = stringResource(
+                                        R.string.cd_seek_forward_seconds,
+                                        doubleTapSeconds
+                                    ),
                             tint = Color.White
                         )
                     }
@@ -3746,7 +3807,10 @@ private fun PlayerChip(
                 },
                 RoundedCornerShape(50)
             )
-            .clickable(role = Role.Button, onClick = onClick)
+            .clickable(
+                role = if (selectableChoice) Role.RadioButton else Role.Button,
+                onClick = onClick
+            )
             .semantics { if (selectableChoice) this.selected = selected }
             .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -3899,13 +3963,15 @@ private fun PlayerSeekBar(
                 }
             }
 
-            val progressWidth = (size.width * fraction).coerceAtLeast(barHeight)
-            drawRoundRect(
-                color = PlayerAccent,
-                topLeft = Offset(0f, barCy - barHeight / 2f),
-                size = Size(progressWidth, barHeight),
-                cornerRadius = CornerRadius(barHeight / 2f)
-            )
+            val progressWidth = size.width * fraction
+            if (progressWidth > 0f) {
+                drawRoundRect(
+                    color = PlayerAccent,
+                    topLeft = Offset(0f, barCy - barHeight / 2f),
+                    size = Size(progressWidth, barHeight),
+                    cornerRadius = CornerRadius(barHeight / 2f)
+                )
+            }
 
             if (durationMs > 0) {
                 bookmarks.forEach { bookmark ->
@@ -3915,20 +3981,30 @@ private fun PlayerSeekBar(
                     drawCircle(
                         color = Color.White.copy(alpha = 0.9f),
                         radius = 2.5.dp.toPx(),
-                        center = Offset(size.width * marker, barCy)
+                        center = Offset(
+                            (size.width * marker).coerceIn(
+                                2.5.dp.toPx(),
+                                (size.width - 2.5.dp.toPx()).coerceAtLeast(2.5.dp.toPx())
+                            ),
+                            barCy
+                        )
                     )
                 }
             }
 
+            val thumbX = (size.width * fraction).coerceIn(
+                6.dp.toPx(),
+                (size.width - 6.dp.toPx()).coerceAtLeast(6.dp.toPx())
+            )
             drawCircle(
                 color = PlayerAccent,
                 radius = 6.dp.toPx(),
-                center = Offset(size.width * fraction, barCy)
+                center = Offset(thumbX, barCy)
             )
             drawCircle(
                 color = Color.White,
                 radius = 2.dp.toPx(),
-                center = Offset(size.width * fraction, barCy)
+                center = Offset(thumbX, barCy)
             )
         }
     }
