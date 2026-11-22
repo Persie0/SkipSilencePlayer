@@ -173,9 +173,12 @@ Questions skipped: user explicitly requested implementing all prioritized fixes;
 - [Initial public real-media run](https://github.com/Persie0/Playground/actions/runs/44973032343): generated MP4 opened; native unit tests and simulator compilation passed; initial player controls auto-hid during UI hierarchy inspection.
 - [Public screenshot finding](https://github.com/Persie0/Playground/actions/runs/44973422036): player loaded H.264/AAC; source-specific title, purple switch and menu behavior informed fixes.
 - [Public source-pinned run](https://github.com/Persie0/Playground/actions/runs/44974479590): **Android unit tests, debug APK, iOS simulator compile, and full Android generated-video interaction smoke PASSED**. Checked gesture guide, MP4 title, Settings, audio-only toggle and return to Library. Player screenshot exposed the next leading-navigation improvement.
-- [Final public verification run](https://github.com/Persie0/Playground/actions/runs/44974923349): validates the screenshot-informed leading Back layout on both native build jobs and the Android real-media flow; outcome tracked by CI.
+- [Final public verification run](https://github.com/Persie0/Playground/actions/runs/44974923349): **PASSED** Android unit tests, debug APK, iOS simulator compilation, and generated-video emulator interaction at source commit `c4693123840f2f7524c2588b16dab178c021328f`. Native screenshot confirmed the Back control now leads the header.
 
 No GitHub Actions were executed in SkipSilencePlayer itself. The workflow is located in public `Persie0/Playground` and uses the user-requested token preference.
+
+
+- **Final typography confirmation:** [public Playground run 44975403353](https://github.com/Persie0/Playground/actions/runs/44975403353) **PASSED** the same native checks at source commit `968e1b47712a80d5e9a28d30cdaf9898b9f525e3`. The Android screenshot confirms the filename now uses an ellipsis rather than wrapping its extension to an isolated line. The complete filename remains available to accessibility services.
 
 ### Remaining 40/40 acceptance gate
 
