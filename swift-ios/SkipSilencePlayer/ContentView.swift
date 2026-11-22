@@ -619,9 +619,10 @@ struct ContentView: View {
     // MARK: - Home screen
 
     private var homeScreen: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                Spacer(minLength: 24)
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 24)
 
             if hasVideo {
                 HStack {
@@ -871,10 +872,16 @@ struct ContentView: View {
             .padding(.top, 18)
 
                 Spacer(minLength: 24)
+                }
+                .frame(maxWidth: 700)
+                .frame(maxWidth: .infinity)
+                .frame(
+                    minHeight: (!hasVideo && model.recentVideos.isEmpty &&
+                        model.recentFolders.isEmpty) ? geometry.size.height : 0
+                )
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(
                 colors: [Color(red: 16 / 255, green: 23 / 255, blue: 32 / 255), .black],
