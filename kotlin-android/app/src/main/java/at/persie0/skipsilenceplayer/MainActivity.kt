@@ -1506,7 +1506,7 @@ private fun SkipSilencePlayerScreen(
             )
         }
 
-        if (audioOnly && player.mediaItemCount > 0 && !activity.pipMode) {
+        if (audioOnly && player.mediaItemCount > 0 && !activity.pipMode && !showLibrary) {
             Column(
                 modifier = Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -3333,7 +3333,7 @@ private fun PlayerChip(
                 RoundedCornerShape(50)
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 7.dp),
+            .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
@@ -3348,8 +3348,9 @@ private fun PlayerChip(
         Text(
             text,
             color = if (selected) PlayerAccent else Color.White,
-            fontSize = 12.sp,
-            maxLines = 1
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 2,
+            textAlign = TextAlign.Center
         )
     }
 }
