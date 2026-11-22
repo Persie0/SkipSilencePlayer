@@ -50,6 +50,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -139,6 +140,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -149,6 +151,7 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -204,7 +207,11 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         )
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // The player always uses a dark canvas, regardless of the device theme.
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
         handleOpenIntent(intent)
 
         val sessionToken = SessionToken(
@@ -476,10 +483,15 @@ private fun SkipSilencePlayerScreen(
     var rootHeightPx by remember { mutableIntStateOf(0) }
     var bottomControlsHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val compactHeight = configuration.screenHeightDp < 460 ||
+        configuration.fontScale >= 1.4f
+    val skipSilenceContentDescription = stringResource(R.string.ui_skip_silence)
     var showAdvancedSubtitle by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
     var gestureLocked by remember { mutableStateOf(false) }
     var gestureText by remember { mutableStateOf<String?>(null) }
+    var libraryError by remember { mutableStateOf<String?>(null) }
 
     var overflowOpen by remember { mutableStateOf(false) }
     var showSpeedSheet by rememberSaveable { mutableStateOf(false) }
@@ -498,6 +510,7 @@ private fun SkipSilencePlayerScreen(
     var showPlaylistSheet by rememberSaveable { mutableStateOf(false) }
     var showRecentSheet by rememberSaveable { mutableStateOf(false) }
     var showPreferencesSheet by rememberSaveable { mutableStateOf(false) }
+    var showHelpSheet by remember { mutableStateOf(false) }
     var showAdvancedSilence by remember { mutableStateOf(false) }
     var pendingDestructiveAction by remember { mutableStateOf<String?>(null) }
 
@@ -900,7 +913,8 @@ private fun SkipSilencePlayerScreen(
             if (
                 available.isNotEmpty() &&
                 player.mediaItemCount == 0 &&
-                activity.incomingUri == null
+                activity.incomingUri == null &&
+                pendingResume == null
             ) {
                 val restoredIndex = available.indexOfFirst {
                     it.uri.toString() == restored.currentUri
@@ -942,6 +956,10 @@ private fun SkipSilencePlayerScreen(
 
     LaunchedEffect(player) {
         var persistenceTick = 0
+        var lastFileSizeUri: Uri? = null
+        var cachedFileSize = ""
+        var lastSilenceRanges: List<SilenceRangeMs>? = null
+        var cachedAnalyzedSkippedSeconds = 0f
         while (isActive) {
             currentMs = player.currentPosition.coerceAtLeast(0L)
             val rawDuration = player.duration
@@ -973,7 +991,7 @@ private fun SkipSilencePlayerScreen(
                 dismissedError = null
                 fileName = currentItem.mediaMetadata.title?.toString()
                     ?: queryDisplayName(context, uri)
-                fileInfo = queryFileSize(context, uri)
+                fileInfo = ""
                 applyVideoPreferences(uri)
                 lastKnownPositionMs = currentMs
 
@@ -1000,9 +1018,17 @@ private fun SkipSilencePlayerScreen(
                 }
             }
 
-            val sizeText = activeUri?.let { queryFileSize(context, it) }.orEmpty()
+            val sizeUri = activeUri
+            if (sizeUri != lastFileSizeUri) {
+                lastFileSizeUri = sizeUri
+                cachedFileSize = if (sizeUri != null) {
+                    withContext(Dispatchers.IO) { queryFileSize(context, sizeUri) }
+                } else {
+                    ""
+                }
+            }
             fileInfo = listOf(
-                sizeText,
+                cachedFileSize,
                 if (durationMs > 0) formatTime(durationMs) else "",
                 diagnostics.summary
             ).filter { it.isNotBlank() }.joinToString(" · ")
@@ -1434,13 +1460,16 @@ private fun SkipSilencePlayerScreen(
     }
 
     BackHandler(
-        enabled = player.mediaItemCount > 0 && !showLibrary && !gestureLocked &&
+        enabled = player.mediaItemCount > 0 && !showLibrary &&
             !showSpeedSheet && !showSilenceSheet && !showSubtitleSheet &&
             !showAudioSheet && !showToolsSheet && !showPlaylistSheet &&
             !showRecentSheet && !showPreferencesSheet && !showMarkersSheet &&
             pendingResume == null && pendingDestructiveAction == null
     ) {
-        if (isFullscreen) {
+        if (gestureLocked) {
+            gestureLocked = false
+            controlsVisible = true
+        } else if (isFullscreen) {
             isFullscreen = false
             activity.setPlayerFullscreen(false)
         } else {
@@ -1472,6 +1501,7 @@ private fun SkipSilencePlayerScreen(
 
                 if (
                     anySheetOpen ||
+                    gestureLocked ||
                     showLibrary ||
                     event.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN ||
                     event.nativeKeyEvent.repeatCount > 0
@@ -1595,7 +1625,8 @@ private fun SkipSilencePlayerScreen(
                         listOf(VideoEntry(Uri.parse(recent.uri), recent.name))
                     )
                 },
-                onSeeAllRecents = { showRecentSheet = true }
+                onSeeAllRecents = { showRecentSheet = true },
+                onHelp = { showHelpSheet = true }
             )
         }
 
@@ -1614,7 +1645,7 @@ private fun SkipSilencePlayerScreen(
                 )
                 Text(
                     stringResource(R.string.ui_audio_only),
-                    color = Color.White.copy(alpha = 0.4f),
+                    color = Color.White.copy(alpha = 0.78f),
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -1689,6 +1720,7 @@ private fun SkipSilencePlayerScreen(
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .statusBarsPadding()
                     .padding(top = 14.dp)
                     .background(
                         Color.Black.copy(alpha = 0.72f),
@@ -1699,11 +1731,12 @@ private fun SkipSilencePlayerScreen(
                         PlayerAccent.copy(alpha = 0.6f),
                         RoundedCornerShape(50)
                     )
+                    .heightIn(min = 48.dp)
                     .clickable {
                         gestureLocked = false
                         controlsVisible = true
                     }
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = 18.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -1714,9 +1747,9 @@ private fun SkipSilencePlayerScreen(
                     modifier = Modifier.size(14.dp)
                 )
                 Text(
-                    stringResource(R.string.ui_unlock),
+                    stringResource(R.string.ui_unlock_gestures),
                     color = Color.White,
-                    fontSize = 12.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -1786,8 +1819,16 @@ private fun SkipSilencePlayerScreen(
                     }) {
                         Text(stringResource(R.string.ui_retry))
                     }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        dismissedError = error
+                        playerError = null
+                    }) {
+                        Text(stringResource(R.string.ui_dismiss))
+                    }
                 }
-            }
+            )
         }
 
         AnimatedVisibility(
@@ -1819,6 +1860,22 @@ private fun SkipSilencePlayerScreen(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    playerIconButton(
+                        icon = Icons.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.ui_library)
+                    ) {
+                        player.pause()
+                        saveCurrentState()
+                        if (isFullscreen) {
+                            isFullscreen = false
+                            activity.setPlayerFullscreen(false)
+                        }
+                        showLibrary = true
+                        controlsVisible = false
+                    }
+
+                    Spacer(Modifier.width(4.dp))
+
                     Column(Modifier.weight(1f)) {
                         Text(
                             fileName,
@@ -1947,6 +2004,13 @@ private fun SkipSilencePlayerScreen(
                                 onClick = {
                                     overflowOpen = false
                                     showPreferencesSheet = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.ui_player_guide)) },
+                                onClick = {
+                                    overflowOpen = false
+                                    showHelpSheet = true
                                 }
                             )
                             DropdownMenuItem(
@@ -2119,6 +2183,7 @@ private fun SkipSilencePlayerScreen(
                         }
                     }
                 } else {
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2144,12 +2209,14 @@ private fun SkipSilencePlayerScreen(
                     ) {
                         Icon(
                             Icons.Filled.FastRewind,
-                            contentDescription = stringResource(R.string.cd_seek_back),
+                            contentDescription = stringResource(
+                                R.string.cd_seek_back_seconds, doubleTapSeconds
+                            ),
                             tint = Color.White
                         )
                     }
 
-                    Spacer(Modifier.width(18.dp))
+                    Spacer(Modifier.width(4.dp))
 
                     Box(
                         modifier = Modifier
@@ -2162,13 +2229,15 @@ private fun SkipSilencePlayerScreen(
                     ) {
                         Icon(
                             if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = stringResource(R.string.cd_play_pause),
+                            contentDescription = stringResource(
+                                if (isPlaying) R.string.cd_pause else R.string.cd_play
+                            ),
                             tint = PlayerAccentDark,
                             modifier = Modifier.size(30.dp)
                         )
                     }
 
-                    Spacer(Modifier.width(18.dp))
+                    Spacer(Modifier.width(4.dp))
 
                     IconButton(
                         onClick = { seekBy(doubleTapSeconds * 1000L) },
@@ -2176,7 +2245,9 @@ private fun SkipSilencePlayerScreen(
                     ) {
                         Icon(
                             Icons.Filled.FastForward,
-                            contentDescription = stringResource(R.string.cd_seek_forward),
+                            contentDescription = stringResource(
+                                R.string.cd_seek_forward_seconds, doubleTapSeconds
+                            ),
                             tint = Color.White
                         )
                     }
@@ -2195,6 +2266,7 @@ private fun SkipSilencePlayerScreen(
                     }
                 }
 
+                if (!compactHeight) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2272,6 +2344,45 @@ private fun SkipSilencePlayerScreen(
                         )
                     }
                 }
+                }
+            }
+        }
+
+        if (showHelpSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showHelpSheet = false },
+                containerColor = PlayerSheetColor
+            ) {
+                Column(
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 22.dp)
+                        .padding(bottom = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    SheetHeader(stringResource(R.string.ui_player_guide)) {
+                        showHelpSheet = false
+                    }
+                    Text(
+                        stringResource(R.string.ui_guide_intro),
+                        color = Color.White.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    SectionLabel(stringResource(R.string.ui_guide_touch))
+                    Text(stringResource(R.string.ui_guide_seek),
+                        color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.ui_guide_swipe),
+                        color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.ui_guide_pinch_lock),
+                        color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                    SectionLabel(stringResource(R.string.ui_guide_silence_title))
+                    Text(stringResource(R.string.ui_guide_silence),
+                        color = Color.White.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.bodyMedium)
+                    SectionLabel(stringResource(R.string.ui_guide_more_title))
+                    Text(stringResource(R.string.ui_guide_more),
+                        color = Color.White.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
@@ -2986,15 +3097,16 @@ private fun SkipSilencePlayerScreen(
                                 maxLines = 1
                             )
                         }
-                        TextButton(
-                            onClick = {
-                                abStartMs = null
-                                abEndMs = null
-                            },
-                            enabled = abStartMs != null || abEndMs != null
-                        ) {
-                            Text(stringResource(R.string.ui_clear_a_b))
-                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            abStartMs = null
+                            abEndMs = null
+                        },
+                        enabled = abStartMs != null || abEndMs != null,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        Text(stringResource(R.string.ui_clear_a_b))
                     }
 
                     SectionLabel(stringResource(R.string.ui_bookmarks))
@@ -3091,6 +3203,7 @@ private fun SkipSilencePlayerScreen(
                                         controlsVisible = true
                                     }
                                     .heightIn(min = 48.dp)
+                                    .heightIn(min = 48.dp)
                                     .padding(vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -3103,8 +3216,8 @@ private fun SkipSilencePlayerScreen(
                                 Text(
                                     chapter.title,
                                     color = Color.White,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
+                                    fontSize = 14.sp,
+                                    maxLines = 2,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -3180,21 +3293,31 @@ private fun SkipSilencePlayerScreen(
                         )
                     } else {
                         recentVideos.forEach { recent ->
-                            SelectRow(
-                                text = recent.name,
-                                selected = false,
-                                onClick = {
-                                    showRecentSheet = false
-                                    requestOpen(
-                                        listOf(
-                                            VideoEntry(
-                                                Uri.parse(recent.uri),
-                                                recent.name
-                                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .clickable {
+                                        showRecentSheet = false
+                                        requestOpen(
+                                            listOf(VideoEntry(Uri.parse(recent.uri), recent.name))
                                         )
-                                    )
-                                }
-                            )
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Outlined.History,
+                                    contentDescription = null,
+                                    tint = PlayerAccent
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    recent.name,
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 2
+                                )
+                            }
                         }
                         TextButton(onClick = {
                             showRecentSheet = false
@@ -3309,7 +3432,8 @@ private fun HomeScreen(
     onOpenVideo: () -> Unit,
     onOpenFolder: () -> Unit,
     onOpenRecent: (RecentVideo) -> Unit,
-    onSeeAllRecents: () -> Unit
+    onSeeAllRecents: () -> Unit,
+    onHelp: () -> Unit
 ) {
     var recentSearch by remember { mutableStateOf("") }
     val filteredRecents = if (recentSearch.isBlank()) recentVideos
@@ -3321,12 +3445,8 @@ private fun HomeScreen(
                 Brush.verticalGradient(
                     listOf(Color(0xFF101720), Color.Black)
                 )
-            )
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 22.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            ),
+        contentAlignment = if (centerIntro) Alignment.Center else Alignment.TopCenter
     ) {
         if (currentVideoName == null) {
             Row(
@@ -3356,14 +3476,6 @@ private fun HomeScreen(
                     tint = PlayerAccent,
                     modifier = Modifier.size(34.dp)
                 )
-            }
-    
-            Text(
-                stringResource(R.string.app_name),
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 20.sp,
-                modifier = Modifier.padding(top = 14.dp)
             )
     
             Text(
@@ -3426,8 +3538,32 @@ private fun HomeScreen(
                         )
                     }
                 }
+    
+                Text(
+                    stringResource(R.string.app_name),
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 20.sp,
+                    modifier = Modifier.padding(top = 14.dp)
+                )
+    
+                Text(
+                    stringResource(R.string.ui_home_subtitle),
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 3.dp)
+                )
+            } else {
+                Text(
+                    stringResource(R.string.ui_library),
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 24.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp, bottom = 10.dp)
+                )
             }
-        }
 
         Column(
             modifier = Modifier
@@ -3543,22 +3679,21 @@ private fun HomeScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 28.dp, bottom = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(top = 30.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    stringResource(R.string.ui_recent),
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold
+                HomeCard(
+                    label = stringResource(R.string.ui_open_video),
+                    icon = Icons.Filled.PlayArrow,
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenVideo
                 )
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onSeeAllRecents) {
-                    Text(
-                        stringResource(R.string.ui_see_all),
-                        color = PlayerAccent,
-                        fontSize = 12.sp
-                    )
-                }
+                HomeCard(
+                    label = stringResource(R.string.ui_folder),
+                    icon = Icons.Filled.Folder,
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenFolder
+                )
             }
 
             if (recentVideos.size > 4) {
@@ -3581,12 +3716,6 @@ private fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Icon(
-                        Icons.Outlined.History,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.4f),
-                        modifier = Modifier.size(15.dp)
-                    )
                     Column(Modifier.weight(1f)) {
                         Text(
                             recent.name,
@@ -3604,6 +3733,39 @@ private fun HomeScreen(
                                 fontSize = 12.sp
                             )
                         }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onSeeAllRecents) {
+                        Text(
+                            stringResource(R.string.ui_see_all),
+                            color = PlayerAccent,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                recentVideos.take(4).forEach { recent ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .clickable { onOpenRecent(recent) }
+                            .padding(horizontal = 4.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.History,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.4f),
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            recent.name,
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            maxLines = 2
+                        )
                     }
                 }
             }
@@ -3657,10 +3819,17 @@ private fun PlayerChip(
     selected: Boolean,
     onClick: () -> Unit,
     icon: ImageVector? = null,
+    accessibilityLabel: String? = null,
+    selectableChoice: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val chipSelected = selected
     Row(
         modifier = modifier
+            .semantics {
+                if (selectableChoice) this.selected = chipSelected
+                if (accessibilityLabel != null) contentDescription = accessibilityLabel
+            }
             .heightIn(min = 48.dp)
             .background(
                 if (selected) {
@@ -3681,7 +3850,7 @@ private fun PlayerChip(
             )
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { this.selected = selected }
-            .padding(horizontal = 8.dp, vertical = 7.dp),
+            .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
@@ -3696,8 +3865,9 @@ private fun PlayerChip(
         Text(
             text,
             color = if (selected) PlayerAccent else Color.White,
-            fontSize = 12.sp,
-            maxLines = 1
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 2,
+            textAlign = TextAlign.Center
         )
     }
 }
@@ -3709,17 +3879,18 @@ private fun <T> ChoiceChips(
     label: @Composable (T) -> String,
     onSelect: (T) -> Unit
 ) {
-    Row(
+    FlowRow(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
             .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         options.forEach { option ->
             PlayerChip(
                 text = label(option),
                 selected = selected(option),
+                selectableChoice = true,
                 onClick = { onSelect(option) }
             )
         }
@@ -3744,7 +3915,7 @@ private fun PlayerSeekBar(
             .fillMaxWidth()
             .height(48.dp)
             .semantics {
-                contentDescription = "Playback position and detected silence"
+                contentDescription = seekbarDescription
                 stateDescription = formatTime(scrubPositionMs ?: positionMs) +
                     " of " + formatTime(durationMs)
                 progressBarRangeInfo = ProgressBarRangeInfo(
@@ -3850,15 +4021,20 @@ private fun PlayerSeekBar(
                 }
             }
 
+            val thumbRadius = 6.dp.toPx()
+            val thumbX = (size.width * fraction).coerceIn(
+                thumbRadius,
+                (size.width - thumbRadius).coerceAtLeast(thumbRadius)
+            )
             drawCircle(
                 color = PlayerAccent,
-                radius = 6.dp.toPx(),
-                center = Offset(size.width * fraction, barCy)
+                radius = thumbRadius,
+                center = Offset(thumbX, barCy)
             )
             drawCircle(
                 color = Color.White,
                 radius = 2.dp.toPx(),
-                center = Offset(size.width * fraction, barCy)
+                center = Offset(thumbX, barCy)
             )
         }
     }
@@ -3951,6 +4127,7 @@ private fun SheetSliderRow(
 private fun SheetSwitchRow(
     label: String,
     checked: Boolean,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
     // One switch semantics node for both the label and the control. Users
@@ -3969,7 +4146,8 @@ private fun SheetSwitchRow(
     ) {
         Text(
             label,
-            color = Color.White,
+            color = if (enabled) Color.White else Color.White.copy(alpha = 0.6f),
+            style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f)
         )
         Switch(
@@ -4005,8 +4183,8 @@ private fun SelectRow(
         Text(
             text,
             color = if (selected) PlayerAccent else Color.White,
-            fontSize = 13.sp,
-            maxLines = 1
+            fontSize = 14.sp,
+            maxLines = 2
         )
     }
 }

@@ -24,6 +24,7 @@ struct ContentView: View {
     @State private var showingVideoImporter = false
     @State private var showingFolderImporter = false
     @State private var showingSubtitleImporter = false
+    @State private var importError: String?
     @State private var dragControl: DragControl?
     @State private var dragStartValue = 0.0
     @State private var dragStartTime = 0.0
@@ -48,6 +49,7 @@ struct ContentView: View {
     @State private var locateFileAfterRecentDismiss = false
     @State private var showPlaylistSheet = false
     @State private var showRecentSheet = false
+    @State private var showHelpSheet = false
     @State private var showAdvancedSilenceSettings = false
     @State private var showAdvancedSubtitleSettings = false
     @State private var showingLibrary = false
@@ -207,8 +209,9 @@ struct ContentView: View {
                 .background(.black.opacity(0.92), in: RoundedRectangle(cornerRadius: 14))
                 .padding(24)
             }
+        } message: {
+            Text(importError ?? model.playbackError ?? "This file could not be opened.")
         }
-        .preferredColorScheme(.dark)
         .background(
             GeometryReader { proxy in
                 Color.clear.preference(
@@ -227,45 +230,45 @@ struct ContentView: View {
             playerKeyboardFocus = true
         }
         .onKeyPress(.space) {
-            guard hasVideo && !showingLibrary else { return .ignored }
+            guard hasVideo && !showingLibrary && !isModalPresented else { return .ignored }
             model.togglePlayback()
             showControls()
             return .handled
         }
         .onKeyPress(.leftArrow) {
-            guard hasVideo && !showingLibrary else { return .ignored }
+            guard hasVideo && !showingLibrary && !isModalPresented else { return .ignored }
             model.seek(by: -Double(model.doubleTapSeconds))
             showHUD("−\(model.doubleTapSeconds) s")
             return .handled
         }
         .onKeyPress(.rightArrow) {
-            guard hasVideo && !showingLibrary else { return .ignored }
+            guard hasVideo && !showingLibrary && !isModalPresented else { return .ignored }
             model.seek(by: Double(model.doubleTapSeconds))
             showHUD("+\(model.doubleTapSeconds) s")
             return .handled
         }
         .onKeyPress("j") {
-            guard hasVideo && !showingLibrary else { return .ignored }
+            guard hasVideo && !showingLibrary && !isModalPresented else { return .ignored }
             model.seek(by: -Double(model.doubleTapSeconds))
             return .handled
         }
         .onKeyPress("k") {
-            guard hasVideo && !showingLibrary else { return .ignored }
+            guard hasVideo && !showingLibrary && !isModalPresented else { return .ignored }
             model.togglePlayback()
             return .handled
         }
         .onKeyPress("l") {
-            guard hasVideo && !showingLibrary else { return .ignored }
+            guard hasVideo && !showingLibrary && !isModalPresented else { return .ignored }
             model.seek(by: Double(model.doubleTapSeconds))
             return .handled
         }
         .onKeyPress("f") {
-            guard hasVideo && !showingLibrary else { return .ignored }
+            guard hasVideo && !showingLibrary && !isModalPresented else { return .ignored }
             setFullscreen(!isFullscreen)
             return .handled
         }
         .onKeyPress("m") {
-            guard hasVideo && !showingLibrary else { return .ignored }
+            guard hasVideo && !showingLibrary && !isModalPresented else { return .ignored }
             model.toggleMute()
             return .handled
         }
@@ -287,7 +290,7 @@ struct ContentView: View {
                     showControls()
                 }
             case .failure(let error):
-                gestureHUD = error.localizedDescription
+                importError = error.localizedDescription
             }
         }
         .fileImporter(
@@ -304,7 +307,7 @@ struct ContentView: View {
                     }
                 }
             case .failure(let error):
-                gestureHUD = error.localizedDescription
+                importError = error.localizedDescription
             }
         }
         .fileImporter(
@@ -319,7 +322,7 @@ struct ContentView: View {
                     showControls()
                 }
             case .failure(let error):
-                gestureHUD = error.localizedDescription
+                importError = error.localizedDescription
             }
         }
         .sheet(isPresented: $showSpeedSheet) {
@@ -348,6 +351,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showRecentSheet, onDismiss: handleRecentDismiss) {
             recentSheet
+        }
+        .sheet(isPresented: $showHelpSheet) {
+            helpSheet
         }
         .alert(
             "Resume playback?",
@@ -615,9 +621,10 @@ struct ContentView: View {
     // MARK: - Home screen
 
     private var homeScreen: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                Spacer(minLength: 24)
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 24)
 
             if hasVideo {
                 HStack {
@@ -855,20 +862,28 @@ struct ContentView: View {
                 }
             }
 
-            Text(
-                "Double-tap to seek · swipe for brightness and volume"
-            )
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 40)
-            .padding(.top, 26)
+            Button {
+                showHelpSheet = true
+            } label: {
+                Label("Gestures & player guide", systemImage: "questionmark.circle")
+                    .font(.subheadline)
+                    .foregroundStyle(PlayerColors.accent)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 18)
 
                 Spacer(minLength: 24)
+                }
+                .frame(maxWidth: 700)
+                .frame(maxWidth: .infinity)
+                .frame(
+                    minHeight: (!hasVideo && model.recentVideos.isEmpty)
+                        ? geometry.size.height : 0
+                )
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(
                 colors: [Color(red: 16 / 255, green: 23 / 255, blue: 32 / 255), .black],
@@ -882,6 +897,14 @@ struct ContentView: View {
 
     private var topBar: some View {
         HStack(alignment: .center, spacing: 6) {
+            playerIconButton("chevron.left", label: "Back to Library") {
+                model.pause()
+                if isFullscreen { setFullscreen(false) }
+                showingLibrary = true
+                controlsVisible = false
+                hideGeneration += 1
+            }
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.fileName)
                     .font(.subheadline.weight(.semibold))
@@ -899,14 +922,6 @@ struct ContentView: View {
             Spacer(minLength: 4)
 
             HStack(spacing: 4) {
-                playerIconButton("chevron.left", label: "Library") {
-                    model.pause()
-                    if isFullscreen { setFullscreen(false) }
-                    showingLibrary = true
-                    controlsVisible = false
-                    hideGeneration += 1
-                }
-
                 if model.playlist.count > 1 {
                     playerIconButton("list.number", label: "Up Next") {
                         showPlaylistSheet = true
@@ -945,6 +960,11 @@ struct ContentView: View {
                     } label: {
                         Label("Recent…", systemImage: "clock.arrow.circlepath")
                     }
+                    Button {
+                        showHelpSheet = true
+                    } label: {
+                        Label("Player guide", systemImage: "questionmark.circle")
+                    }
                     if PictureInPictureManager.isSupported {
                         Button {
                             pipManager.toggle()
@@ -974,8 +994,8 @@ struct ContentView: View {
             }
         }
         .padding(.horizontal, 18)
-        .padding(.top, 10)
-        .padding(.bottom, 30)
+        .padding(.top, compactControls ? 4 : 10)
+        .padding(.bottom, compactControls ? 8 : 30)
         .background(
             LinearGradient(
                 colors: [.black.opacity(0.82), .clear],
@@ -989,7 +1009,7 @@ struct ContentView: View {
     // MARK: - Bottom cluster
 
     private var bottomCluster: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: compactControls ? 4 : 10) {
             HStack(spacing: 8) {
                 Text(PlayerModel.format(seconds: model.currentTime))
                     .monospacedDigit()
@@ -1258,19 +1278,21 @@ struct ContentView: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(
-                        [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0],
-                        id: \.self
-                    ) { speed in
-                        PlayerChip(
-                            label: String(format: "%g×", speed),
-                            selected: abs(model.playbackSpeed - speed) < 0.01
-                        ) {
-                            model.setPlaybackSpeed(speed)
-                            model.commitPlaybackSpeed()
-                        }
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 74), spacing: 8)],
+                spacing: 8
+            ) {
+                ForEach(
+                    [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0],
+                    id: \.self
+                ) { speed in
+                    PlayerChip(
+                        label: String(format: "%g×", speed),
+                        selected: abs(model.playbackSpeed - speed) < 0.01,
+                        stretch: true
+                    ) {
+                        model.setPlaybackSpeed(speed)
+                        model.commitPlaybackSpeed()
                     }
                 }
             }
@@ -1384,24 +1406,25 @@ struct ContentView: View {
 
             SectionLabel(text: "Preset")
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(SilencePreset.allCases) { preset in
-                        PlayerChip(
-                            label: preset.label,
-                            selected: model.currentPreset == preset
-                        ) {
-                            model.applyPreset(preset)
-                            showHUD(preset.label)
-                        }
-                    }
-                    if model.currentPreset == nil {
-                        Text("Custom")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 12)
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 110), spacing: 8)],
+                spacing: 8
+            ) {
+                ForEach(SilencePreset.allCases) { preset in
+                    PlayerChip(
+                        label: preset.label,
+                        selected: model.currentPreset == preset,
+                        stretch: true
+                    ) {
+                        model.applyPreset(preset)
+                        showHUD(preset.label)
                     }
                 }
+            }
+            if model.currentPreset == nil {
+                Text("Custom settings")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             DisclosureGroup(isExpanded: $showAdvancedSilenceSettings) {
@@ -1459,7 +1482,7 @@ struct ContentView: View {
 
     private var subtitleSheet: some View {
         SheetCard(title: "Subtitles") {
-            HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 Button {
                     showingSubtitleImporter = true
                 } label: {
@@ -1467,15 +1490,17 @@ struct ContentView: View {
                         model.externalSubtitleName ?? "Import subtitle",
                         systemImage: "captions.bubble"
                     )
-                    .lineLimit(1)
+                    .lineLimit(2)
                 }
+                .frame(minHeight: 44)
                 .buttonStyle(.bordered)
                 .tint(PlayerColors.accent)
 
                 if model.externalSubtitleName != nil {
-                    Button("Remove", role: .destructive) {
+                    Button("Remove subtitle", role: .destructive) {
                         model.clearExternalSubtitle()
                     }
+                    .frame(minHeight: 44)
                     .buttonStyle(.bordered)
                 }
             }
@@ -1543,15 +1568,17 @@ struct ContentView: View {
     
                 SectionLabel(text: "Position")
     
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(SubtitlePosition.allCases) { position in
-                            PlayerChip(
-                                label: position.label,
-                                selected: model.subtitlePosition == position
-                            ) {
-                                model.setSubtitlePosition(position)
-                            }
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 92), spacing: 8)],
+                    spacing: 8
+                ) {
+                    ForEach(SubtitlePosition.allCases) { position in
+                        PlayerChip(
+                            label: position.label,
+                            selected: model.subtitlePosition == position,
+                            stretch: true
+                        ) {
+                            model.setSubtitlePosition(position)
                         }
                     }
                 }
@@ -1713,6 +1740,7 @@ struct ContentView: View {
                 ) {
                     model.setA()
                 }
+                .frame(maxWidth: .infinity, minHeight: 44)
                 .buttonStyle(.bordered)
 
                 Button(
@@ -1720,15 +1748,16 @@ struct ContentView: View {
                 ) {
                     model.setB()
                 }
+                .frame(maxWidth: .infinity, minHeight: 44)
                 .buttonStyle(.bordered)
                 .disabled(model.abStart == nil)
-
-                Button("Clear A–B", role: .destructive) {
-                    model.clearAB()
-                }
-                .buttonStyle(.bordered)
-                .disabled(model.abStart == nil && model.abEnd == nil)
             }
+            Button("Clear A–B", role: .destructive) {
+                model.clearAB()
+            }
+            .frame(minHeight: 44)
+            .buttonStyle(.bordered)
+            .disabled(model.abStart == nil && model.abEnd == nil)
 
             SectionLabel(text: "Bookmarks")
 
@@ -1762,6 +1791,7 @@ struct ContentView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .frame(minHeight: 44)
 
                         Button {
                             model.removeBookmark(bookmark)
@@ -1770,6 +1800,7 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
                                 .frame(width: 44, height: 44)
                         }
+                        .accessibilityLabel("Remove bookmark " + bookmark.label)
                         .buttonStyle(.plain)
                         .accessibilityLabel("Remove bookmark \(bookmark.label)")
                     }
@@ -1802,7 +1833,7 @@ struct ContentView: View {
                                 .foregroundStyle(PlayerColors.accent)
                             Text(chapter.title)
                                 .foregroundStyle(.white)
-                                .lineLimit(1)
+                                .lineLimit(2)
                             Spacer()
                         }
                         .frame(minHeight: 44)
@@ -1903,7 +1934,7 @@ struct ContentView: View {
                                         ? PlayerColors.accent
                                         : .white
                                 )
-                                .lineLimit(1)
+                                .lineLimit(2)
                             Spacer()
                             if index == model.playlistIndex {
                                 Text("Now playing")
@@ -1911,10 +1942,11 @@ struct ContentView: View {
                                     .foregroundStyle(PlayerColors.accent)
                             }
                         }
-                        .padding(.vertical, 8)
+                        .frame(minHeight: 44)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityAddTraits(index == model.playlistIndex ? .isSelected : [])
                 }
             }
         }
@@ -1952,10 +1984,10 @@ struct ContentView: View {
                                 .foregroundStyle(.tertiary)
                             Text(recent.name)
                                 .foregroundStyle(.white)
-                                .lineLimit(1)
+                                .lineLimit(2)
                             Spacer()
                         }
-                        .padding(.vertical, 9)
+                        .frame(minHeight: 44)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -1967,6 +1999,30 @@ struct ContentView: View {
                 .buttonStyle(.bordered)
                 .padding(.top, 8)
             }
+        }
+    }
+
+    private var helpSheet: some View {
+        SheetCard(title: "Player guide") {
+            Text("Play local videos and skip quiet sections without sending audio to a server.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            SectionLabel(text: "Touch gestures")
+            Label("Double-tap the left or right half to seek backward or forward.", systemImage: "hand.tap")
+            Label("Swipe horizontally over the video to scrub.", systemImage: "arrow.left.and.right")
+            Label("Swipe vertically on the left for brightness or on the right for volume.", systemImage: "hand.draw")
+            Label("Pinch to zoom. Choose Lock controls under More to prevent accidental gestures.", systemImage: "lock")
+
+            SectionLabel(text: "Silence skipping")
+            Text("Balanced with Adaptive noise floor is the recommended starting point. It analyzes audio locally to find sustained quiet passages, not individual spoken words.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            SectionLabel(text: "Playback controls")
+            Text("Use Speed, Subtitles and Tools for playback rate, subtitle adjustments, bookmarks, A–B repeat and the sleep timer. On short screens these appear under More.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -2014,6 +2070,14 @@ struct ContentView: View {
         guard confirmationQueuedAfterSheetDismiss else { return }
         confirmationQueuedAfterSheetDismiss = false
         showingDestructiveConfirmation = true
+    }
+
+    private func dismissVisibleError() {
+        if importError != nil {
+            importError = nil
+        } else {
+            model.dismissPlaybackError()
+        }
     }
 
     private func playerIconButton(
@@ -2121,7 +2185,8 @@ private struct PlayerChip: View {
                 }
                 Text(label)
                     .font(.caption)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
             }
             .frame(maxWidth: stretch ? .infinity : nil, minHeight: 44)
             .padding(.horizontal, 8)
@@ -2138,6 +2203,7 @@ private struct PlayerChip: View {
             .foregroundStyle(selected ? PlayerColors.accent : .white)
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -2161,10 +2227,21 @@ private struct SeekBar: View {
     var body: some View {
         GeometryReader { geo in
             let width = max(geo.size.width, 1)
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(Color.white.opacity(0.28))
-                    .frame(height: 4)
+            Canvas { context, size in
+                // One drawing node instead of a SwiftUI view per silence range or bookmark.
+                // Long recordings can contain thousands of detected intervals.
+                let width = max(size.width, 1)
+                let centerY = size.height / 2
+                let trackHeight: CGFloat = 4
+
+                let base = CGRect(
+                    x: 0, y: centerY - trackHeight / 2,
+                    width: width, height: trackHeight
+                )
+                context.fill(
+                    Path(roundedRect: base, cornerRadius: trackHeight / 2),
+                    with: .color(.white.opacity(0.28))
+                )
 
                 if duration > 0 {
                     // A long recording may have thousands of quiet sections.
@@ -2196,28 +2273,45 @@ private struct SeekBar: View {
                     .accessibilityHidden(true)
                 }
 
-                Capsule()
-                    .fill(PlayerColors.accent)
-                    .frame(width: max(width * fraction, 4), height: 4)
+                let progress = CGRect(
+                    x: 0, y: centerY - trackHeight / 2,
+                    width: max(width * CGFloat(fraction), trackHeight),
+                    height: trackHeight
+                )
+                context.fill(
+                    Path(roundedRect: progress, cornerRadius: trackHeight / 2),
+                    with: .color(PlayerColors.accent)
+                )
 
-                ForEach(bookmarkSeconds.indices, id: \.self) { index in
-                    let marker = min(max(bookmarkSeconds[index] / max(duration, 1), 0), 1)
-                    Circle()
-                        .fill(Color.white.opacity(0.9))
-                        .frame(width: 5, height: 5)
-                        .offset(x: width * marker - 2.5)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                if duration > 0 {
+                    for seconds in bookmarkSeconds {
+                        let position = CGFloat(min(max(seconds / duration, 0), 1))
+                        let markerX = min(max(width * position, 2.5), max(width - 2.5, 2.5))
+                        context.fill(
+                            Path(ellipseIn: CGRect(
+                                x: markerX - 2.5, y: centerY - 2.5,
+                                width: 5, height: 5
+                            )),
+                            with: .color(.white.opacity(0.9))
+                        )
+                    }
                 }
 
-                Circle()
-                    .fill(PlayerColors.accent)
-                    .frame(width: 12, height: 12)
-                    .overlay(
-                        Circle().fill(Color.white)
-                            .frame(width: 4, height: 4)
-                    )
-                    .offset(x: width * fraction - 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                let thumbX = min(max(width * CGFloat(fraction), 6), max(width - 6, 6))
+                context.fill(
+                    Path(ellipseIn: CGRect(
+                        x: thumbX - 6, y: centerY - 6,
+                        width: 12, height: 12
+                    )),
+                    with: .color(PlayerColors.accent)
+                )
+                context.fill(
+                    Path(ellipseIn: CGRect(
+                        x: thumbX - 2, y: centerY - 2,
+                        width: 4, height: 4
+                    )),
+                    with: .color(.white)
+                )
             }
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
@@ -2255,6 +2349,7 @@ private struct SeekBar: View {
 }
 
 private struct SheetCard<Content: View>: View {
+    @Environment(\.dismiss) private var dismiss
     let title: String
     @ViewBuilder let content: () -> Content
 
@@ -2269,10 +2364,15 @@ private struct SheetCard<Content: View>: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                Text(title)
-                    .font(.headline)
-                    .padding(.top, 6)
-                    .padding(.bottom, 2)
+                HStack {
+                    Text(title)
+                        .font(.headline)
+                    Spacer()
+                    Button("Done") { dismiss() }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(PlayerColors.accent)
+                        .frame(minWidth: 44, minHeight: 44)
+                }
                 content()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2312,13 +2412,14 @@ private struct SelectRow: View {
                     )
                 Text(label)
                     .foregroundStyle(selected ? PlayerColors.accent : .white)
-                    .lineLimit(1)
+                    .lineLimit(2)
                 Spacer()
             }
-            .padding(.vertical, 9)
+            .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityValue(selected ? "Selected" : "Not selected")
     }
 }
 
