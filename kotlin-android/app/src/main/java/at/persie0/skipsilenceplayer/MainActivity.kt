@@ -749,7 +749,9 @@ private fun SkipSilencePlayerScreen(
     ) {
         if (entries.isEmpty()) return
         saveCurrentState()
-        showLibrary = false
+        // Background queue restoration must not pull the user out of Library.
+        // A font-scale/activity recreation can occur while the Library is open.
+        if (autoPlay) showLibrary = false
         libraryError = null
 
         val index = startIndex.coerceIn(0, entries.lastIndex)
