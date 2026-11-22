@@ -1445,6 +1445,16 @@ private fun SkipSilencePlayerScreen(
         showPreferencesSheet = false
     }
 
+    // Android Back must release the gesture lock, not leave users trapped
+    // behind an overlay or unexpectedly exit the player.
+    BackHandler(
+        enabled = gestureLocked && player.mediaItemCount > 0 &&
+            !showLibrary && !activity.pipMode
+    ) {
+        gestureLocked = false
+        controlsVisible = true
+    }
+
     BackHandler(
         enabled = player.mediaItemCount > 0 && !showLibrary && !gestureLocked &&
             !showSpeedSheet && !showSilenceSheet && !showSubtitleSheet &&
@@ -1700,11 +1710,13 @@ private fun SkipSilencePlayerScreen(
             }
         }
 
-        if (gestureLocked && !activity.pipMode) {
+        if (gestureLocked && !activity.pipMode && !showLibrary) {
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .statusBarsPadding()
                     .padding(top = 14.dp)
+                    .heightIn(min = 48.dp)
                     .background(
                         Color.Black.copy(alpha = 0.72f),
                         RoundedCornerShape(50)
@@ -1738,62 +1750,39 @@ private fun SkipSilencePlayerScreen(
         }
 
         playerError?.let { error ->
-            Column(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = 20.dp)
-                    .widthIn(max = 420.dp)
-                    .fillMaxWidth()
-                    .background(
-                        PlayerSheetColor,
-                        MaterialTheme.shapes.medium
-                    )
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    stringResource(R.string.ui_playback_error),
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    error,
-                    color = Color.White.copy(alpha = 0.85f),
-                    fontSize = 13.sp,
-                    textAlign = TextAlign.Center
-                )
-                Text(
-                    stringResource(R.string.ui_error_recovery_hint),
-                    color = Color.White.copy(alpha = 0.78f),
-                    fontSize = 13.sp,
-                    textAlign = TextAlign.Center
-                )
-                Button(
-                    onClick = {
-                        dismissedError = error
-                        playerError = null
-                        openVideos()
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                ) {
-                    Icon(Icons.Filled.FolderOpen, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.ui_open_another_video))
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    TextButton(onClick = {
-                        dismissedError = error
-                        playerError = null
-                    }) {
-                        Text(stringResource(R.string.ui_dismiss))
+            AlertDialog(
+                onDismissRequest = {
+                    dismissedError = error
+                    playerError = null
+                },
+                title = {
+                    Text(stringResource(R.string.ui_playback_error))
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(error, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            stringResource(R.string.ui_error_recovery_hint),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                dismissedError = error
+                                playerError = null
+                                openVideos()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                        ) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.ui_open_another_video))
+                        }
                     }
-                    OutlinedButton(onClick = {
+                },
+                confirmButton = {
+                    TextButton(onClick = {
                         dismissedError = null
                         playerError = null
                         player.prepare()
@@ -1801,8 +1790,16 @@ private fun SkipSilencePlayerScreen(
                     }) {
                         Text(stringResource(R.string.ui_retry))
                     }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        dismissedError = error
+                        playerError = null
+                    }) {
+                        Text(stringResource(R.string.ui_dismiss))
+                    }
                 }
-            }
+            )
         }
 
         AnimatedVisibility(
@@ -2129,6 +2126,12 @@ private fun SkipSilencePlayerScreen(
                         Switch(
                             checked = skipSilence,
                             onCheckedChange = { setSkipSilence(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = PlayerAccentDark,
+                                checkedTrackColor = PlayerAccent,
+                                uncheckedThumbColor = Color.White,
+                                uncheckedTrackColor = Color.White.copy(alpha = 0.22f)
+                            ),
                             modifier = Modifier.semantics {
                                 contentDescription = "Skip silence"
                             }
